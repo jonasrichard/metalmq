@@ -1,5 +1,5 @@
 use log::{info};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
 #[tokio::main]
@@ -26,6 +26,11 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     Ok(n) => {
                         dump(&buf[0..n]);
+                        if validate(&buf[0..n]) {
+                            if let Err(e) = write_header(&mut socket).await {
+                                eprintln!("Error sending AMQP header {:?}", e);
+                            }
+                        }
                         n
                     },
                     Err(e) => {
@@ -60,4 +65,16 @@ fn dump(b: &[u8]) {
     }
 
     info!("[input] {}", line);
+}
+
+fn validate(frame: &[u8]) -> bool {
+    let header = &[b'A', b'M', b'Q', b'P'];
+
+    &frame[0..4] != header
+}
+
+async fn write_header(socket: &mut TcpStream) -> io::Result<()> {
+    socket.write_all(&[b'A', b'M', b'Q', b'P', 0, 0, 9, 1]).await?;
+
+    Ok(())
 }
