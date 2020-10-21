@@ -1,0 +1,10 @@
+[package]
+name = "ironmq-client"
+version = "0.1.0"
+authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "0.7"
+log = "0.4"
+tokio = { version = "0.3", features = ["full"] }
