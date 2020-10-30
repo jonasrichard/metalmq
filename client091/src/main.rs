@@ -1,5 +1,6 @@
 use bytes::{BytesMut, Buf, BufMut};
 use log::{info, error};
+use std::collections::HashMap;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
@@ -8,6 +9,8 @@ struct Client {
 }
 
 type Channel = u16;
+type SimpleString = String;
+type LongString = String;
 
 #[derive(Debug)]
 enum Frame {
@@ -22,6 +25,14 @@ enum MethodClass {
 #[derive(Debug)]
 enum Method {
     Todo
+}
+
+#[derive(Debug)]
+enum Value {
+    Bool(bool),
+    Int(i32),
+    FieldTable(HashMap<SimpleString, Value>),
+    LongString(LongString)
 }
 
 async fn process_frames(mut client: Client) -> io::Result<()> {
@@ -119,6 +130,28 @@ fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
     }
 }
 
+fn parse_field_value(mut buf: &mut BytesMut) -> Value {
+    match buf.get_u8() {
+        b't' => {
+            let bool_value = buf.get_u8() != 0;
+
+            Value::Bool(bool_value)
+        },
+        b'S' => {
+            let string_value = parse_long_string(&mut buf);
+
+            Value::LongString(string_value)
+        },
+        b'F' => {
+            let table = parse_field_table(&mut buf);
+
+            Value::FieldTable(table)
+        },
+        t =>
+            panic!("Unknown type {}", t)
+    }
+}
+
 fn parse_short_string(buf: &mut BytesMut) -> String {
     let len = buf.get_u8() as usize;
     let sb = buf.split_to(len);
@@ -137,32 +170,21 @@ fn parse_long_string(buf: &mut BytesMut) -> String {
     String::from_utf8(sb.to_vec()).unwrap()
 }
 
-// TODO rename this
-fn parse_field_table(buf: &mut BytesMut) {
+fn parse_field_table(buf: &mut BytesMut) -> HashMap<String, Value> {
     let len = buf.get_u32() as usize;
     let mut sub_buf = buf.split_to(len);
+    let mut table = HashMap::new();
 
     while sub_buf.has_remaining() {
         let field_name = parse_short_string(&mut sub_buf);
         info!("Field name {}", field_name);
 
-        match sub_buf.get_u8() {
-            b't' => {
-                let bool_value = sub_buf.get_u8();
-                info!("Bool: {}", bool_value);
-                ()
-            },
-            b'S' => {
-                let string_value = parse_long_string(&mut sub_buf);
-                info!("String: {}", string_value);
-                ()
-            },
-            _ =>
-                ()
-        }
+        let field_value = parse_field_value(&mut sub_buf);
 
-        info!("Remaining {}", sub_buf.remaining());
+        table.insert(field_name, field_value);
     }
+
+    table
 }
 
 #[tokio::main]
