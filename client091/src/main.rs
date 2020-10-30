@@ -94,33 +94,13 @@ fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
     match class_id {
         0x0A => {
             let frame_len = buf.get_u32() as usize;
-            info!("Frame content len {}", frame_len);
-
             let mut sub_buf = buf.split_to(frame_len);
 
             while sub_buf.has_remaining() {
                 let table_name = parse_short_string(&mut sub_buf);
-                info!("Table name {}", table_name);
+                let value = parse_field_value(&mut sub_buf);
 
-                // TODO extract to parse value
-                match sub_buf.get_u8() {
-                    b'F' => {
-                        parse_field_table(&mut sub_buf);
-                        ()
-                    },
-                    b't' => {
-                        let bool_value = sub_buf.get_u8();
-                        info!("Bool: {}", bool_value);
-                        ()
-                    },
-                    b'S' => {
-                        let string_value = parse_long_string(&mut sub_buf);
-                        info!("String: {}", string_value);
-                        ()
-                    },
-                    _ =>
-                        ()
-                }
+                info!("Table {} = {:?}", table_name, value);
             }
 
             Some(Frame::Method(channel, MethodClass::Start, Method::Todo))
@@ -155,10 +135,6 @@ fn parse_field_value(mut buf: &mut BytesMut) -> Value {
 fn parse_short_string(buf: &mut BytesMut) -> String {
     let len = buf.get_u8() as usize;
     let sb = buf.split_to(len);
-
-    //info!("string len {}", len);
-
-    //info!("string buffer {:?}", sb);
 
     String::from_utf8(sb.to_vec()).unwrap()
 }
