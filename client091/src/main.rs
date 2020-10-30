@@ -1,3 +1,4 @@
+use bytes::{BytesMut, Buf, BufMut};
 use log::{info, error};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
@@ -24,18 +25,20 @@ enum Method {
 }
 
 async fn process_frames(mut client: Client) -> io::Result<()> {
-    let mut buf = [0u8; 1024];
+    let mut b = [0; 4096];
+    let mut buf = BytesMut::with_capacity(65536);
 
     info!("Connected to server");
 
     send_proto_header(&mut client).await?;
 
     loop {
-        match client.socket.read(&mut buf).await {
+        match client.socket.read(&mut b).await {
             Ok(n) if n == 0 =>
                 return Ok(()),
             Ok(n) => {
-                let frame = parse_frame(&buf[0..n]);
+                buf.put(&b[0..n]);
+                let frame = parse_frame(&mut buf);
                 info!("Frame is {:?}", frame);
                 ()
             },
@@ -52,39 +55,33 @@ async fn send_proto_header(client: &mut Client) -> io::Result<()> {
 }
 
 // TODO should be result with an error message
-fn parse_frame(buf: &[u8]) -> Option<Frame> {
-    match buf.get(0) {
-        Some(1) => {
+fn parse_frame(mut buf: &mut BytesMut) -> Option<Frame> {
+    match buf.get_u8() {
+        1 => {
             // check buffer length
             // why we need explicit types here?
-            let channel = parse_u16(&buf, 1);
-            let size = parse_u32(&buf, 3);
-            let end = buf[7 + size as usize];
+            let channel = buf.get_u16();
+            let size = buf.get_u32();
 
             info!("Payload size is {}", size);
-            info!("End byte should be 0xCE {:?}", end);
 
-            parse_method_frame(&buf[7..(size + 7) as usize], channel)
+            parse_method_frame(&mut buf, channel)
         },
-        Some(_) =>
-            None,
-        None =>
+        _ =>
             None
     }
 }
 
-fn parse_method_frame(buf: &[u8], channel: u16) -> Option<Frame> {
-    let class_id = parse_u16(&buf, 0);
-    let method_id = parse_u16(&buf, 2);
-    let major_version = buf[4];
-    let minor_version = buf[5];
+fn parse_method_frame(mut buf: &mut BytesMut, channel: u16) -> Option<Frame> {
+    let class_id = buf.get_u16();
+    let method_id = buf.get_u16();
+    let _major_version = buf.get_u8();
+    let _minor_version = buf.get_u8();
+    let _field_table_size = buf.get_u32();
+    let table_name = parse_simple_string(&mut buf);
 
-    let field_table_size = parse_u32(&buf, 6);
-
-    // we don't know the length of the string, so we don't know how
-    // to go on with parsing
-    // TODO use bytes or some buffer library
-    let table_name = parse_simple_string(&buf, 10);
+    info!("Method id: {}", method_id);
+    info!("Table name: {}", table_name);
 
     match class_id {
         0x0A =>
@@ -94,21 +91,25 @@ fn parse_method_frame(buf: &[u8], channel: u16) -> Option<Frame> {
     }
 }
 
-fn parse_u16(buf: &[u8], i: usize) -> u16 {
-    u16::from(buf[i]) << 8 | u16::from(buf[i+1])
+fn parse_simple_string(buf: &mut BytesMut) -> String {
+    let len = buf.get_u8() as usize;
+    let mut sb = vec![0; len];
+
+    buf.copy_to_slice(sb.as_mut_slice());
+
+    info!("{:?}", sb);
+
+    String::from_utf8(sb).unwrap()
 }
 
-fn parse_u32(buf: &[u8], i: usize) -> u32 {
-    u32::from(buf[i]) << 24 |
-        u32::from(buf[i+1]) << 16 |
-        u32::from(buf[i+2]) << 8 |
-        u32::from(buf[i+3])
-}
+fn parse_field_table(mut buf: &mut BytesMut) {
+    let len = buf.get_u32();
+    let i = 4;
 
-fn parse_simple_string(buf: &[u8], i: usize) -> &str {
-    let len = buf[i] as usize;
-
-    std::str::from_utf8(&buf[1..len]).unwrap()
+    while i < len {
+        // TODO this conversion is not good
+        let _field_name = parse_simple_string(&mut buf);
+    }
 }
 
 #[tokio::main]
