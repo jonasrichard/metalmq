@@ -72,43 +72,96 @@ fn parse_frame(mut buf: &mut BytesMut) -> Option<Frame> {
     }
 }
 
-fn parse_method_frame(mut buf: &mut BytesMut, channel: u16) -> Option<Frame> {
+fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
     let class_id = buf.get_u16();
     let method_id = buf.get_u16();
     let _major_version = buf.get_u8();
     let _minor_version = buf.get_u8();
-    let _field_table_size = buf.get_u32();
-    let table_name = parse_simple_string(&mut buf);
 
     info!("Method id: {}", method_id);
-    info!("Table name: {}", table_name);
 
     match class_id {
-        0x0A =>
-            Some(Frame::Method(channel, MethodClass::Start, Method::Todo)),
+        0x0A => {
+            let frame_len = buf.get_u32() as usize;
+            info!("Frame content len {}", frame_len);
+
+            let mut sub_buf = buf.split_to(frame_len);
+
+            while sub_buf.has_remaining() {
+                let table_name = parse_short_string(&mut sub_buf);
+                info!("Table name {}", table_name);
+
+                // TODO extract to parse value
+                match sub_buf.get_u8() {
+                    b'F' => {
+                        parse_field_table(&mut sub_buf);
+                        ()
+                    },
+                    b't' => {
+                        let bool_value = sub_buf.get_u8();
+                        info!("Bool: {}", bool_value);
+                        ()
+                    },
+                    b'S' => {
+                        let string_value = parse_long_string(&mut sub_buf);
+                        info!("String: {}", string_value);
+                        ()
+                    },
+                    _ =>
+                        ()
+                }
+            }
+
+            Some(Frame::Method(channel, MethodClass::Start, Method::Todo))
+        },
         _ =>
             None
     }
 }
 
-fn parse_simple_string(buf: &mut BytesMut) -> String {
+fn parse_short_string(buf: &mut BytesMut) -> String {
     let len = buf.get_u8() as usize;
-    let mut sb = vec![0; len];
+    let sb = buf.split_to(len);
 
-    buf.copy_to_slice(sb.as_mut_slice());
+    //info!("string len {}", len);
 
-    info!("{:?}", sb);
+    //info!("string buffer {:?}", sb);
 
-    String::from_utf8(sb).unwrap()
+    String::from_utf8(sb.to_vec()).unwrap()
 }
 
-fn parse_field_table(mut buf: &mut BytesMut) {
-    let len = buf.get_u32();
-    let i = 4;
+fn parse_long_string(buf: &mut BytesMut) -> String {
+    let len = buf.get_u32() as usize;
+    let sb = buf.split_to(len);
 
-    while i < len {
-        // TODO this conversion is not good
-        let _field_name = parse_simple_string(&mut buf);
+    String::from_utf8(sb.to_vec()).unwrap()
+}
+
+// TODO rename this
+fn parse_field_table(buf: &mut BytesMut) {
+    let len = buf.get_u32() as usize;
+    let mut sub_buf = buf.split_to(len);
+
+    while sub_buf.has_remaining() {
+        let field_name = parse_short_string(&mut sub_buf);
+        info!("Field name {}", field_name);
+
+        match sub_buf.get_u8() {
+            b't' => {
+                let bool_value = sub_buf.get_u8();
+                info!("Bool: {}", bool_value);
+                ()
+            },
+            b'S' => {
+                let string_value = parse_long_string(&mut sub_buf);
+                info!("String: {}", string_value);
+                ()
+            },
+            _ =>
+                ()
+        }
+
+        info!("Remaining {}", sub_buf.remaining());
     }
 }
 
