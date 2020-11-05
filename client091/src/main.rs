@@ -1,6 +1,8 @@
 use bytes::{BytesMut, Buf, BufMut};
+use env_logger::Builder;
 use log::{info, error};
 use std::collections::HashMap;
+use std::io::Write;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
@@ -13,18 +15,33 @@ type SimpleString = String;
 type LongString = String;
 
 #[derive(Debug)]
-enum Frame {
-    Method(Channel, MethodClass, Method)
+struct Argument {
+    name: SimpleString,
+    value: Value,
 }
 
-#[derive(Debug)]
-enum MethodClass {
-    Start
+struct Frame {
+    frame_type: u8, // ???
+    channel: Channel,
+    class: u16,  // ???
+    method: u16, // ???
+    arguments: Box<dyn Arguments>
 }
 
+trait Arguments {
+}
+
+/// Represents the Connection.Start method frame
 #[derive(Debug)]
-enum Method {
-    Todo
+struct ConnectionStart {
+    version_major: u8,
+    version_minor: u8,
+    server_properties: HashMap<SimpleString, Value>,
+    mechanisms: String,
+    locales: String
+}
+
+impl Arguments for ConnectionStart {
 }
 
 #[derive(Debug)]
@@ -44,13 +61,14 @@ async fn process_frames(mut client: Client) -> io::Result<()> {
     send_proto_header(&mut client).await?;
 
     loop {
+        // We should create the fsm of the connection here which
+        // processes the parsed frames
         match client.socket.read(&mut b).await {
             Ok(n) if n == 0 =>
                 return Ok(()),
             Ok(n) => {
                 buf.put(&b[0..n]);
-                let frame = parse_frame(&mut buf);
-                info!("Frame is {:?}", frame);
+                let _frame = parse_frame(&mut buf);
                 ()
             },
             Err(e) =>
@@ -86,8 +104,8 @@ fn parse_frame(mut buf: &mut BytesMut) -> Option<Frame> {
 fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
     let class_id = buf.get_u16();
     let method_id = buf.get_u16();
-    let _major_version = buf.get_u8();
-    let _minor_version = buf.get_u8();
+    let major_version = buf.get_u8();
+    let minor_version = buf.get_u8();
 
     info!("Method id: {}", method_id);
 
@@ -95,15 +113,30 @@ fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
         0x0A => {
             let frame_len = buf.get_u32() as usize;
             let mut sub_buf = buf.split_to(frame_len);
+            let mut props: HashMap<SimpleString, Value> = HashMap::new();
 
             while sub_buf.has_remaining() {
-                let table_name = parse_short_string(&mut sub_buf);
+                let name = parse_short_string(&mut sub_buf);
                 let value = parse_field_value(&mut sub_buf);
 
-                info!("Table {} = {:?}", table_name, value);
+                props.insert(name, value);
             }
 
-            Some(Frame::Method(channel, MethodClass::Start, Method::Todo))
+            let frame = ConnectionStart {
+                version_major: major_version,
+                version_minor: minor_version,
+                server_properties: props,
+                mechanisms: "".into(),
+                locales: "".into()
+            };
+
+            Some(Frame {
+                frame_type: 1,
+                channel: channel,
+                class: class_id,
+                method: 0x0A,
+                arguments: Box::new(frame)
+            })
         },
         _ =>
             None
@@ -165,7 +198,15 @@ fn parse_field_table(buf: &mut BytesMut) -> HashMap<String, Value> {
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    let mut builder = Builder::from_default_env();
+
+    builder
+        .format_timestamp_millis()
+        .format(|buf, record| {
+            writeln!(buf, "{} - [{}] :{} {}", buf.timestamp_millis(), record.level(),
+                record.line().unwrap_or_default(), record.args())
+        })
+        .init();
 
     match TcpStream::connect("127.0.0.1:5672").await {
         Ok(socket) => {
