@@ -6,11 +6,20 @@ use std::io::Write;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
-struct Client {
+struct ClientState {
     socket: TcpStream,
 }
 
+trait Client {
+    fn connect(&self);
+    fn basic_publish(&self, data: [u8]);
+}
+
+type FrameType = u8;
 type Channel = u16;
+type Class = u16;
+type Method = u16;
+
 type SimpleString = String;
 type LongString = String;
 
@@ -20,17 +29,16 @@ struct Argument {
     value: Value,
 }
 
-struct Frame {
-    frame_type: u8, // ???
-    channel: Channel,
-    class: u16,  // ???
-    method: u16, // ???
-    arguments: Box<dyn Arguments>
+enum ClassMethod {
+    ConnectionStart = 0x000A000A,
+    ConnectionStartOk = 0x000A000B,
 }
 
-trait Arguments {
+enum Frame {
+    MethodFrame(Channel, ClassMethod, Box<Vec<Argument>>),
 }
 
+// It would be nice to cast Vec<Argument> and these structs easily
 /// Represents the Connection.Start method frame
 #[derive(Debug)]
 struct ConnectionStart {
@@ -41,18 +49,41 @@ struct ConnectionStart {
     locales: String
 }
 
-impl Arguments for ConnectionStart {
+struct ConnectionStartOk {
+    client_properties: HashMap<SimpleString, Value>,
+    mechanism: SimpleString,
+    response: LongString,
+    locale: SimpleString
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 enum Value {
     Bool(bool),
     Int(i32),
     FieldTable(HashMap<SimpleString, Value>),
+    SimpleString(SimpleString),
     LongString(LongString)
 }
 
-async fn process_frames(mut client: Client) -> io::Result<()> {
+fn handle_frame(mut client: ClientState, frame: Frame) {
+    // match on the frame class and method
+    match frame {
+        Frame::MethodFrame(channel, class_method, args) =>
+            match class_method {
+                ClassMethod::ConnectionStart =>
+                    (),
+                    // send start-ok
+                _ =>
+                    ()
+            },
+        _ =>
+            ()
+    }
+}
+
+// TODO now we can implement the Frame enum -> [u8] conversion, so send should be easier
+
+async fn process_frames(mut client: ClientState) -> io::Result<()> {
     let mut b = [0; 4096];
     let mut buf = BytesMut::with_capacity(65536);
 
@@ -69,6 +100,30 @@ async fn process_frames(mut client: Client) -> io::Result<()> {
             Ok(n) => {
                 buf.put(&b[0..n]);
                 let _frame = parse_frame(&mut buf);
+
+                // TODO refactor of course
+                let mut auth = Vec::new();
+                auth.push(0u8);
+                auth.extend_from_slice(&[b'g', b'u', b'e', b's', b't']);
+                auth.push(0u8);
+                auth.extend_from_slice(&[b'g', b'u', b'e', b's', b't']);
+
+
+                let client_properties = HashMap::new();
+                // it seems that the hash map key, should be &str only, nothing fancy
+                //   or we need to define what can be the key of the hashmap, but probably only
+                //   simple string
+                client_properties.insert(Value::SimpleString("product".into()), Value::SimpleString("ironmq-client".into()));
+
+                let args = vec![
+                    // TODO add client properties here
+                    Argument { name: "Mechanism".into(), value: Value::LongString(String::from_utf8(auth).unwrap()) },
+                    Argument { name: "Response".into(), value: Value::SimpleString("PLAIN".into()) },
+                    Argument { name: "Locale".into(), value: Value::SimpleString("en_US".into()) }
+                ];
+
+                let response = Frame::MethodFrame(0, ClassMethod::ConnectionStartOk, Box::new(args));
+                send_frame(&mut client, response).await?;
                 ()
             },
             Err(e) =>
@@ -77,10 +132,53 @@ async fn process_frames(mut client: Client) -> io::Result<()> {
     }
 }
 
-async fn send_proto_header(client: &mut Client) -> io::Result<()> {
+async fn send_proto_header(client: &mut ClientState) -> io::Result<()> {
     client.socket.write_all(&[b'A', b'M', b'Q', b'P', 0, 0, 9, 1]).await?;
 
     Ok(())
+}
+
+async fn send_frame(client: &mut ClientState, frame: Frame) -> io::Result<()> {
+    match frame {
+        Frame::MethodFrame(channel, cm, args) => {
+            let mut frame_buf = BytesMut::with_capacity(65563);
+            frame_buf.put_u8(1);
+            frame_buf.put_u16(0);
+
+            let mut buf = BytesMut::with_capacity(65536);
+            buf.put_u16(0x0A);
+            buf.put_u16(0x0B);
+
+            let mut arg_buf = BytesMut::with_capacity(65536);
+            for arg in args.iter() {
+                write_value(&mut arg_buf, &arg.value);
+            }
+
+            buf.put_u32(arg_buf.len() as u32);
+            buf.put(arg_buf);
+
+            frame_buf.put_u32(buf.len() as u32);
+            frame_buf.put(buf);
+            frame_buf.put_u8(0xCE);
+
+            info!("{:?}", frame_buf)
+        },
+        _ =>
+            panic!("Unknown frame")
+    }
+
+    Ok(())
+}
+
+fn write_value(mut buf: &mut BytesMut, value: &Value) {
+    match value {
+        Value::SimpleString(string) => {
+            buf.put_u8(string.len() as u8);
+            buf.put(string.as_bytes());
+        },
+        _ =>
+            panic!("Unsupported type {:?}", value)
+    }
 }
 
 // TODO should be result with an error message
@@ -102,15 +200,12 @@ fn parse_frame(mut buf: &mut BytesMut) -> Option<Frame> {
 }
 
 fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
-    let class_id = buf.get_u16();
-    let method_id = buf.get_u16();
+    let class_method = buf.get_u32();
     let major_version = buf.get_u8();
     let minor_version = buf.get_u8();
 
-    info!("Method id: {}", method_id);
-
-    match class_id {
-        0x0A => {
+    match class_method {
+        0x000A000A => {
             let frame_len = buf.get_u32() as usize;
             let mut sub_buf = buf.split_to(frame_len);
             let mut props: HashMap<SimpleString, Value> = HashMap::new();
@@ -130,13 +225,9 @@ fn parse_method_frame(buf: &mut BytesMut, channel: u16) -> Option<Frame> {
                 locales: "".into()
             };
 
-            Some(Frame {
-                frame_type: 1,
-                channel: channel,
-                class: class_id,
-                method: 0x0A,
-                arguments: Box::new(frame)
-            })
+            // TODO convert struct to vec[args]
+
+            Some(Frame::MethodFrame(channel, ClassMethod::ConnectionStart, Box::new(Vec::new())))
         },
         _ =>
             None
@@ -210,7 +301,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match TcpStream::connect("127.0.0.1:5672").await {
         Ok(socket) => {
-            if let Err(e) = process_frames(Client {
+            if let Err(e) = process_frames(ClientState {
                 socket: socket,
             }).await {
                error!("Comm eror {:?}", e);
