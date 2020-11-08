@@ -56,11 +56,11 @@ struct ConnectionStartOk {
     locale: SimpleString
 }
 
-#[derive(Debug, Hash)]
+#[derive(Debug)]
 enum Value {
     Bool(bool),
     Int(i32),
-    FieldTable(HashMap<SimpleString, Value>),
+    FieldTable(HashMap<String, Value>),
     SimpleString(SimpleString),
     LongString(LongString)
 }
@@ -103,20 +103,23 @@ async fn process_frames(mut client: ClientState) -> io::Result<()> {
 
                 // TODO refactor of course
                 let mut auth = Vec::new();
-                auth.push(0u8);
-                auth.extend_from_slice(&[b'g', b'u', b'e', b's', b't']);
-                auth.push(0u8);
-                auth.extend_from_slice(&[b'g', b'u', b'e', b's', b't']);
+                auth.extend_from_slice(b"\x00guest\x00guest");
 
+                let mut capabilities = HashMap::new();
+                capabilities.insert("authentication_failure_on_close".into(), Value::Bool(true));
+                capabilities.insert("basic.nack".into(), Value::Bool(true));
+                capabilities.insert("connection.blocked".into(), Value::Bool(true));
+                capabilities.insert("consumer_cancel_notify".into(), Value::Bool(true));
+                capabilities.insert("publisher_confirms".into(), Value::Bool(true));
 
-                let client_properties = HashMap::new();
-                // it seems that the hash map key, should be &str only, nothing fancy
-                //   or we need to define what can be the key of the hashmap, but probably only
-                //   simple string
-                client_properties.insert(Value::SimpleString("product".into()), Value::SimpleString("ironmq-client".into()));
+                let mut client_properties: HashMap<String, Value> = HashMap::new();
+                client_properties.insert("product".into(), Value::SimpleString("ironmq-client".into()));
+                client_properties.insert("platform".into(), Value::SimpleString("Rust".into()));
+                client_properties.insert("capabilities".into(), Value::FieldTable(capabilities));
+                client_properties.insert("version".into(), Value::SimpleString("0.1.0".into()));
 
                 let args = vec![
-                    // TODO add client properties here
+                    Argument { name: "Client-Properties".into(), value: Value::FieldTable(client_properties) },
                     Argument { name: "Mechanism".into(), value: Value::LongString(String::from_utf8(auth).unwrap()) },
                     Argument { name: "Response".into(), value: Value::SimpleString("PLAIN".into()) },
                     Argument { name: "Locale".into(), value: Value::SimpleString("en_US".into()) }
