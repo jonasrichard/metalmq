@@ -1,3 +1,5 @@
+mod codec;
+
 use bytes::{BytesMut, Buf, BufMut};
 use env_logger::Builder;
 use log::{info, error};
@@ -5,6 +7,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
+use tokio::stream::StreamExt;
+use tokio_util::codec::{Decoder, FramedRead};
 
 struct ClientState {
     socket: TcpStream,
@@ -81,9 +85,23 @@ fn handle_frame(mut client: ClientState, frame: Frame) {
     }
 }
 
+async fn process_frames(mut client: ClientState) -> io::Result<()> {
+    let codec = codec::AMQPCodec{};
+    //let (mut sink, mut stream) = codec.framed(client.socket).split();
+    let mut stream = FramedRead::new(&mut client.socket, codec);
+
+    // TODO use sink instead
+    //send_proto_header(&mut client).await?;
+
+    while let Some(Ok(event)) = stream.next().await {
+        info!("Event is {:?}", event);
+    }
+
+    Ok(())
+}
 // TODO now we can implement the Frame enum -> [u8] conversion, so send should be easier
 
-async fn process_frames(mut client: ClientState) -> io::Result<()> {
+async fn process_frames2(mut client: ClientState) -> io::Result<()> {
     let mut b = [0; 4096];
     let mut buf = BytesMut::with_capacity(65536);
 
