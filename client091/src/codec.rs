@@ -1,13 +1,32 @@
 use bytes::{Buf, BufMut, BytesMut};
+use std::collections::HashMap;
 use tokio_util::codec::{Decoder, Encoder};
 
 #[derive(Debug)]
 pub enum AMQPFrame {
     AMQPHeader,
-    Method,
+    Method(Box<MethodFrame>),
 }
 
 pub struct AMQPCodec {
+}
+
+pub enum AMQPValue {
+    Bool(bool),
+    SimpleString(String),
+    LongString(String),
+    FieldTable(HashMap<String, AMQPValue>)
+}
+
+pub struct MethodFrame {
+    channel: u16,
+    class: u16,
+    method: u16,
+    version_major: u8,
+    version_minor: u8,
+    server_properties: HashMap<String, AMQPValue>,
+    mechanisms: String,
+    locales: String
 }
 
 impl Encoder<AMQPFrame> for AMQPCodec {
@@ -62,5 +81,6 @@ fn decode_method_frame(src: &mut BytesMut) -> AMQPFrame {
     let version_major = src.get_u8();
     let version_minor = src.get_u8();
 
-    AMQPFrame::Method
+    AMQPFrame::Method(Box::new(MethodFrame {
+    }))
 }
