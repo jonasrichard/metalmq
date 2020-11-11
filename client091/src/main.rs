@@ -5,7 +5,6 @@ use env_logger::Builder;
 use futures::SinkExt;
 use futures::stream::StreamExt;
 use log::{info, error};
-use std::collections::HashMap;
 use std::io::Write;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
@@ -28,62 +27,6 @@ type Method = u16;
 type SimpleString = String;
 type LongString = String;
 
-#[derive(Debug)]
-struct Argument {
-    name: SimpleString,
-    value: Value,
-}
-
-enum ClassMethod {
-    ConnectionStart = 0x000A000A,
-    ConnectionStartOk = 0x000A000B,
-}
-
-enum Frame {
-    MethodFrame(Channel, ClassMethod, Box<Vec<Argument>>),
-}
-
-// It would be nice to cast Vec<Argument> and these structs easily
-/// Represents the Connection.Start method frame
-#[derive(Debug)]
-struct ConnectionStart {
-    version_major: u8,
-    version_minor: u8,
-    server_properties: HashMap<SimpleString, Value>,
-    mechanisms: String,
-    locales: String
-}
-
-struct ConnectionStartOk {
-    client_properties: HashMap<SimpleString, Value>,
-    mechanism: SimpleString,
-    response: LongString,
-    locale: SimpleString
-}
-
-#[derive(Debug)]
-enum Value {
-    Bool(bool),
-    Int(i32),
-    FieldTable(HashMap<String, Value>),
-    SimpleString(SimpleString),
-    LongString(LongString)
-}
-
-fn handle_frame(client: ClientState, frame: Frame) {
-    // match on the frame class and method
-    match frame {
-        Frame::MethodFrame(_channel, class_method, _args) =>
-            match class_method {
-                ClassMethod::ConnectionStart =>
-                    (),
-                    // send start-ok
-                _ =>
-                    ()
-            }
-    }
-}
-
 async fn process_frames(mut client: ClientState) -> io::Result<()> {
     let codec = codec::AMQPCodec{};
     let (mut sink, mut stream) = Framed::new(&mut client.socket, codec).split();
@@ -97,19 +40,6 @@ async fn process_frames(mut client: ClientState) -> io::Result<()> {
     Ok(())
 }
 
-//async fn process_frames2(mut client: ClientState) -> io::Result<()> {
-//    let mut b = [0; 4096];
-//    let mut buf = BytesMut::with_capacity(65536);
-//
-//    loop {
-//        // We should create the fsm of the connection here which
-//        // processes the parsed frames
-//        match client.socket.read(&mut b).await {
-//            Ok(n) if n == 0 =>
-//                return Ok(()),
-//            Ok(n) => {
-//                buf.put(&b[0..n]);
-//                let _frame = parse_frame(&mut buf);
 //
 //                // TODO refactor of course
 //                let mut auth = Vec::new();
@@ -145,48 +75,48 @@ async fn process_frames(mut client: ClientState) -> io::Result<()> {
 //    }
 //}
 
-async fn send_frame(client: &mut ClientState, frame: Frame) -> io::Result<()> {
-    match frame {
-        Frame::MethodFrame(channel, cm, args) => {
-            let mut frame_buf = BytesMut::with_capacity(65563);
-            frame_buf.put_u8(1);
-            frame_buf.put_u16(0);
+//async fn send_frame(client: &mut ClientState, frame: Frame) -> io::Result<()> {
+//    match frame {
+//        Frame::MethodFrame(channel, cm, args) => {
+//            let mut frame_buf = BytesMut::with_capacity(65563);
+//            frame_buf.put_u8(1);
+//            frame_buf.put_u16(0);
+//
+//            let mut buf = BytesMut::with_capacity(65536);
+//            buf.put_u16(0x0A);
+//            buf.put_u16(0x0B);
+//
+//            let mut arg_buf = BytesMut::with_capacity(65536);
+//            for arg in args.iter() {
+//                write_value(&mut arg_buf, &arg.value);
+//            }
+//
+//            buf.put_u32(arg_buf.len() as u32);
+//            buf.put(arg_buf);
+//
+//            frame_buf.put_u32(buf.len() as u32);
+//            frame_buf.put(buf);
+//            frame_buf.put_u8(0xCE);
+//
+//            info!("{:?}", frame_buf)
+//        },
+//        _ =>
+//            panic!("Unknown frame")
+//    }
+//
+//    Ok(())
+//}
 
-            let mut buf = BytesMut::with_capacity(65536);
-            buf.put_u16(0x0A);
-            buf.put_u16(0x0B);
-
-            let mut arg_buf = BytesMut::with_capacity(65536);
-            for arg in args.iter() {
-                write_value(&mut arg_buf, &arg.value);
-            }
-
-            buf.put_u32(arg_buf.len() as u32);
-            buf.put(arg_buf);
-
-            frame_buf.put_u32(buf.len() as u32);
-            frame_buf.put(buf);
-            frame_buf.put_u8(0xCE);
-
-            info!("{:?}", frame_buf)
-        },
-        _ =>
-            panic!("Unknown frame")
-    }
-
-    Ok(())
-}
-
-fn write_value(buf: &mut BytesMut, value: &Value) {
-    match value {
-        Value::SimpleString(string) => {
-            buf.put_u8(string.len() as u8);
-            buf.put(string.as_bytes());
-        },
-        _ =>
-            panic!("Unsupported type {:?}", value)
-    }
-}
+//fn write_value(buf: &mut BytesMut, value: &Value) {
+//    match value {
+//        Value::SimpleString(string) => {
+//            buf.put_u8(string.len() as u8);
+//            buf.put(string.as_bytes());
+//        },
+//        _ =>
+//            panic!("Unsupported type {:?}", value)
+//    }
+//}
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -77,39 +77,15 @@ impl Decoder for AMQPCodec {
 }
 
 // TODO have an Error type here, and it should be result<>
-fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
+fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class = src.get_u16();
     let method = src.get_u16();
     let version_major = src.get_u8();
     let version_minor = src.get_u8();
 
-    let arg_len = src.get_u32() as usize;
-    let mut arg_buf = src.split_to(arg_len);
-
-    let args = decode_value_list(&mut arg_buf);
-
-    // TODO find out something more elegant
-
-    let server_properties = match args.get(0) {
-        Some(AMQPValue::FieldTable(hm)) =>
-            Some(hm),
-        _ =>
-            None
-    };
-
-    let mechanism = match args.get(1) {
-        Some(AMQPValue::SimpleString(v)) =>
-            Some(v),
-        _ =>
-            None
-    };
-
-    let locales = match args.get(2) {
-        Some(AMQPValue::SimpleString(v)) =>
-            Some(v),
-        _ =>
-            None
-    };
+    let server_properties = decode_field_table(&mut src);
+    let mechanism = decode_long_string(&mut src);
+    let locales = decode_long_string(&mut src);
 
     AMQPFrame::Method(Box::new(MethodFrame {
         channel: channel,
@@ -117,9 +93,9 @@ fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
         class: class,
         version_major: version_major,
         version_minor: version_minor,
-        server_properties: server_properties.unwrap().to_vec(),
-        mechanisms: mechanism.unwrap().to_owned(),
-        locales: locales.unwrap().to_owned()
+        server_properties: server_properties,
+        mechanisms: mechanism,
+        locales: locales
     }))
 }
 
@@ -128,6 +104,7 @@ fn decode_value_list(src: &mut BytesMut) -> Vec<AMQPValue> {
 
     while src.has_remaining() {
         let value = decode_value(src);
+        info!("Decoded value {:?}", value);
         values.push(value);
     }
 
@@ -160,6 +137,8 @@ fn decode_short_string(buf: &mut BytesMut) -> String {
     let len = buf.get_u8() as usize;
     let sb = buf.split_to(len);
 
+    dump(&sb);
+
     String::from_utf8(sb.to_vec()).unwrap()
 }
 
@@ -170,19 +149,54 @@ fn decode_long_string(buf: &mut BytesMut) -> String {
     String::from_utf8(sb.to_vec()).unwrap()
 }
 
+/// Decode a field table
+///
+/// The buffer points to the beginning of the field table which is a `u32` length
+/// information.
 fn decode_field_table(buf: &mut BytesMut) -> Vec<(String, AMQPValue)> {
-    let len = buf.get_u32() as usize;
-    let mut sub_buf = buf.split_to(len);
+    let ft_len = buf.get_u32() as usize;
+    let mut ft_buf = buf.split_to(ft_len);
     let mut table = Vec::new();
 
-    while sub_buf.has_remaining() {
-        let field_name = decode_short_string(&mut sub_buf);
-        info!("Field name {}", field_name);
+    dump(&ft_buf);
 
-        let field_value = decode_value(&mut sub_buf);
+    while ft_buf.has_remaining() {
+        let field_name = decode_short_string(&mut ft_buf);
+        let field_value = decode_value(&mut ft_buf);
+
+        info!("Field name -> value {} -> {:?}", field_name, field_value);
 
         table.push((field_name, field_value));
     }
 
     table
+}
+
+fn dump(buf: &BytesMut) {
+    let mut cloned = buf.clone();
+    let mut i: usize = 0;
+    let mut text: Vec<u8> = Vec::new();
+
+    println!("---");
+
+    while cloned.has_remaining() {
+        let b = cloned.get_u8();
+
+        print!("{:02X} ", b);
+
+        if (b as char).is_alphanumeric() {
+            text.push(b);
+        } else {
+            text.push(b'.');
+        }
+
+        i += 1;
+
+        if i % 16 == 0 {
+            println!("{}", std::str::from_utf8(&text).unwrap_or_default());
+            text.clear();
+        }
+    }
+
+    println!("---");
 }
