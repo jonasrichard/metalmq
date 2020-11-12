@@ -83,6 +83,8 @@ impl Decoder for AMQPCodec {
                     let mut frame_buf = src.split_to(frame_len);
                     let frame = decode_method_frame(&mut frame_buf, channel);
 
+                    let _frame_separator = src.get_u8();
+
                     Ok(Some(frame))
                 },
                 f =>
@@ -119,8 +121,6 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
                 panic!("Unsupported amqp type")
         }
     }
-
-    let _frame_separator_byte = src.get_u8();
 
     AMQPFrame::Method(channel, class, method, Box::new(args))
 }
@@ -229,7 +229,7 @@ fn encode_long_string(buf: &mut BytesMut, s: String) {
     buf.put(s.as_bytes());
 }
 
-fn encode_field_table(mut buf: &mut BytesMut, ft: Vec<(String, AMQPFieldValue)>) {
+fn encode_field_table(buf: &mut BytesMut, ft: Vec<(String, AMQPFieldValue)>) {
     let mut ft_buf = BytesMut::with_capacity(4096);
 
     for (name, value) in ft {
