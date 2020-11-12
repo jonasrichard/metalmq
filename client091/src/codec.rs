@@ -6,7 +6,6 @@ use tokio_util::codec::{Decoder, Encoder};
 pub struct AMQPCodec {
 }
 
-type FrameType = u8;
 type Channel = u16;
 type Class = u16;
 type Method = u16;

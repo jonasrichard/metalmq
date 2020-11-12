@@ -51,10 +51,22 @@ fn connection_start_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, 0x000A, 0x000B, Box::new(args))
 }
 
+fn connection_tune_ok(channel: u16) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::U16(2047),
+        AMQPValue::U32(131_072),
+        AMQPValue::U16(60),
+    ];
+
+    AMQPFrame::Method(channel, 0x000A, 0x001F, Box::new(args))
+}
+
 fn response_to_method_frame(channel: u16, cm: u32, args: Vec<AMQPValue>) -> Option<AMQPFrame> {
     match cm {
         frame::ConnectionStart =>
             Some(connection_start_ok(channel)),
+        frame::ConnectionTune =>
+            Some(connection_tune_ok(channel)),
         _ =>
             None
     }
