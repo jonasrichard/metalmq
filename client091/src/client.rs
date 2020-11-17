@@ -3,48 +3,39 @@ use crate::frame;
 use futures::SinkExt;
 use futures::stream::{StreamExt};
 use log::{info, error};
-use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::prelude::*;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Framed};
 
 // TODO have an own Error type
 //
-struct ConnectionState {
-    sender_channel: Arc<mpsc::Sender<AMQPFrame>>,
-    receiver_channel: Arc<mpsc::Receiver<AMQPFrame>>,
+pub struct Connection {
+    sender_channel: mpsc::Sender<AMQPFrame>,
 }
 
 struct ChannelState {
-}
-
-pub trait Connection {
-    fn open(&self, virtual_host: String);
 }
 
 pub trait Channel {
     fn basic_publish(&self, data: [u8]);
 }
 
-pub async fn connect(url: String) -> Result<Box<dyn Connection>, Box<dyn std::error::Error>> {
-    match TcpStream::connect("127.0.0.1:5672").await {
-        Ok(mut socket) => {
-            let (s, r) = mpsc::channel(16);
-
-            let sender = Arc::new(s);
-            let receiver = Arc::new(r);
-
-            let cloned_sender = sender.clone();
-            let cloned_receiver = receiver.clone();
+pub async fn connect(url: String) -> Result<Box<Connection>, Box<dyn std::error::Error>> {
+    match TcpStream::connect(url).await {
+        Ok(socket) => {
+            let (sender, receiver) = mpsc::channel(16);
+            let (handshake_tx, handshake_rx) = oneshot::channel();
 
             tokio::spawn(async move {
-                socket_loop(socket, cloned_sender, cloned_receiver)
+                if let Err(e) = socket_loop(socket, handshake_tx, receiver).await {
+                    error!("error: {:?}", e);
+                }
             });
 
-            Ok(Box::new(ConnectionState {
-                sender_channel: sender,
-                receiver_channel: receiver
+            handshake_rx.await?;
+
+            Ok(Box::new(Connection {
+                sender_channel: sender
             }))
         },
         Err(e) => {
@@ -54,44 +45,73 @@ pub async fn connect(url: String) -> Result<Box<dyn Connection>, Box<dyn std::er
     }
 }
 
-async fn socket_loop(socket: TcpStream, sender: Arc<mpsc::Sender<AMQPFrame>>, receiver: Arc<mpsc::Receiver<AMQPFrame>>) -> Result<(), Box<dyn std::error::Error>> {
+async fn socket_loop(socket: TcpStream, handshake_tx: oneshot::Sender<bool>, mut receiver: mpsc::Receiver<AMQPFrame>) -> Result<(), Box<dyn std::error::Error>> {
     let codec = AMQPCodec{};
+    info!("Setting up framed");
+
     let (mut sink, mut stream) = Framed::new(socket, codec).split();
 
-    sink.send(AMQPFrame::AMQPHeader).await?;
+    info!("Sending header...");
 
-    while let Some(Ok(event)) = stream.next().await {
-        info!("Event is {:?}", event);
+    if let Err(e) = sink.send(AMQPFrame::AMQPHeader).await {
+        error!("What {}", e);
 
-        match event {
-            AMQPFrame::Method(channel, class, method, args) =>
-                if let Some(response) = response_to_method_frame(channel, ((class as u32) << 16usize) | method as u32, args.to_vec()) {
-                    sink.send(response).await?;
-                    ()
-                },
-            _ =>
-                unimplemented!()
-        }
+        return Err(Box::new(e))
     }
 
-    Ok(())
+    loop {
+        tokio::select! {
+            result = stream.next() => {
+                match result {
+                    Some(Ok(frame)) => {
+                        if let AMQPFrame::AMQPHeader = frame {
+                            handshake_tx.send(true).await?;
+                        } else {
+                            process_frame(&mut sink, frame).await?
+                        }
+                    },
+                    _ => {
+                        panic!("Handle errors")
+                    }
+                }
+            }
+            Some(frame) = receiver.recv() => {
+                info!("Loop got msg {:?}", frame);
+                sink.send(frame).await?
+            }
+        }
+    }
+}
+
+async fn process_frame(sink: &mut futures::stream::SplitSink<tokio_util::codec::Framed<tokio::net::TcpStream, AMQPCodec>, AMQPFrame>, frame: AMQPFrame) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Event is {:?}", frame);
+    match frame {
+        AMQPFrame::Method(channel, class, method, args) => {
+            let cm = ((class as u32) << 16) | method as u32;
+            if let Some(response) = response_to_method_frame(channel, cm, args.to_vec()) {
+                sink.send(response).await?;
+            }
+            Ok(())
+        },
+        _ =>
+            panic!("Uncovered branch")
+    }
 }
 
 fn response_to_method_frame(channel: u16, cm: u32, args: Vec<AMQPValue>) -> Option<AMQPFrame> {
     match cm {
-        frame::ConnectionStart =>
+        frame::CONNECTION_START =>
             Some(connection_start_ok(channel)),
-        frame::ConnectionTune =>
+        frame::CONNECTION_TUNE =>
             Some(connection_tune_ok(channel)),
         _ =>
             None
     }
 }
 
-impl Connection for ConnectionState {
-    fn open(&self, virtual_host: String) {
-
-    }
+pub async fn open(connection: &Connection, virtual_host: String) -> Result<(), Box<dyn std::error::Error>> {
+    connection.sender_channel.send(connection_open(0u16, virtual_host)).await?;
+    Ok(())
 }
 
 fn connection_start_ok(channel: u16) -> AMQPFrame {
@@ -133,4 +153,14 @@ fn connection_tune_ok(channel: u16) -> AMQPFrame {
     ];
 
     AMQPFrame::Method(channel, 0x000A, 0x001F, Box::new(args))
+}
+
+fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::SimpleString(virtual_host),
+        AMQPValue::SimpleString("".into()),
+        AMQPValue::U8(1u8)
+    ];
+
+    AMQPFrame::Method(channel, 0x000A, 0x0028, Box::new(args))
 }

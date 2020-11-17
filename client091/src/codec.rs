@@ -49,6 +49,8 @@ impl Encoder<AMQPFrame> for AMQPCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, event: AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
+        info!("[encode] {:?}", event);
+
         match event {
             AMQPFrame::AMQPHeader =>
                 buf.put(&b"AMQP\x00\x00\x09\x01"[..]),

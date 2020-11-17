@@ -3,8 +3,8 @@ mod codec;
 mod frame;
 
 use env_logger::Builder;
+use log::{info, error};
 use std::io::Write;
-//use tokio::prelude::*;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,8 +18,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .init();
 
-    // TODO use client here
-    client::connect("127.0.0.1:5672".into());
+    match client::connect("127.0.0.1:5672".into()).await {
+        Ok(connection) => {
+            info!("Connection is opened");
+            client::open(&connection, "/".into()).await?;
+        },
+        Err(e) =>
+            error!("Error {}", e)
+    }
 
     Ok(())
 }
