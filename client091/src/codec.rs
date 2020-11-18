@@ -27,7 +27,7 @@ pub enum AMQPType {
 
 #[derive(Clone, Debug)]
 pub enum AMQPValue {
-    Bool(bool),
+//    Bool(bool),
     U8(u8),
     U16(u16),
     U32(u32),
@@ -39,7 +39,7 @@ pub enum AMQPValue {
 #[derive(Clone, Debug)]
 pub enum AMQPFieldValue {
     Bool(bool),
-    SimpleString(String),
+//    SimpleString(String),
     LongString(String),
     FieldTable(Box<Vec<(String, AMQPFieldValue)>>)
 }
@@ -209,8 +209,6 @@ fn encode_value(mut buf: &mut BytesMut, value: AMQPValue) {
             encode_long_string(&mut buf, v),
         AMQPValue::FieldTable(v) =>
             encode_field_table(&mut buf, v.to_vec()),
-        _ =>
-            panic!("Unknown type {:?}", value)
     }
 }
 
@@ -251,8 +249,6 @@ fn encode_field_table(buf: &mut BytesMut, ft: Vec<(String, AMQPFieldValue)>) {
 
                 encode_field_table(&mut ft_buf, v.to_vec());
             },
-            _ =>
-                panic!("Unsupported field value {:?}", value)
         }
     }
 
@@ -260,6 +256,7 @@ fn encode_field_table(buf: &mut BytesMut, ft: Vec<(String, AMQPFieldValue)>) {
     buf.put(ft_buf);
 }
 
+#[allow(dead_code)]
 fn dump(buf: &BytesMut) {
     let mut cloned = buf.clone();
     let mut i: usize = 0;

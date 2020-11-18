@@ -10,7 +10,6 @@ use tokio_util::codec::{Framed};
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 struct Request {
-    id: u32,
     frame: AMQPFrame,
     feedback: Option<oneshot::Sender<AMQPFrame>>
 }
@@ -57,7 +56,6 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     Some(Ok(frame)) => {
                         if frame::from_server(&frame) {
                             match frame {
-                                // if it is connection open ok, give a feedback
                                 AMQPFrame::Method(_, _, _) => {
                                     if let Some((_id, feedback)) = requests.pop() {
                                         if let Some(channel) = feedback {
@@ -76,12 +74,13 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                             }
                         }
                     },
-                    x => {
-                        panic!("Handle errors {:?}", x)
-                    }
+                    Some(Err(e)) =>
+                        panic!("Handle errors {:?}", e),
+                    None =>
+                        ()
                 }
             }
-            Some(Request{id: _, frame, feedback}) = receiver.recv() => {
+            Some(Request{frame, feedback}) = receiver.recv() => {
                 info!("Loop got msg {:?}", frame);
 
                 sink.send(frame).await?;
@@ -122,7 +121,6 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
 
     let (tx, rx) = oneshot::channel();
     let req = Request {
-        id: 1,
         frame: AMQPFrame::AMQPHeader,
         feedback: Some(tx)
     };
@@ -132,7 +130,6 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
 
     let (tx, rx) = oneshot::channel();
     let req = Request {
-        id: 1,
         frame: connection_start_ok(0u16),
         feedback: Some(tx)
     };
@@ -142,7 +139,6 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     rx.await;
 
     let req = Request {
-        id: 1,
         frame: connection_tune_ok(0u16),
         feedback: None
     };
@@ -155,7 +151,6 @@ pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
     let frame = connection_open(0u16, virtual_host);
     let (tx, rx) = oneshot::channel();
     let req = Request {
-        id: 1,
         frame: frame,
         feedback: Some(tx)
     };
@@ -170,7 +165,6 @@ pub async fn close(connection: &Connection) -> Result<()> {
     let frame = connection_close(0u16);
     let (tx, rx) = oneshot::channel();
     let req = Request {
-        id: 2,
         frame: frame,
         feedback: Some(tx)
     };
