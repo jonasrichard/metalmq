@@ -26,6 +26,7 @@ pub async fn main() -> Result<()> {
         Ok(connection) => {
             info!("Connection is opened");
             client::open(&connection, "/".into()).await?;
+            client::close(&connection).await?
         },
         Err(e) =>
             error!("Error {}", e)

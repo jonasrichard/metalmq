@@ -7,14 +7,12 @@ pub struct AMQPCodec {
 }
 
 type Channel = u16;
-type Class = u16;
-type Method = u16;
+type ClassMethod = u32;
 
 #[derive(Debug)]
 pub enum AMQPFrame {
     AMQPHeader,
-    // TODO unify the class and method fields
-    Method(Channel, Class, Method, Box<Vec<AMQPValue>>),
+    Method(Channel, ClassMethod, Box<Vec<AMQPValue>>),
 }
 
 #[derive(Debug)]
@@ -56,8 +54,8 @@ impl Encoder<AMQPFrame> for AMQPCodec {
             AMQPFrame::AMQPHeader =>
                 buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
 
-            AMQPFrame::Method(channel, class, method, args) => {
-                encode_method_frame(&mut buf, channel, class, method, args.to_vec())
+            AMQPFrame::Method(channel, class_method, args) => {
+                encode_method_frame(&mut buf, channel, class_method, args.to_vec())
             }
         }
         Ok(())
@@ -98,10 +96,9 @@ impl Decoder for AMQPCodec {
 
 // TODO have an Error type here, and it should be result<>
 fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
-    let class = src.get_u16();
-    let method = src.get_u16();
+    let class_method = src.get_u32();
 
-    let args_type_list = get_method_frame_args_list(class, method);
+    let args_type_list = get_method_frame_args_list(class_method);
 
     let mut args = Vec::<AMQPValue>::new();
 
@@ -119,12 +116,10 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
                 args.push(AMQPValue::LongString(decode_long_string(&mut src))),
             AMQPType::FieldTable =>
                 args.push(AMQPValue::FieldTable(Box::new(decode_field_table(&mut src)))),
-            _ =>
-                panic!("Unsupported amqp type")
         }
     }
 
-    AMQPFrame::Method(channel, class, method, Box::new(args))
+    AMQPFrame::Method(channel, class_method, Box::new(args))
 }
 
 fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
@@ -184,13 +179,12 @@ fn decode_field_table(buf: &mut BytesMut) -> Vec<(String, AMQPFieldValue)> {
     table
 }
 
-fn encode_method_frame(buf: &mut BytesMut, channel: u16, class: u16, method: u16, args: Vec<AMQPValue>) {
+fn encode_method_frame(buf: &mut BytesMut, channel: u16, class_method: u32, args: Vec<AMQPValue>) {
     buf.put_u8(1u8);
     buf.put_u16(channel);
 
     let mut fr_buf = BytesMut::with_capacity(4096);
-    fr_buf.put_u16(class);
-    fr_buf.put_u16(method);
+    fr_buf.put_u32(class_method);
 
     for arg in args {
         encode_value(&mut fr_buf, arg);

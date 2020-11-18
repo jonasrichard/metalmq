@@ -23,20 +23,16 @@ pub trait Channel {
     fn basic_publish(&self, data: [u8]);
 }
 
-pub async fn connect(url: String) -> Result<Box<Connection>> {
+async fn create_connection(url: String) -> Result<Box<Connection>> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
             let (sender, receiver) = mpsc::channel(16);
-            let (handshake_tx, mut handshake_rx) = mpsc::channel(1);
 
             tokio::spawn(async move {
-                if let Err(e) = socket_loop(socket, handshake_tx, receiver).await {
+                if let Err(e) = socket_loop(socket, receiver).await {
                     error!("error: {:?}", e);
                 }
             });
-
-            info!("Waiting for the handshake...");
-            handshake_rx.recv().await;
 
             Ok(Box::new(Connection {
                 sender_channel: sender
@@ -49,13 +45,10 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     }
 }
 
-async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
-    let codec = AMQPCodec{};
-    let (mut sink, mut stream) = Framed::new(socket, codec).split();
+async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
+    let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
     let mut requests = Vec::<(u32, Option<oneshot::Sender<AMQPFrame>>)>::new();
     let mut request_id = 0u32;
-
-    sink.send(AMQPFrame::AMQPHeader).await?;
 
     loop {
         tokio::select! {
@@ -65,7 +58,7 @@ async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut re
                         if frame::from_server(&frame) {
                             match frame {
                                 // if it is connection open ok, give a feedback
-                                AMQPFrame::Method(_, 0x000A, 0x0029, _) => {
+                                AMQPFrame::Method(_, _, _) => {
                                     if let Some((_id, feedback)) = requests.pop() {
                                         if let Some(channel) = feedback {
                                             // TODO check result
@@ -79,13 +72,6 @@ async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut re
                             }
                         } else {
                             if let Some(response) = process_frame(frame) {
-                                match response {
-                                    AMQPFrame::Method(_, 0x000A, 0x001F, _) =>
-                                        handshake_tx.send(true).await?,
-                                    _ =>
-                                        ()
-                                }
-
                                 sink.send(response).await?
                             }
                         }
@@ -95,13 +81,15 @@ async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut re
                     }
                 }
             }
-            Some(Request{id: id, frame: frame, feedback: feedback}) = receiver.recv() => {
+            Some(Request{id: _, frame, feedback}) = receiver.recv() => {
                 info!("Loop got msg {:?}", frame);
 
                 sink.send(frame).await?;
 
-                requests.push((request_id, feedback));
-                request_id += 1;
+                if let Some(_) = feedback {
+                    requests.push((request_id, feedback));
+                    request_id += 1;
+                }
             }
         }
     }
@@ -110,16 +98,15 @@ async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut re
 // sink: &mut futures::stream::SplitSink<tokio_util::codec::Framed<tokio::net::TcpStream, AMQPCodec>, AMQPFrame>
 fn process_frame(frame: AMQPFrame) -> Option<AMQPFrame> {
     match frame {
-        AMQPFrame::Method(channel, class, method, args) => {
-            let cm = ((class as u32) << 16) | method as u32;
-            response_to_method_frame(channel, cm, args.to_vec())
+        AMQPFrame::Method(channel, class_method, args) => {
+            response_to_method_frame(channel, class_method, args.to_vec())
         },
         _ =>
             panic!("Uncovered branch")
     }
 }
 
-fn response_to_method_frame(channel: u16, cm: u32, args: Vec<AMQPValue>) -> Option<AMQPFrame> {
+fn response_to_method_frame(channel: u16, cm: u32, _args: Vec<AMQPValue>) -> Option<AMQPFrame> {
     match cm {
         frame::CONNECTION_START =>
             Some(connection_start_ok(channel)),
@@ -130,11 +117,60 @@ fn response_to_method_frame(channel: u16, cm: u32, args: Vec<AMQPValue>) -> Opti
     }
 }
 
+pub async fn connect(url: String) -> Result<Box<Connection>> {
+    let connection = create_connection(url).await?;
+
+    let (tx, rx) = oneshot::channel();
+    let req = Request {
+        id: 1,
+        frame: AMQPFrame::AMQPHeader,
+        feedback: Some(tx)
+    };
+
+    connection.sender_channel.send(req).await;
+    rx.await;
+
+    let (tx, rx) = oneshot::channel();
+    let req = Request {
+        id: 1,
+        frame: connection_start_ok(0u16),
+        feedback: Some(tx)
+    };
+
+    connection.sender_channel.send(req).await;
+    // wait for the connection tune
+    rx.await;
+
+    let req = Request {
+        id: 1,
+        frame: connection_tune_ok(0u16),
+        feedback: None
+    };
+    connection.sender_channel.send(req).await;
+
+    Ok(connection)
+}
+
 pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
     let frame = connection_open(0u16, virtual_host);
     let (tx, rx) = oneshot::channel();
     let req = Request {
         id: 1,
+        frame: frame,
+        feedback: Some(tx)
+    };
+
+    connection.sender_channel.send(req).await;
+    rx.await;
+
+    Ok(())
+}
+
+pub async fn close(connection: &Connection) -> Result<()> {
+    let frame = connection_close(0u16);
+    let (tx, rx) = oneshot::channel();
+    let req = Request {
+        id: 2,
         frame: frame,
         feedback: Some(tx)
     };
@@ -173,7 +209,7 @@ fn connection_start_ok(channel: u16) -> AMQPFrame {
         AMQPValue::SimpleString("en_US".into()),
     ];
 
-    AMQPFrame::Method(channel, 0x000A, 0x000B, Box::new(args))
+    AMQPFrame::Method(channel, frame::CONNECTION_START_OK, Box::new(args))
 }
 
 fn connection_tune_ok(channel: u16) -> AMQPFrame {
@@ -183,7 +219,7 @@ fn connection_tune_ok(channel: u16) -> AMQPFrame {
         AMQPValue::U16(60),
     ];
 
-    AMQPFrame::Method(channel, 0x000A, 0x001F, Box::new(args))
+    AMQPFrame::Method(channel, frame::CONNECTION_TUNE_OK, Box::new(args))
 }
 
 fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
@@ -193,5 +229,16 @@ fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
         AMQPValue::U8(1u8)
     ];
 
-    AMQPFrame::Method(channel, 0x000A, 0x0028, Box::new(args))
+    AMQPFrame::Method(channel, frame::CONNECTION_OPEN, Box::new(args))
+}
+
+fn connection_close(channel: u16) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::U16(200),
+        AMQPValue::SimpleString("Normal shutdown".into()),
+        AMQPValue::U16(0),
+        AMQPValue::U16(0)
+    ];
+
+    AMQPFrame::Method(channel, frame::CONNECTION_CLOSE, Box::new(args))
 }
