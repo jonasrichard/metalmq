@@ -5,14 +5,18 @@ use futures::SinkExt;
 use futures::stream::{StreamExt};
 use log::{info, error};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Framed};
 
-pub struct Connection {
-    sender_channel: mpsc::Sender<AMQPFrame>,
+/// Represents a client request, typically send a frame and wait for the answer of the server.
+struct Request {
+    id: u32,
+    frame: AMQPFrame,
+    feedback: Option<oneshot::Sender<AMQPFrame>>
 }
 
-struct ChannelState {
+pub struct Connection {
+    sender_channel: mpsc::Sender<Request>,
 }
 
 pub trait Channel {
@@ -45,34 +49,45 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     }
 }
 
-async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut receiver: mpsc::Receiver<AMQPFrame>) -> Result<()> {
+async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
     let codec = AMQPCodec{};
     let (mut sink, mut stream) = Framed::new(socket, codec).split();
+    let mut requests = Vec::<(u32, Option<oneshot::Sender<AMQPFrame>>)>::new();
+    let mut request_id = 0u32;
 
-    if let Err(e) = sink.send(AMQPFrame::AMQPHeader).await {
-        error!("What {}", e);
-
-        return Err(Box::new(e))
-    }
+    sink.send(AMQPFrame::AMQPHeader).await?;
 
     loop {
         tokio::select! {
             result = stream.next() => {
                 match result {
                     Some(Ok(frame)) => {
-                        if let AMQPFrame::Method(_, class, method, _) = frame {
-                            info!("Incoming frame {:04X}, {:04X}", class, method);
-                        }
-
-                        if let Some(response) = process_frame(frame) {
-                            match response {
-                                AMQPFrame::Method(_, 0x000A, 0x001F, _) =>
-                                    handshake_tx.send(true).await?,
+                        if frame::from_server(&frame) {
+                            match frame {
+                                // if it is connection open ok, give a feedback
+                                AMQPFrame::Method(_, 0x000A, 0x0029, _) => {
+                                    if let Some((_id, feedback)) = requests.pop() {
+                                        if let Some(channel) = feedback {
+                                            // TODO check result
+                                            channel.send(frame);
+                                            ()
+                                        }
+                                    }
+                                },
                                 _ =>
                                     ()
                             }
+                        } else {
+                            if let Some(response) = process_frame(frame) {
+                                match response {
+                                    AMQPFrame::Method(_, 0x000A, 0x001F, _) =>
+                                        handshake_tx.send(true).await?,
+                                    _ =>
+                                        ()
+                                }
 
-                            sink.send(response).await?
+                                sink.send(response).await?
+                            }
                         }
                     },
                     x => {
@@ -80,10 +95,13 @@ async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut re
                     }
                 }
             }
-            Some(frame) = receiver.recv() => {
+            Some(Request{id: id, frame: frame, feedback: feedback}) = receiver.recv() => {
                 info!("Loop got msg {:?}", frame);
 
-                sink.send(frame).await?
+                sink.send(frame).await?;
+
+                requests.push((request_id, feedback));
+                request_id += 1;
             }
         }
     }
@@ -113,7 +131,17 @@ fn response_to_method_frame(channel: u16, cm: u32, args: Vec<AMQPValue>) -> Opti
 }
 
 pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
-    connection.sender_channel.send(connection_open(0u16, virtual_host)).await?;
+    let frame = connection_open(0u16, virtual_host);
+    let (tx, rx) = oneshot::channel();
+    let req = Request {
+        id: 1,
+        frame: frame,
+        feedback: Some(tx)
+    };
+
+    connection.sender_channel.send(req).await;
+    rx.await;
+
     Ok(())
 }
 

@@ -13,6 +13,7 @@ type Method = u16;
 #[derive(Debug)]
 pub enum AMQPFrame {
     AMQPHeader,
+    // TODO unify the class and method fields
     Method(Channel, Class, Method, Box<Vec<AMQPValue>>),
 }
 
