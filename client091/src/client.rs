@@ -175,6 +175,20 @@ pub async fn close(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
+    let frame = AMQPFrame::Method(channel, frame::CHANNEL_OPEN, Box::new(vec![AMQPValue::SimpleString("".into())]));
+    let (tx, rx) = oneshot::channel();
+    let req = Request {
+        frame: frame,
+        feedback: Some(tx)
+    };
+
+    connection.sender_channel.send(req).await;
+    rx.await;
+
+    Ok(())
+}
+
 fn connection_start_ok(channel: u16) -> AMQPFrame {
     let mut capabilities = Vec::<(String, AMQPFieldValue)>::new();
 

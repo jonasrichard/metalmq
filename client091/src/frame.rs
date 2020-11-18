@@ -9,6 +9,19 @@ pub const CONNECTION_OPEN_OK: u32 = 0x000A0029;
 pub const CONNECTION_CLOSE: u32 = 0x000A0032;
 pub const CONNECTION_CLOSE_OK: u32 = 0x000A0033;
 
+pub const CHANNEL_OPEN: u32 = 0x0014000A;
+pub const CHANNEL_OPEN_OK: u32 = 0x0014000B;
+
+lazy_static! {
+    static ref FROM_SERVER: Vec<u32> = vec![
+        CONNECTION_START,
+        CONNECTION_TUNE,
+        CONNECTION_OPEN_OK,
+        CONNECTION_CLOSE_OK,
+        CHANNEL_OPEN_OK
+    ];
+}
+
 // Implement enum or lookup table to avoid vec! allocations
 pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
     match class_method {
@@ -22,22 +35,17 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
             vec![AMQPType::SimpleString],
         CONNECTION_CLOSE_OK =>
             vec![],
+        CHANNEL_OPEN_OK =>
+            vec![AMQPType::LongString],
         mc =>
             panic!("Unsupported class+method {:08X}", mc)
     }
 }
-
+/// Check if frame comes from the server, so the client needs to send feedback
 pub fn from_server(frame: &AMQPFrame) -> bool {
     match frame {
         AMQPFrame::Method(_, class_method, _) =>
-            if *class_method == CONNECTION_START ||
-                    *class_method == CONNECTION_TUNE ||
-                    *class_method == CONNECTION_OPEN_OK ||
-                    *class_method == CONNECTION_CLOSE_OK {
-                true
-            } else {
-                false
-            },
+            FROM_SERVER.contains(&class_method),
         _ =>
             false
     }

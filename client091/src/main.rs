@@ -2,6 +2,9 @@ mod client;
 mod codec;
 mod frame;
 
+#[macro_use]
+extern crate lazy_static;
+
 use env_logger::Builder;
 use log::{info, error};
 use std::io::Write;
@@ -26,6 +29,9 @@ pub async fn main() -> Result<()> {
         Ok(connection) => {
             info!("Connection is opened");
             client::open(&connection, "/".into()).await?;
+
+            client::channel_open(&connection, 1).await?;
+
             client::close(&connection).await?
         },
         Err(e) =>
