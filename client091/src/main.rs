@@ -6,15 +6,19 @@ use env_logger::Builder;
 use log::{info, error};
 use std::io::Write;
 
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main() -> Result<()> {
     let mut builder = Builder::from_default_env();
 
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
-            writeln!(buf, "{} - [{}] :{} {}", buf.timestamp_millis(), record.level(),
-                record.line().unwrap_or_default(), record.args())
+            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(),
+                record.file().unwrap_or_default(), record.line().unwrap_or_default(), record.args())
         })
         .init();
 

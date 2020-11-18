@@ -3,6 +3,7 @@ use crate::codec::{AMQPType};
 pub const CONNECTION_START: u32 = 0x000A000A;
 pub const CONNECTION_START_OK: u32 = 0x000A000B;
 pub const CONNECTION_TUNE: u32 = 0x000A001E;
+pub const CONNECTION_TUNE_OK: u32 = 0x000A001F;
 
 // Implement enum or lookup table to avoid vec! allocations
 pub fn get_method_frame_args_list(class: u16, method: u16) -> Vec<AMQPType> {

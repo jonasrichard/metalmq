@@ -1,14 +1,13 @@
 use crate::codec::{AMQPCodec, AMQPFieldValue, AMQPFrame, AMQPValue};
 use crate::frame;
+use crate::Result;
 use futures::SinkExt;
 use futures::stream::{StreamExt};
 use log::{info, error};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio_util::codec::{Framed};
 
-// TODO have an own Error type
-//
 pub struct Connection {
     sender_channel: mpsc::Sender<AMQPFrame>,
 }
@@ -20,11 +19,11 @@ pub trait Channel {
     fn basic_publish(&self, data: [u8]);
 }
 
-pub async fn connect(url: String) -> Result<Box<Connection>, Box<dyn std::error::Error>> {
+pub async fn connect(url: String) -> Result<Box<Connection>> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
             let (sender, receiver) = mpsc::channel(16);
-            let (handshake_tx, handshake_rx) = oneshot::channel();
+            let (handshake_tx, mut handshake_rx) = mpsc::channel(1);
 
             tokio::spawn(async move {
                 if let Err(e) = socket_loop(socket, handshake_tx, receiver).await {
@@ -32,7 +31,8 @@ pub async fn connect(url: String) -> Result<Box<Connection>, Box<dyn std::error:
                 }
             });
 
-            handshake_rx.await?;
+            info!("Waiting for the handshake...");
+            handshake_rx.recv().await;
 
             Ok(Box::new(Connection {
                 sender_channel: sender
@@ -45,13 +45,9 @@ pub async fn connect(url: String) -> Result<Box<Connection>, Box<dyn std::error:
     }
 }
 
-async fn socket_loop(socket: TcpStream, handshake_tx: oneshot::Sender<bool>, mut receiver: mpsc::Receiver<AMQPFrame>) -> Result<(), Box<dyn std::error::Error>> {
+async fn socket_loop(socket: TcpStream, handshake_tx: mpsc::Sender<bool>, mut receiver: mpsc::Receiver<AMQPFrame>) -> Result<()> {
     let codec = AMQPCodec{};
-    info!("Setting up framed");
-
     let (mut sink, mut stream) = Framed::new(socket, codec).split();
-
-    info!("Sending header...");
 
     if let Err(e) = sink.send(AMQPFrame::AMQPHeader).await {
         error!("What {}", e);
@@ -64,34 +60,41 @@ async fn socket_loop(socket: TcpStream, handshake_tx: oneshot::Sender<bool>, mut
             result = stream.next() => {
                 match result {
                     Some(Ok(frame)) => {
-                        if let AMQPFrame::AMQPHeader = frame {
-                            handshake_tx.send(true).await?;
-                        } else {
-                            process_frame(&mut sink, frame).await?
+                        if let AMQPFrame::Method(_, class, method, _) = frame {
+                            info!("Incoming frame {:04X}, {:04X}", class, method);
+                        }
+
+                        if let Some(response) = process_frame(frame) {
+                            match response {
+                                AMQPFrame::Method(_, 0x000A, 0x001F, _) =>
+                                    handshake_tx.send(true).await?,
+                                _ =>
+                                    ()
+                            }
+
+                            sink.send(response).await?
                         }
                     },
-                    _ => {
-                        panic!("Handle errors")
+                    x => {
+                        panic!("Handle errors {:?}", x)
                     }
                 }
             }
             Some(frame) = receiver.recv() => {
                 info!("Loop got msg {:?}", frame);
+
                 sink.send(frame).await?
             }
         }
     }
 }
 
-async fn process_frame(sink: &mut futures::stream::SplitSink<tokio_util::codec::Framed<tokio::net::TcpStream, AMQPCodec>, AMQPFrame>, frame: AMQPFrame) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Event is {:?}", frame);
+// sink: &mut futures::stream::SplitSink<tokio_util::codec::Framed<tokio::net::TcpStream, AMQPCodec>, AMQPFrame>
+fn process_frame(frame: AMQPFrame) -> Option<AMQPFrame> {
     match frame {
         AMQPFrame::Method(channel, class, method, args) => {
             let cm = ((class as u32) << 16) | method as u32;
-            if let Some(response) = response_to_method_frame(channel, cm, args.to_vec()) {
-                sink.send(response).await?;
-            }
-            Ok(())
+            response_to_method_frame(channel, cm, args.to_vec())
         },
         _ =>
             panic!("Uncovered branch")
@@ -109,7 +112,7 @@ fn response_to_method_frame(channel: u16, cm: u32, args: Vec<AMQPValue>) -> Opti
     }
 }
 
-pub async fn open(connection: &Connection, virtual_host: String) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
     connection.sender_channel.send(connection_open(0u16, virtual_host)).await?;
     Ok(())
 }

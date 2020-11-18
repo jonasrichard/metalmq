@@ -175,7 +175,7 @@ fn decode_field_table(buf: &mut BytesMut) -> Vec<(String, AMQPFieldValue)> {
         let field_name = decode_short_string(&mut ft_buf);
         let field_value = decode_value(&mut ft_buf);
 
-        info!("Field name -> value {} -> {:?}", field_name, field_value);
+        //info!("Field name -> value {} -> {:?}", field_name, field_value);
 
         table.push((field_name, field_value));
     }
