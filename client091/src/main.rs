@@ -31,6 +31,9 @@ pub async fn main() -> Result<()> {
             client::open(&connection, "/".into()).await?;
 
             client::channel_open(&connection, 1).await?;
+            client::exchange_declare(&connection, 1, "test", "fanout").await?;
+
+            client::basic_publish(&connection, 1, "test".into(), "no-key".into(), "Hello, world".into()).await?;
 
             client::close(&connection).await?
         },

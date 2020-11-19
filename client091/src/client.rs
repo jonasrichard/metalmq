@@ -116,6 +116,13 @@ fn response_to_method_frame(channel: u16, cm: u32, _args: Vec<AMQPValue>) -> Opt
     }
 }
 
+/// Connect to an AMQP server.
+///
+/// This is async code and wait for the Connection.Tune-Ok message.
+///
+/// ```no_run
+/// let conn = client::connect("127.0.0.1:5672").await?;
+/// ```
 pub async fn connect(url: String) -> Result<Box<Connection>> {
     let connection = create_connection(url).await?;
 
@@ -185,6 +192,41 @@ pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
 
     connection.sender_channel.send(req).await;
     rx.await;
+
+    Ok(())
+}
+
+pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_name: &str, exchange_type: &str) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+    let req = Request {
+        frame: frame::exchange_declare(channel, exchange_name.into(), exchange_type.into()),
+        feedback: Some(tx)
+    };
+
+    connection.sender_channel.send(req).await;
+    rx.await;
+
+    Ok(())
+}
+
+pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: String,
+                           routing_key: String, payload: String) -> Result<()> {
+    let bytes = payload.as_bytes();
+
+    connection.sender_channel.send(Request {
+        frame: frame::basic_publish(channel, exchange_name, routing_key),
+        feedback: None
+    }).await;
+
+    connection.sender_channel.send(Request {
+        frame: frame::content_header(channel, bytes.len() as u64),
+        feedback: None
+    }).await;
+
+    connection.sender_channel.send(Request {
+        frame: frame::content_body(channel, bytes),
+        feedback: None
+    }).await;
 
     Ok(())
 }

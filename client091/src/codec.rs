@@ -8,11 +8,17 @@ pub struct AMQPCodec {
 
 type Channel = u16;
 type ClassMethod = u32;
+type ClassId = u16;
+type Weight = u16;
+type BodySize = u64;
+type PropFlags = u16;
 
 #[derive(Debug)]
 pub enum AMQPFrame {
     AMQPHeader,
     Method(Channel, ClassMethod, Box<Vec<AMQPValue>>),
+    ContentHeader(Channel, ClassId, Weight, BodySize, PropFlags, Box<Vec<AMQPValue>>),
+    ContentBody(Channel, Box<Vec<u8>>)
 }
 
 #[derive(Debug)]
@@ -56,7 +62,14 @@ impl Encoder<AMQPFrame> for AMQPCodec {
 
             AMQPFrame::Method(channel, class_method, args) => {
                 encode_method_frame(&mut buf, channel, class_method, args.to_vec())
-            }
+            },
+
+            AMQPFrame::ContentHeader(channel, class_id, weight, body_size, property_flags, properties) =>
+                encode_content_header_frame(&mut buf, channel, class_id, weight, body_size,
+                                            property_flags, properties.to_vec()),
+
+            AMQPFrame::ContentBody(channel, payload) =>
+                encode_content_body_frame(&mut buf, channel, payload.to_vec())
         }
         Ok(())
     }
@@ -82,6 +95,22 @@ impl Decoder for AMQPCodec {
 
                     let mut frame_buf = src.split_to(frame_len);
                     let frame = decode_method_frame(&mut frame_buf, channel);
+
+                    let _frame_separator = src.get_u8();
+
+                    Ok(Some(frame))
+                },
+                2 => {
+                    let channel = src.get_u16();
+                    let frame_len = src.get_u32() as usize;
+
+                    // We don't have the full frame in the buffer
+                    if src.len() < frame_len {
+                        return Ok(None)
+                    }
+
+                    let mut frame_buf = src.split_to(frame_len);
+                    let frame = decode_content_header_frame(&mut frame_buf, channel);
 
                     let _frame_separator = src.get_u8();
 
@@ -120,6 +149,18 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     }
 
     AMQPFrame::Method(channel, class_method, Box::new(args))
+}
+
+fn decode_content_header_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
+    dump(&src);
+
+    let class_id = src.get_u16();
+    let weight = src.get_u16();
+    let body_size = src.get_u64();
+    let property_flags = src.get_u16();
+    // TODO property list, it seems that we need to know from the class_id what is the type list
+
+    AMQPFrame::ContentHeader(channel, class_id, weight, body_size, property_flags, Box::new(vec![]))
 }
 
 fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
@@ -189,6 +230,36 @@ fn encode_method_frame(buf: &mut BytesMut, channel: u16, class_method: u32, args
     for arg in args {
         encode_value(&mut fr_buf, arg);
     }
+
+    buf.put_u32(fr_buf.len() as u32);
+    buf.put(fr_buf);
+    buf.put_u8(0xCE);
+}
+
+fn encode_content_header_frame(buf: &mut BytesMut, channel: Channel, class_id: ClassId, weight: Weight,
+                               body_size: BodySize, property_flags: PropFlags, properties: Vec<AMQPValue>) {
+    buf.put_u8(2u8);
+    buf.put_u16(channel);
+
+    let mut fr_buf = BytesMut::with_capacity(4096);
+    fr_buf.put_u16(class_id);
+    fr_buf.put_u16(weight);
+    fr_buf.put_u64(body_size);
+    fr_buf.put_u16(property_flags);
+
+    // TODO encode property list here
+
+    buf.put_u32(fr_buf.len() as u32);
+    buf.put(fr_buf);
+    buf.put_u8(0xCE);
+}
+
+fn encode_content_body_frame(buf: &mut BytesMut, channel: Channel, payload: Vec<u8>) {
+    buf.put_u8(3u8);
+    buf.put_u16(channel);
+
+    let mut fr_buf = BytesMut::with_capacity(payload.len());
+    fr_buf.put(payload.as_slice());
 
     buf.put_u32(fr_buf.len() as u32);
     buf.put(fr_buf);
