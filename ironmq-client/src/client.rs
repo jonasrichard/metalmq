@@ -1,12 +1,12 @@
-use ironmq_codec::codec::{AMQPCodec, AMQPFieldValue, AMQPFrame, AMQPValue};
-use ironmq_codec::frame;
 use crate::Result;
 use futures::SinkExt;
-use futures::stream::{StreamExt};
+use futures::stream::StreamExt;
+use ironmq_codec::codec::{AMQPCodec, AMQPFrame, AMQPValue};
+use ironmq_codec::frame;
 use log::{info, error};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::codec::{Framed};
+use tokio_util::codec::Framed;
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 struct Request {
@@ -52,6 +52,8 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
     loop {
         tokio::select! {
             result = stream.next() => {
+                info!("stream.next() = {:?}", result);
+
                 match result {
                     Some(Ok(frame)) => {
                         if frame::from_server(&frame) {
@@ -76,8 +78,10 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     },
                     Some(Err(e)) =>
                         panic!("Handle errors {:?}", e),
-                    None =>
+                    None => {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                         ()
+                    }
                 }
             }
             Some(Request{frame, feedback}) = receiver.recv() => {
@@ -108,9 +112,9 @@ fn process_frame(frame: AMQPFrame) -> Option<AMQPFrame> {
 fn response_to_method_frame(channel: u16, cm: u32, _args: Vec<AMQPValue>) -> Option<AMQPFrame> {
     match cm {
         frame::CONNECTION_START =>
-            Some(connection_start_ok(channel)),
+            Some(frame::connection_start_ok(channel)),
         frame::CONNECTION_TUNE =>
-            Some(connection_tune_ok(channel)),
+            Some(frame::connection_tune_ok(channel)),
         _ =>
             None
     }
@@ -137,7 +141,7 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
 
     let (tx, rx) = oneshot::channel();
     let req = Request {
-        frame: connection_start_ok(0u16),
+        frame: frame::connection_start_ok(0u16),
         feedback: Some(tx)
     };
 
@@ -146,7 +150,7 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     rx.await;
 
     let req = Request {
-        frame: connection_tune_ok(0u16),
+        frame: frame::connection_tune_ok(0u16),
         feedback: None
     };
     connection.sender_channel.send(req).await;
@@ -155,7 +159,7 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
 }
 
 pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
-    let frame = connection_open(0u16, virtual_host);
+    let frame = frame::connection_open(0u16, virtual_host);
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame,
@@ -169,7 +173,7 @@ pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
 }
 
 pub async fn close(connection: &Connection) -> Result<()> {
-    let frame = connection_close(0u16);
+    let frame = frame::connection_close(0u16);
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame,
@@ -229,66 +233,4 @@ pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name:
     }).await;
 
     Ok(())
-}
-
-fn connection_start_ok(channel: u16) -> AMQPFrame {
-    let mut capabilities = Vec::<(String, AMQPFieldValue)>::new();
-
-    capabilities.push(("authentication_failure_on_close".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("basic.nack".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("connection.blocked".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("publisher_confirms".into(), AMQPFieldValue::Bool(true)));
-
-    let mut client_properties = Vec::<(String, AMQPFieldValue)>::new();
-
-    client_properties.push(("product".into(), AMQPFieldValue::LongString("ironmq-client".into())));
-    client_properties.push(("platform".into(), AMQPFieldValue::LongString("Rust".into())));
-    client_properties.push(("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities))));
-    client_properties.push(("version".into(), AMQPFieldValue::LongString("0.1.0".into())));
-
-    let mut auth = Vec::new();
-    auth.extend_from_slice(b"\x00guest\x00guest");
-
-    let auth_string = String::from_utf8(auth).unwrap();
-
-    let args = vec![
-        AMQPValue::FieldTable(Box::new(client_properties)),
-        AMQPValue::SimpleString("PLAIN".into()),
-        AMQPValue::LongString(auth_string),
-        AMQPValue::SimpleString("en_US".into()),
-    ];
-
-    AMQPFrame::Method(channel, frame::CONNECTION_START_OK, Box::new(args))
-}
-
-fn connection_tune_ok(channel: u16) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(2047),
-        AMQPValue::U32(131_072),
-        AMQPValue::U16(60),
-    ];
-
-    AMQPFrame::Method(channel, frame::CONNECTION_TUNE_OK, Box::new(args))
-}
-
-fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::SimpleString(virtual_host),
-        AMQPValue::SimpleString("".into()),
-        AMQPValue::U8(1u8)
-    ];
-
-    AMQPFrame::Method(channel, frame::CONNECTION_OPEN, Box::new(args))
-}
-
-fn connection_close(channel: u16) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(200),
-        AMQPValue::SimpleString("Normal shutdown".into()),
-        AMQPValue::U16(0),
-        AMQPValue::U16(0)
-    ];
-
-    AMQPFrame::Method(channel, frame::CONNECTION_CLOSE, Box::new(args))
 }

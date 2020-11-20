@@ -9,6 +9,8 @@ edition = "2018"
 [dependencies]
 bytes = "0.6.0"
 env_logger = "0.7"
+futures = "0.3"
 ironmq-codec = { path = "../ironmq-codec" }
 log = "0.4"
 tokio = { version = "0.3", features = ["full"] }
+tokio-util = { version = "0.5", features = ["codec"] }

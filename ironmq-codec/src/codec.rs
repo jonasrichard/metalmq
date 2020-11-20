@@ -1,6 +1,6 @@
 use crate::frame::*;
 use bytes::{Buf, BufMut, BytesMut};
-use log::{info};
+use log::info;
 use tokio_util::codec::{Decoder, Encoder};
 
 pub struct AMQPCodec {
@@ -54,8 +54,6 @@ impl Encoder<AMQPFrame> for AMQPCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, event: AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
-        info!("[encode] {:?}", event);
-
         match event {
             AMQPFrame::AMQPHeader =>
                 buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
@@ -71,6 +69,10 @@ impl Encoder<AMQPFrame> for AMQPCodec {
             AMQPFrame::ContentBody(channel, payload) =>
                 encode_content_body_frame(&mut buf, channel, payload.to_vec())
         }
+
+        println!("Encode");
+        dump(&buf);
+
         Ok(())
     }
 }
@@ -80,6 +82,9 @@ impl Decoder for AMQPCodec {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        println!("Decode");
+        dump(&src);
+
         if src.len() < 8 {
             Ok(None)
         } else {
@@ -116,8 +121,17 @@ impl Decoder for AMQPCodec {
 
                     Ok(Some(frame))
                 },
-                f =>
+                0x41 => {
+                    let mut head = [0u8; 7];
+
+                    src.copy_from_slice(&mut head);
+                    // TODO check if version is 0091
+
+                    Ok(Some(AMQPFrame::AMQPHeader))
+                },
+                f => {
                     panic!("Unknown frame {:02X}", f)
+                }
             }
         }
     }
@@ -151,7 +165,7 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, class_method, Box::new(args))
 }
 
-fn decode_content_header_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
+fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     dump(&src);
 
     let class_id = src.get_u16();
@@ -237,7 +251,7 @@ fn encode_method_frame(buf: &mut BytesMut, channel: u16, class_method: u32, args
 }
 
 fn encode_content_header_frame(buf: &mut BytesMut, channel: Channel, class_id: ClassId, weight: Weight,
-                               body_size: BodySize, property_flags: PropFlags, properties: Vec<AMQPValue>) {
+                               body_size: BodySize, property_flags: PropFlags, _properties: Vec<AMQPValue>) {
     buf.put_u8(2u8);
     buf.put_u16(channel);
 
