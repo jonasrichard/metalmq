@@ -37,18 +37,40 @@ async fn handle_client(socket: TcpStream) -> Result<()> {
                 match frame {
                     AMQPFrame::AMQPHeader =>
                         sink.send(frame::connection_start(0u16)).await?,
-                    //AMQPFrame::Method(channel, class_method, _args) => {
-                    //    match class_method {
-                    //        frame::CONNECTION_START_OK =>
-                    //            sink.send(frame::connection_tune(channel)).await?,
-                    //        frame::CONNECTION_TUNE_OK =>
-                    //            (),
-                    //        m =>
-                    //            panic!("Unsupported method frame {:?}", m)
-                    //    }
-                    //},
-                    _ =>
-                        panic!("Unsupported frame {:?}", frame)
+                    AMQPFrame::Method(channel, class_method, args) => {
+                        match class_method {
+                            frame::CONNECTION_START_OK =>
+                                sink.send(frame::connection_tune(channel)).await?,
+                            frame::CONNECTION_TUNE_OK =>
+                                (),
+                            frame::CONNECTION_OPEN => {
+                                info!("Open vhost {:?}", args[0]);
+                                sink.send(frame::connection_open_ok(channel)).await?
+                            },
+                            frame::CONNECTION_CLOSE => {
+                                sink.send(frame::connection_close_ok(channel)).await?;
+
+                                return Ok(())
+                            },
+                            frame::CHANNEL_OPEN => {
+                                info!("Open channel {}", channel);
+                                sink.send(frame::channel_open_ok(channel)).await?
+                            },
+                            frame::EXCHANGE_DECLARE => {
+                                info!("Exchange declare {:?} {:?}", args[1], args[2]);
+                                sink.send(frame::exchange_declare_ok(channel)).await?
+                            },
+                            frame::BASIC_PUBLISH => {
+                                info!("Publish {:?}", args[1])
+                            },
+                            m =>
+                                panic!("Unsupported method frame {:?}", m)
+                        }
+                    },
+                    AMQPFrame::ContentHeader(_channel, _class, _weight, size, _, _) =>
+                        info!("Content header, size = {}", size),
+                    AMQPFrame::ContentBody(_channel, bytes) =>
+                        info!("Content {}", String::from_utf8(bytes.to_vec()).unwrap_or_default()),
                 }
             },
             Err(e) =>

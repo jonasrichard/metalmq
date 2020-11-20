@@ -33,18 +33,30 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
     match class_method {
         CONNECTION_START =>
             vec![AMQPType::U8, AMQPType::U8, AMQPType::FieldTable, AMQPType::LongString, AMQPType::LongString],
+        CONNECTION_START_OK =>
+            vec![AMQPType::FieldTable, AMQPType::SimpleString, AMQPType::LongString, AMQPType::SimpleString],
         CONNECTION_TUNE =>
+            vec![AMQPType::U16, AMQPType::U32, AMQPType::U16],
+        CONNECTION_TUNE_OK =>
             vec![AMQPType::U16, AMQPType::U32, AMQPType::U16],
         CONNECTION_OPEN =>
             vec![AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8],
         CONNECTION_OPEN_OK =>
             vec![AMQPType::SimpleString],
+        CONNECTION_CLOSE =>
+            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::U16, AMQPType::U16],
         CONNECTION_CLOSE_OK =>
             vec![],
+        CHANNEL_OPEN =>
+            vec![AMQPType::SimpleString],
         CHANNEL_OPEN_OK =>
             vec![AMQPType::LongString],
+        EXCHANGE_DECLARE =>
+            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8, AMQPType::FieldTable],
         EXCHANGE_DECLARE_OK =>
             vec![],
+        BASIC_PUBLISH =>
+            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8],
         mc =>
             panic!("Unsupported class+method {:08X}", mc)
     }
@@ -150,6 +162,14 @@ pub fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
     AMQPFrame::Method(channel, CONNECTION_OPEN, Box::new(args))
 }
 
+pub fn connection_open_ok(channel: u16) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::SimpleString("".into())
+    ];
+
+    AMQPFrame::Method(channel, CONNECTION_OPEN_OK, Box::new(args))
+}
+
 pub fn connection_close(channel: u16) -> AMQPFrame {
     let args = vec![
         AMQPValue::U16(200),
@@ -159,6 +179,14 @@ pub fn connection_close(channel: u16) -> AMQPFrame {
     ];
 
     AMQPFrame::Method(channel, CONNECTION_CLOSE, Box::new(args))
+}
+
+pub fn connection_close_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, CONNECTION_CLOSE_OK, Box::new(vec![]))
+}
+
+pub fn channel_open_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, CHANNEL_OPEN_OK, Box::new(vec![AMQPValue::LongString("".into())]))
 }
 
 pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String) -> AMQPFrame {
@@ -171,6 +199,10 @@ pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: Stri
     ];
 
     AMQPFrame::Method(channel, EXCHANGE_DECLARE, Box::new(args))
+}
+
+pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, EXCHANGE_DECLARE_OK, Box::new(vec![]))
 }
 
 pub fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -> AMQPFrame {

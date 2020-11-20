@@ -52,8 +52,6 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
     loop {
         tokio::select! {
             result = stream.next() => {
-                info!("stream.next() = {:?}", result);
-
                 match result {
                     Some(Ok(frame)) => {
                         if frame::from_server(&frame) {
@@ -92,8 +90,6 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                 }
             }
             Some(Request{frame, feedback}) = receiver.recv() => {
-                info!("Loop got msg {:?}", frame);
-
                 sink.send(frame).await?;
 
                 if let Some(_) = feedback {

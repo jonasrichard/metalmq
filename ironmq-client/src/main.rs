@@ -3,6 +3,7 @@ pub mod client;
 use env_logger::Builder;
 use log::{info, error};
 use std::io::Write;
+use std::time::Instant;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -28,7 +29,15 @@ pub async fn main() -> Result<()> {
             client::channel_open(&connection, 1).await?;
             client::exchange_declare(&connection, 1, "test", "fanout").await?;
 
-            client::basic_publish(&connection, 1, "test".into(), "no-key".into(), "Hello, world".into()).await?;
+            let now = Instant::now();
+            let mut total = 0u32;
+
+            for _ in 0..100_000 {
+                client::basic_publish(&connection, 1, "test".into(), "no-key".into(), "Hello, world".into()).await?;
+                total += 1;
+            }
+
+            println!("{}/100,000 publish takes {} us", total, now.elapsed().as_micros());
 
             client::close(&connection).await?
         },
