@@ -3,7 +3,7 @@ use futures::SinkExt;
 use futures::stream::StreamExt;
 use ironmq_codec::codec::{AMQPCodec, AMQPFrame};
 use ironmq_codec::frame;
-use log::info;
+use log::{error, info};
 use std::io::Write;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::Framed;
@@ -27,41 +27,36 @@ fn setup_logger() {
 async fn handle_client(socket: TcpStream) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
 
-    loop {
-        tokio::select! {
-            result = stream.next() => {
-                match result {
-                    Some(Ok(frame)) => {
-                        info!("{:?}", frame);
+    while let Some(payload) = stream.next().await {
+        info!("Result {:?}", payload);
 
-                        match frame {
-                            AMQPFrame::AMQPHeader =>
-                                sink.send(frame::connection_start(0u16)).await?,
-                            AMQPFrame::Method(channel, class_method, _args) => {
-                                match class_method {
-                                    frame::CONNECTION_START_OK =>
-                                        sink.send(frame::connection_tune(channel)).await?,
-                                    frame::CONNECTION_TUNE_OK =>
-                                        (),
-                                    m =>
-                                        panic!("Unsupported method frame {:?}", m)
-                                }
-                            },
-                            _ =>
-                                panic!("Unsupported frame {:?}", frame)
-                        }
-                    },
-                    None => {
-                        info!("Closing connection");
-                        return Ok(())
-                    },
-                    _ => {
-                        panic!("Unknown result {:?}", result)
-                    }
+        match payload {
+            Ok(frame) => {
+                info!("Frame {:?}", frame);
+
+                match frame {
+                    AMQPFrame::AMQPHeader =>
+                        sink.send(frame::connection_start(0u16)).await?,
+                    //AMQPFrame::Method(channel, class_method, _args) => {
+                    //    match class_method {
+                    //        frame::CONNECTION_START_OK =>
+                    //            sink.send(frame::connection_tune(channel)).await?,
+                    //        frame::CONNECTION_TUNE_OK =>
+                    //            (),
+                    //        m =>
+                    //            panic!("Unsupported method frame {:?}", m)
+                    //    }
+                    //},
+                    _ =>
+                        panic!("Unsupported frame {:?}", frame)
                 }
-            }
+            },
+            Err(e) =>
+                return Err(Box::new(e))
         }
     }
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -76,7 +71,9 @@ pub async fn main() -> Result<()> {
         let (socket, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            handle_client(socket).await
+            if let Err(e) = handle_client(socket).await {
+                error!("Error handling client {:?}", e)
+            }
         });
     }
 }

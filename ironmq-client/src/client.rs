@@ -62,8 +62,11 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                                     if let Some((_id, feedback)) = requests.pop() {
                                         if let Some(channel) = feedback {
                                             // TODO check result
-                                            channel.send(frame);
-                                            ()
+                                            if let Err(e) = channel.send(frame) {
+                                                error!("Send error {:?}", e);
+
+                                                return Ok(())
+                                            }
                                         }
                                     }
                                 },
@@ -76,11 +79,15 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                             }
                         }
                     },
-                    Some(Err(e)) =>
-                        panic!("Handle errors {:?}", e),
+                    Some(Err(e)) => {
+                        error!("Handle errors {:?}", e);
+
+                        return Err(Box::new(e))
+                    },
                     None => {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                        ()
+                        info!("Connection is closed");
+
+                        return Ok(())
                     }
                 }
             }

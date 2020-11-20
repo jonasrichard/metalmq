@@ -1,6 +1,6 @@
 use crate::frame::*;
 use bytes::{Buf, BufMut, BytesMut};
-use log::info;
+use log::error;
 use tokio_util::codec::{Decoder, Encoder};
 
 pub struct AMQPCodec {
@@ -82,56 +82,43 @@ impl Decoder for AMQPCodec {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        println!("Decode");
+        println!("Decode remaining {}", src.remaining());
         dump(&src);
 
-        if src.len() < 8 {
-            Ok(None)
-        } else {
-            match src.get_u8() {
-                1 => {
-                    let channel = src.get_u16();
-                    // TODO amqp frame can be u32 but Buf handles only usize buffes
-                    let frame_len = src.get_u32() as usize;
+        match src.get_u8() {
+            1 => {
+                let channel = src.get_u16();
+                // TODO amqp frame can be u32 but Buf handles only usize buffes
+                let frame_len = src.get_u32() as usize;
 
-                    if src.len() < frame_len {
-                        return Ok(None)
-                    }
+                let mut frame_buf = src.split_to(frame_len);
+                let frame = decode_method_frame(&mut frame_buf, channel);
 
-                    let mut frame_buf = src.split_to(frame_len);
-                    let frame = decode_method_frame(&mut frame_buf, channel);
+                let _frame_separator = src.get_u8();
 
-                    let _frame_separator = src.get_u8();
+                Ok(Some(frame))
+            },
+            2 => {
+                let channel = src.get_u16();
+                let frame_len = src.get_u32() as usize;
 
-                    Ok(Some(frame))
-                },
-                2 => {
-                    let channel = src.get_u16();
-                    let frame_len = src.get_u32() as usize;
+                let mut frame_buf = src.split_to(frame_len);
+                let frame = decode_content_header_frame(&mut frame_buf, channel);
 
-                    // We don't have the full frame in the buffer
-                    if src.len() < frame_len {
-                        return Ok(None)
-                    }
+                let _frame_separator = src.get_u8();
 
-                    let mut frame_buf = src.split_to(frame_len);
-                    let frame = decode_content_header_frame(&mut frame_buf, channel);
+                Ok(Some(frame))
+            },
+            0x41 => {
+                let mut head = [0u8; 7];
 
-                    let _frame_separator = src.get_u8();
+                src.copy_from_slice(&mut head);
+                // TODO check if version is 0091
 
-                    Ok(Some(frame))
-                },
-                0x41 => {
-                    let mut head = [0u8; 7];
-
-                    src.copy_from_slice(&mut head);
-                    // TODO check if version is 0091
-
-                    Ok(Some(AMQPFrame::AMQPHeader))
-                },
-                f => {
-                    panic!("Unknown frame {:02X}", f)
-                }
+                Ok(Some(AMQPFrame::AMQPHeader))
+            },
+            f => {
+                Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Unknown frame {}", f)))
             }
         }
     }
