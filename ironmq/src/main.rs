@@ -1,10 +1,26 @@
+use env_logger::Builder;
 use log::{info};
+use std::io::Write;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
+use ironmq_codec::frame;
+
+fn setup_logger() {
+    let mut builder = Builder::from_default_env();
+
+    builder
+        .format_timestamp_millis()
+        .format(|buf, record| {
+            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(),
+                record.file().unwrap_or_default(), record.line().unwrap_or_default(), record.args())
+        })
+        .init();
+}
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    setup_logger();
 
     info!("Listening on port 5672");
 

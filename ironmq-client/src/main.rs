@@ -1,9 +1,4 @@
-mod client;
-mod codec;
-mod frame;
-
-#[macro_use]
-extern crate lazy_static;
+pub mod client;
 
 use env_logger::Builder;
 use log::{info, error};

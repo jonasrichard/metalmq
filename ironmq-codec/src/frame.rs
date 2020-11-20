@@ -49,8 +49,10 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
             panic!("Unsupported class+method {:08X}", mc)
     }
 }
+
+// TODO it should be crate pub!
 /// Check if frame comes from the server, so the client needs to send feedback
-pub(crate) fn from_server(frame: &AMQPFrame) -> bool {
+pub fn from_server(frame: &AMQPFrame) -> bool {
     match frame {
         AMQPFrame::Method(_, class_method, _) =>
             FROM_SERVER.contains(&class_method),
@@ -59,7 +61,7 @@ pub(crate) fn from_server(frame: &AMQPFrame) -> bool {
     }
 }
 
-pub(crate) fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String) -> AMQPFrame {
+pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String) -> AMQPFrame {
     let args = vec![
         AMQPValue::U16(0),
         AMQPValue::SimpleString(exchange_name),
@@ -71,7 +73,7 @@ pub(crate) fn exchange_declare(channel: u16, exchange_name: String, exchange_typ
     AMQPFrame::Method(channel, EXCHANGE_DECLARE, Box::new(args))
 }
 
-pub(crate) fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -> AMQPFrame {
+pub fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -> AMQPFrame {
     let args = vec![
         AMQPValue::U16(0),
         AMQPValue::SimpleString(exchange_name),
@@ -82,10 +84,10 @@ pub(crate) fn basic_publish(channel: u16, exchange_name: String, routing_key: St
     AMQPFrame::Method(channel, BASIC_PUBLISH, Box::new(args))
 }
 
-pub(crate) fn content_header(channel: u16, size: u64) -> AMQPFrame {
+pub fn content_header(channel: u16, size: u64) -> AMQPFrame {
     AMQPFrame::ContentHeader(channel, 0x003C, 0, size, 0x0000, Box::new(vec![]))
 }
 
-pub(crate) fn content_body(channel: u16, payload: &[u8]) -> AMQPFrame {
+pub fn content_body(channel: u16, payload: &[u8]) -> AMQPFrame {
     AMQPFrame::ContentBody(channel, Box::new(payload.into()))
 }

@@ -1,5 +1,5 @@
-use crate::codec::{AMQPCodec, AMQPFieldValue, AMQPFrame, AMQPValue};
-use crate::frame;
+use ironmq_codec::codec::{AMQPCodec, AMQPFieldValue, AMQPFrame, AMQPValue};
+use ironmq_codec::frame;
 use crate::Result;
 use futures::SinkExt;
 use futures::stream::{StreamExt};
