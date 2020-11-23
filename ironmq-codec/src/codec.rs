@@ -1,6 +1,5 @@
 use crate::frame::*;
 use bytes::{Buf, BufMut, BytesMut};
-use log::error;
 use tokio_util::codec::{Decoder, Encoder};
 
 pub struct AMQPCodec {
