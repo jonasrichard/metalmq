@@ -15,6 +15,11 @@ pub const CHANNEL_OPEN_OK: u32 = 0x0014000B;
 pub const EXCHANGE_DECLARE: u32 = 0x0028000A;
 pub const EXCHANGE_DECLARE_OK: u32 = 0x0028000B;
 
+pub const QUEUE_DECLARE: u32 = 0x0032000A;
+pub const QUEUE_DECLARE_OK: u32 = 0x0032000B;
+pub const QUEUE_BIND: u32 = 0x00320014;
+pub const QUEUE_BIND_OK: u32 = 0x00320015;
+
 pub const BASIC_PUBLISH: u32 = 0x003C0028;
 
 lazy_static! {
@@ -24,7 +29,9 @@ lazy_static! {
         CONNECTION_OPEN_OK,
         CONNECTION_CLOSE_OK,
         CHANNEL_OPEN_OK,
-        EXCHANGE_DECLARE_OK
+        EXCHANGE_DECLARE_OK,
+        QUEUE_DECLARE_OK,
+        QUEUE_BIND_OK
     ];
 }
 
@@ -55,6 +62,15 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
             vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8, AMQPType::FieldTable],
         EXCHANGE_DECLARE_OK =>
             vec![],
+        QUEUE_BIND =>
+            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::SimpleString,
+                 AMQPType::U8, AMQPType::FieldTable],
+        QUEUE_BIND_OK =>
+            vec![],
+        QUEUE_DECLARE =>
+            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::U8, AMQPType::FieldTable],
+        QUEUE_DECLARE_OK =>
+            vec![AMQPType::SimpleString, AMQPType::U32, AMQPType::U32],
         BASIC_PUBLISH =>
             vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8],
         mc =>
@@ -203,6 +219,44 @@ pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: Stri
 
 pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, EXCHANGE_DECLARE_OK, Box::new(vec![]))
+}
+
+pub fn queue_bind(channel: u16, queue_name: String, exchange_name: String, routing_key: String) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::U16(0),
+        AMQPValue::SimpleString(queue_name),
+        AMQPValue::SimpleString(exchange_name),
+        AMQPValue::SimpleString(routing_key),
+        AMQPValue::U8(0), // xxxxxxx, nowait
+        AMQPValue::FieldTable(Box::new(vec![]))
+    ];
+
+    AMQPFrame::Method(channel, QUEUE_BIND, Box::new(args))
+}
+
+pub fn queue_bind_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, QUEUE_BIND_OK, Box::new(vec![]))
+}
+
+pub fn queue_declare(channel: u16, queue_name: String) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::U16(0),
+        AMQPValue::SimpleString(queue_name),
+        AMQPValue::U8(0), // xxx nowait, autodelete, exclusive, durable, passive
+        AMQPValue::FieldTable(Box::new(vec![]))
+    ];
+
+    AMQPFrame::Method(channel, QUEUE_DECLARE, Box::new(args))
+}
+
+pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, consumer_count: u32) -> AMQPFrame {
+    let args = vec![
+        AMQPValue::SimpleString(queue_name),
+        AMQPValue::U32(message_count),
+        AMQPValue::U32(consumer_count)
+    ];
+
+    AMQPFrame::Method(channel, QUEUE_DECLARE_OK, Box::new(args))
 }
 
 pub fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -> AMQPFrame {

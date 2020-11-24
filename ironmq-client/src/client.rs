@@ -216,6 +216,29 @@ pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_na
     Ok(())
 }
 
+pub async fn queue_bind(connection: &Connection, channel: u16, queue_name: &str, exchange_name: &str,
+                        routing_key: &str) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+    connection.sender_channel.send(Request {
+        frame: frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into()),
+        feedback: Some(tx)
+    }).await;
+    rx.await;
+
+    Ok(())
+}
+
+pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &str) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+    connection.sender_channel.send(Request {
+        frame: frame::queue_declare(channel, queue_name.into()),
+        feedback: Some(tx)
+    }).await;
+    rx.await;
+
+    Ok(())
+}
+
 pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: String,
                            routing_key: String, payload: String) -> Result<()> {
     let bytes = payload.as_bytes();
