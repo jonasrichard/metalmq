@@ -3,7 +3,7 @@ use ironmq_codec::codec::{AMQPFrame};
 use log::info;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) enum Phase {
+enum Phase {
     Uninitialized,
     Connected,
     Authenticated,
@@ -13,10 +13,16 @@ pub(crate) enum Phase {
 }
 
 #[derive(Debug)]
+enum Outcome {
+    Ok,
+    Error(String),
+    Frame(AMQPFrame)
+}
+
+#[derive(Debug)]
 pub(crate) struct Operation {
-    input_frame: Option<AMQPFrame>,
-    output: Option<oneshot::Sender<bool>>
-    // here probably we need a oneshot channel to give back control to the caller
+    input: Option<AMQPFrame>,
+    output: Option<oneshot::Sender<Outcome>>
 }
 
 pub(crate) struct ClientState {
@@ -40,16 +46,16 @@ async fn process_input(input: &mut mpsc::Receiver<Operation>) -> Result<()> {
     while let Some(op) = input.recv().await {
         println!("Got {:?}", op);
 
-        match op.input_frame {
+        match op.input {
             Some(AMQPFrame::AMQPHeader) =>
                 if let Some(out_chan) = op.output {
-                    if let Err(_) = out_chan.send(true) {
+                    if let Err(_) = out_chan.send(Outcome::Ok) {
                         panic!()
                     }
                 },
             None =>
                 if let Some(out_chan) = op.output {
-                    if let Err(_) = out_chan.send(true) {
+                    if let Err(_) = out_chan.send(Outcome::Ok) {
                         panic!()
                     }
                 },
@@ -64,19 +70,30 @@ async fn process_input(input: &mut mpsc::Receiver<Operation>) -> Result<()> {
 mod test {
     use super::*;
 
-    #[tokio::test]
-    async fn connect() {
-        let state = start().await.unwrap();
+    async fn send(input: &mpsc::Sender<Operation>, frame: AMQPFrame) -> oneshot::Receiver<Outcome> {
         let (tx, rx) = oneshot::channel();
-
-        let res = state.input.send(Operation {
-            input_frame: None,
+        let res = input.send(Operation {
+            input: Some(frame),
             output: Some(tx)
         }).await;
 
-        assert!(res.is_ok());
+        rx
+    }
 
-        let result = rx.await;
-        assert_eq!(Ok(true), result);
+    #[tokio::test]
+    async fn connect() {
+        let state = start().await.unwrap();
+        let rx = send(&state.input, AMQPFrame::AMQPHeader).await;
+
+        let res = rx.await;
+
+        assert!(res.is_ok());
+        let ok_outcome = res.map(|outcome| {
+            match outcome {
+                Outcome::Ok => true,
+                _ => false
+            }
+        });
+        //assert!(ok_outcome);
     }
 }
