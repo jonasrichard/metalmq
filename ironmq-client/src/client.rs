@@ -4,6 +4,7 @@ use futures::stream::StreamExt;
 use ironmq_codec::codec::{AMQPCodec, AMQPFrame, AMQPValue};
 use ironmq_codec::frame;
 use log::{info, error};
+use std::fmt;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::Framed;
@@ -12,6 +13,14 @@ use tokio_util::codec::Framed;
 struct Request {
     frame: AMQPFrame,
     feedback: Option<oneshot::Sender<AMQPFrame>>
+}
+
+impl fmt::Debug for Request {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Request")
+         .field("frame", &self.frame)
+         .finish()
+    }
 }
 
 pub struct Connection {
@@ -139,8 +148,8 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
         feedback: Some(tx)
     };
 
-    connection.sender_channel.send(req).await;
-    rx.await;
+    connection.sender_channel.send(req).await?;
+    rx.await?;
 
     let (tx, rx) = oneshot::channel();
     let req = Request {
@@ -148,15 +157,15 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
         feedback: Some(tx)
     };
 
-    connection.sender_channel.send(req).await;
+    connection.sender_channel.send(req).await?;
     // wait for the connection tune
-    rx.await;
+    rx.await?;
 
     let req = Request {
         frame: frame::connection_tune_ok(0u16),
         feedback: None
     };
-    connection.sender_channel.send(req).await;
+    connection.sender_channel.send(req).await?;
 
     Ok(connection)
 }
@@ -169,8 +178,8 @@ pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
         feedback: Some(tx)
     };
 
-    connection.sender_channel.send(req).await;
-    rx.await;
+    connection.sender_channel.send(req).await?;
+    rx.await?;
 
     Ok(())
 }
@@ -183,8 +192,8 @@ pub async fn close(connection: &Connection) -> Result<()> {
         feedback: Some(tx)
     };
 
-    connection.sender_channel.send(req).await;
-    rx.await;
+    connection.sender_channel.send(req).await?;
+    rx.await?;
 
     Ok(())
 }
@@ -197,8 +206,8 @@ pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
         feedback: Some(tx)
     };
 
-    connection.sender_channel.send(req).await;
-    rx.await;
+    connection.sender_channel.send(req).await?;
+    rx.await?;
 
     Ok(())
 }
@@ -210,8 +219,8 @@ pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_na
         feedback: Some(tx)
     };
 
-    connection.sender_channel.send(req).await;
-    rx.await;
+    connection.sender_channel.send(req).await?;
+    rx.await?;
 
     Ok(())
 }
@@ -222,8 +231,8 @@ pub async fn queue_bind(connection: &Connection, channel: u16, queue_name: &str,
     connection.sender_channel.send(Request {
         frame: frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into()),
         feedback: Some(tx)
-    }).await;
-    rx.await;
+    }).await?;
+    rx.await?;
 
     Ok(())
 }
@@ -233,8 +242,8 @@ pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &s
     connection.sender_channel.send(Request {
         frame: frame::queue_declare(channel, queue_name.into()),
         feedback: Some(tx)
-    }).await;
-    rx.await;
+    }).await?;
+    rx.await?;
 
     Ok(())
 }
@@ -246,17 +255,17 @@ pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name:
     connection.sender_channel.send(Request {
         frame: frame::basic_publish(channel, exchange_name, routing_key),
         feedback: None
-    }).await;
+    }).await?;
 
     connection.sender_channel.send(Request {
         frame: frame::content_header(channel, bytes.len() as u64),
         feedback: None
-    }).await;
+    }).await?;
 
     connection.sender_channel.send(Request {
         frame: frame::content_body(channel, bytes),
         feedback: None
-    }).await;
+    }).await?;
 
     Ok(())
 }
