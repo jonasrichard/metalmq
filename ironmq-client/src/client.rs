@@ -58,6 +58,8 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
     let mut requests = Vec::<(u32, Option<oneshot::Sender<AMQPFrame>>)>::new();
     let mut request_id = 0u32;
 
+    //let client = client_sm::start().await;
+
     loop {
         tokio::select! {
             result = stream.next() => {

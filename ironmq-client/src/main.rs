@@ -1,4 +1,5 @@
 pub mod client;
+mod client_sm;
 
 use env_logger::Builder;
 use log::{info, error};
