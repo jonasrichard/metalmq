@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::client_sm;
 use futures::SinkExt;
 use futures::stream::StreamExt;
 use ironmq_codec::codec::{AMQPCodec, AMQPFrame, AMQPValue};
@@ -12,7 +13,7 @@ use tokio_util::codec::Framed;
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 struct Request {
     frame: AMQPFrame,
-    feedback: Option<oneshot::Sender<AMQPFrame>>
+    feedback: Option<oneshot::Sender<client_sm::Outcome>>
 }
 
 impl fmt::Debug for Request {
@@ -27,9 +28,9 @@ pub struct Connection {
     sender_channel: mpsc::Sender<Request>,
 }
 
-pub trait Channel {
-    fn basic_publish(&self, data: [u8]);
-}
+//pub trait Channel {
+//    fn basic_publish(&self, data: [u8]);
+//}
 
 async fn create_connection(url: String) -> Result<Box<Connection>> {
     match TcpStream::connect(url).await {
@@ -55,44 +56,30 @@ async fn create_connection(url: String) -> Result<Box<Connection>> {
 
 async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
-    let mut requests = Vec::<(u32, Option<oneshot::Sender<AMQPFrame>>)>::new();
-    let mut request_id = 0u32;
-
-    //let client = client_sm::start().await;
+    let client_state = client_sm::ClientState{};
 
     loop {
         tokio::select! {
             result = stream.next() => {
                 match result {
                     Some(Ok(frame)) => {
-                        if frame::from_server(&frame) {
-                            match frame {
-                                AMQPFrame::Method(_, _, _) => {
-                                    if let Some((_id, feedback)) = requests.pop() {
-                                        if let Some(channel) = feedback {
-                                            // TODO check result
-                                            if let Err(e) = channel.send(frame) {
-                                                error!("Send error {:?}", e);
+                        // TODO conditionally check if we need a feedback or not
+                        let (feedback_tx, feedback_rx) = oneshot::channel();
 
-                                                return Ok(())
-                                            }
-                                        }
-                                    }
-                                },
-                                _ =>
-                                    ()
-                            }
-                        } else {
-                            if let Some(response) = process_frame(frame) {
-                                sink.send(response).await?
-                            }
+                        csm.input.send(client_sm::Operation {
+                            input: frame,
+                            output: Some(feedback_tx)
+                        }).await?;
+
+                        match feedback_rx.await {
+                            Ok(client_sm::Outcome::Frame(response_frame)) =>
+                                sink.send(response_frame).await?,
+                            _ =>
+                                unimplemented!()
                         }
                     },
-                    Some(Err(e)) => {
-                        error!("Handle errors {:?}", e);
-
-                        return Err(Box::new(e))
-                    },
+                    Some(Err(e)) =>
+                        error!("Handle errors {:?}", e),
                     None => {
                         info!("Connection is closed");
 
@@ -101,36 +88,31 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                 }
             }
             Some(Request{frame, feedback}) = receiver.recv() => {
-                sink.send(frame).await?;
-
-                if let Some(_) = feedback {
-                    requests.push((request_id, feedback));
-                    request_id += 1;
-                }
+                csm.input.send(client_sm::Operation {
+                    input: frame,
+                    output: feedback
+                }).await?
             }
         }
     }
 }
 
-// sink: &mut futures::stream::SplitSink<tokio_util::codec::Framed<tokio::net::TcpStream, AMQPCodec>, AMQPFrame>
-fn process_frame(frame: AMQPFrame) -> Option<AMQPFrame> {
-    match frame {
-        AMQPFrame::Method(channel, class_method, args) => {
-            response_to_method_frame(channel, class_method, args.to_vec())
+fn handle_frame(input_frame: AMQPFrame, cs: &mut dyn client_sm::Client) {
+    match input_frame {
+        AMQPFrame::Method(channel, cm, args) => {
+            let reponse: Result<AMQPFrame> = match cm {
+                frame::CONNECTION_START =>
+                    cs.connection_start(input_frame.into()).map(|v| v.into()),
+                frame::CONNECTION_TUNE =>
+                    cs.connection_tune(input_frame.into()).map(|v| v.into()),
+                _ =>
+                    unimplemented!()
+            };
+
+            ()
         },
         _ =>
-            panic!("Uncovered branch")
-    }
-}
-
-fn response_to_method_frame(channel: u16, cm: u32, _args: Vec<AMQPValue>) -> Option<AMQPFrame> {
-    match cm {
-        frame::CONNECTION_START =>
-            Some(frame::connection_start_ok(channel)),
-        frame::CONNECTION_TUNE =>
-            Some(frame::connection_tune_ok(channel)),
-        _ =>
-            None
+            unimplemented!()
     }
 }
 
