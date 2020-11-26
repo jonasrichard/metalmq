@@ -13,7 +13,7 @@ use tokio_util::codec::Framed;
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 struct Request {
     frame: AMQPFrame,
-    feedback: Option<oneshot::Sender<client_sm::Outcome>>
+    response: Option<oneshot::Sender<AMQPFrame>>
 }
 
 impl fmt::Debug for Request {
@@ -25,12 +25,8 @@ impl fmt::Debug for Request {
 }
 
 pub struct Connection {
-    sender_channel: mpsc::Sender<Request>,
+    server_channel: mpsc::Sender<Request>,
 }
-
-//pub trait Channel {
-//    fn basic_publish(&self, data: [u8]);
-//}
 
 async fn create_connection(url: String) -> Result<Box<Connection>> {
     match TcpStream::connect(url).await {
@@ -44,7 +40,7 @@ async fn create_connection(url: String) -> Result<Box<Connection>> {
             });
 
             Ok(Box::new(Connection {
-                sender_channel: sender
+                server_channel: sender
             }))
         },
         Err(e) => {
@@ -56,26 +52,15 @@ async fn create_connection(url: String) -> Result<Box<Connection>> {
 
 async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
-    let client_state = client_sm::ClientState{};
+    let mut client_state = client_sm::ClientState{};
 
     loop {
         tokio::select! {
             result = stream.next() => {
                 match result {
                     Some(Ok(frame)) => {
-                        // TODO conditionally check if we need a feedback or not
-                        let (feedback_tx, feedback_rx) = oneshot::channel();
-
-                        csm.input.send(client_sm::Operation {
-                            input: frame,
-                            output: Some(feedback_tx)
-                        }).await?;
-
-                        match feedback_rx.await {
-                            Ok(client_sm::Outcome::Frame(response_frame)) =>
-                                sink.send(response_frame).await?,
-                            _ =>
-                                unimplemented!()
+                        if let Ok(response) = handle_frame(frame, &mut client_state) {
+                            sink.send(response).await?
                         }
                     },
                     Some(Err(e)) =>
@@ -87,29 +72,39 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     }
                 }
             }
-            Some(Request{frame, feedback}) = receiver.recv() => {
-                csm.input.send(client_sm::Operation {
-                    input: frame,
-                    output: feedback
-                }).await?
+            Some(request) = receiver.recv() => {
+                // TODO here we need to implement that in a channel the messages are serialized
+                // but we can have multiple channels
+                sink.send(request.frame).await?;
+
+                if let Some(response_channel) = request.response {
+                    match stream.next().await {
+                        Some(Ok(response_frame)) => {
+                            response_channel.send(response_frame);
+                            ()
+                        },
+                        Some(Err(e)) =>
+                            error!("Handle error {:?}", e),
+                        None =>
+                            return Ok(())
+                    }
+                }
             }
         }
     }
 }
 
-fn handle_frame(input_frame: AMQPFrame, cs: &mut dyn client_sm::Client) {
-    match input_frame {
+fn handle_frame(input_frame: AMQPFrame, mut cs: &mut client_sm::ClientState) -> Result<AMQPFrame> {
+    match &input_frame {
         AMQPFrame::Method(channel, cm, args) => {
-            let reponse: Result<AMQPFrame> = match cm {
+            match *cm {
                 frame::CONNECTION_START =>
-                    cs.connection_start(input_frame.into()).map(|v| v.into()),
+                    client_sm::connection_start(&mut cs, input_frame.into()).map(|v| v.into()),
                 frame::CONNECTION_TUNE =>
-                    cs.connection_tune(input_frame.into()).map(|v| v.into()),
+                    client_sm::connection_tune(&mut cs, input_frame.into()).map(|v| v.into()),
                 _ =>
                     unimplemented!()
-            };
-
-            ()
+            }
         },
         _ =>
             unimplemented!()
@@ -129,27 +124,27 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: AMQPFrame::AMQPHeader,
-        feedback: Some(tx)
+        response: Some(tx)
     };
 
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
     rx.await?;
 
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame::connection_start_ok(0u16),
-        feedback: Some(tx)
+        response: Some(tx)
     };
 
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
     // wait for the connection tune
     rx.await?;
 
     let req = Request {
         frame: frame::connection_tune_ok(0u16),
-        feedback: None
+        response: None
     };
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
 
     Ok(connection)
 }
@@ -159,10 +154,10 @@ pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame,
-        feedback: Some(tx)
+        response: Some(tx)
     };
 
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
     rx.await?;
 
     Ok(())
@@ -173,10 +168,10 @@ pub async fn close(connection: &Connection) -> Result<()> {
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame,
-        feedback: Some(tx)
+        response: Some(tx)
     };
 
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
     rx.await?;
 
     Ok(())
@@ -187,10 +182,10 @@ pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame,
-        feedback: Some(tx)
+        response: Some(tx)
     };
 
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
     rx.await?;
 
     Ok(())
@@ -200,10 +195,10 @@ pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_na
     let (tx, rx) = oneshot::channel();
     let req = Request {
         frame: frame::exchange_declare(channel, exchange_name.into(), exchange_type.into()),
-        feedback: Some(tx)
+        response: Some(tx)
     };
 
-    connection.sender_channel.send(req).await?;
+    connection.server_channel.send(req).await?;
     rx.await?;
 
     Ok(())
@@ -212,9 +207,9 @@ pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_na
 pub async fn queue_bind(connection: &Connection, channel: u16, queue_name: &str, exchange_name: &str,
                         routing_key: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
-    connection.sender_channel.send(Request {
+    connection.server_channel.send(Request {
         frame: frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into()),
-        feedback: Some(tx)
+        response: Some(tx)
     }).await?;
     rx.await?;
 
@@ -223,9 +218,9 @@ pub async fn queue_bind(connection: &Connection, channel: u16, queue_name: &str,
 
 pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
-    connection.sender_channel.send(Request {
+    connection.server_channel.send(Request {
         frame: frame::queue_declare(channel, queue_name.into()),
-        feedback: Some(tx)
+        response: Some(tx)
     }).await?;
     rx.await?;
 
@@ -236,19 +231,19 @@ pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name:
                            routing_key: String, payload: String) -> Result<()> {
     let bytes = payload.as_bytes();
 
-    connection.sender_channel.send(Request {
+    connection.server_channel.send(Request {
         frame: frame::basic_publish(channel, exchange_name, routing_key),
-        feedback: None
+        response: None
     }).await?;
 
-    connection.sender_channel.send(Request {
+    connection.server_channel.send(Request {
         frame: frame::content_header(channel, bytes.len() as u64),
-        feedback: None
+        response: None
     }).await?;
 
-    connection.sender_channel.send(Request {
+    connection.server_channel.send(Request {
         frame: frame::content_body(channel, bytes),
-        feedback: None
+        response: None
     }).await?;
 
     Ok(())
