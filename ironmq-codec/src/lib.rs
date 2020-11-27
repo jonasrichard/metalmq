@@ -12,7 +12,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 mod tests {
     use super::*;
     use bytes::{Buf, BufMut, BytesMut};
-    use codec::{AMQPCodec, AMQPFrame, AMQPValue};
+    use codec::AMQPCodec;
+    use frame::{AMQPFrame, AMQPValue, MethodFrame};
     use tokio_util::codec::Encoder;
 
     #[test]
@@ -44,7 +45,11 @@ mod tests {
             AMQPValue::SimpleString("test".into()),
             AMQPValue::LongString("longtest".into())
         ];
-        let res = encoder.encode(AMQPFrame::Method(0x0205, 0x00FF00FE, Box::new(args)) , &mut buf);
+        let res = encoder.encode(AMQPFrame::Method(Box::new(MethodFrame {
+            channel: 0x0205,
+            class_method: 0x00FF00FE,
+            args: args
+        })) , &mut buf);
 
         assert!(res.is_ok());
 
