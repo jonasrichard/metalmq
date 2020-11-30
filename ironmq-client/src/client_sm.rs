@@ -1,3 +1,11 @@
+//! `client_sm` module represents the client state machine which handles incoming
+//! commands (from client api side) and incoming AMQP frames from network/server
+//! side.
+//!
+//! So everything which comes from the server or goes to the server is an
+//! AMQP frame or `MethodFrame`, content etc. Everything which talks to the client
+//! api it is a typed struct.
+
 use crate::Result;
 use ironmq_codec::frame;
 use ironmq_codec::frame::{MethodFrame};
@@ -5,13 +13,22 @@ use log::info;
 
 #[derive(Debug)]
 pub(crate) struct ClientState {
+    pub(crate) state: Phase
+}
+
+#[derive(Debug)]
+pub(crate) enum Phase {
+    Uninitialized,
+    Connected,
+    Authenticated,
+    Closing
 }
 
 #[derive(Debug)]
 pub(crate) enum Command {
     ConnectionInit,
-    ConnectionStartOk(Box<ConnStartOkArgs>),
-    ConnectionTuneOk(Box<ConnTuneOkArgs>),
+    ConnectionStartOk,
+    ConnectionTuneOk,
     ConnectionOpen(Box<ConnOpenArgs>),
     ConnectionClose,
     ChannelOpen(Box<ChannelOpenArgs>),
@@ -20,101 +37,69 @@ pub(crate) enum Command {
     QueueBind(Box<QueueBindArgs>)
 }
 
-#[derive(Debug)]
-pub(crate) struct ConnStartArgs {
-    pub(crate) channel: u16,
-    pub(crate) properties: Vec<(String, frame::AMQPValue)>
+/// Handle the connection start frame coming from the server.
+///
+/// Announces and agrees on capabilities from server and client side.
+pub(crate) fn connection_start(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    // TODO store server properties
+    Ok(Some(frame::connection_start_ok(0)))
 }
 
-#[derive(Debug)]
-pub(crate) struct ConnStartOkArgs {
-    pub(crate) channel: u16
+pub(crate) fn connection_tune(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    cs.state = Phase::Connected;
+    // TODO how to handle Error frames?
+    Ok(Some(frame::connection_tune_ok(0)))
 }
 
-impl From<MethodFrame> for ConnStartArgs {
-    fn from(mf: MethodFrame) -> ConnStartArgs {
-        ConnStartArgs {
-            channel: mf.channel,
-            properties: vec![]
-        }
-    }
+pub(crate) fn connection_open(cs: &mut ClientState, args: ConnOpenArgs) -> Result<MethodFrame> {
+    Ok(frame::connection_open(0, args.virtual_host))
 }
 
-impl From<ConnStartOkArgs> for MethodFrame {
-    fn from(c: ConnStartOkArgs) -> MethodFrame {
-        MethodFrame {
-            channel: c.channel,
-            class_method: frame::CONNECTION_START_OK,
-            args: vec![]
-        }
-    }
-}
-pub(crate) fn connection_start(cs: &mut ClientState, properties: ConnStartArgs) -> Result<ConnStartOkArgs> {
-    Ok(ConnStartOkArgs {
-        channel: 0
-    })
+pub(crate) fn connection_open_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    Ok(None)
 }
 
-pub(crate) fn connection_start_ok(cs: &mut ClientState, args: ConnStartOkArgs) -> Result<()> {
-    // TODO store start-ok properties in the client state
-    Ok(())
+pub(crate) fn channel_open_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    info!("Channel is opened {}", f.channel);
+    Ok(None)
 }
 
-#[derive(Debug)]
-pub(crate) struct ConnTuneArgs {
+pub(crate) fn connection_close_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    Ok(None)
 }
 
-#[derive(Debug)]
-pub(crate) struct ConnTuneOkArgs {
+pub(crate) fn exchange_declare(cs: &mut ClientState, args: ExchangeDeclareArgs) -> Result<MethodFrame> {
+    Ok(frame::exchange_declare(args.channel, args.exchange_name, args.exchange_type))
 }
 
-impl From<MethodFrame> for ConnTuneArgs {
-    fn from(fr: MethodFrame) -> ConnTuneArgs {
-        ConnTuneArgs {
-        }
-    }
+pub(crate) fn exchange_declare_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    Ok(None)
 }
 
-impl From<ConnTuneOkArgs> for MethodFrame {
-    fn from(tp: ConnTuneOkArgs) -> MethodFrame {
-        MethodFrame {
-            channel: 0,
-            class_method: frame::CONNECTION_TUNE_OK,
-            args: vec![]
-        }
-    }
+pub(crate) fn queue_declare(cs: &mut ClientState, args: QueueDeclareArgs) -> Result<Option<MethodFrame>> {
+    Ok(Some(frame::queue_declare(args.channel, args.queue_name)))
 }
 
-pub(crate) fn connection_tune(cs: &mut ClientState, tune_properties: ConnTuneArgs) -> Result<ConnTuneOkArgs> {
-    Ok(ConnTuneOkArgs {
-    })
+pub(crate) fn queue_declare_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    Ok(None)
 }
 
-pub(crate) fn connection_tune_ok(cs: &mut ClientState, args: ConnTuneOkArgs) -> Result<()> {
-    Ok(())
+pub(crate) fn queue_bind(cs: &mut ClientState, args: QueueBindArgs) -> Result<Option<MethodFrame>> {
+    Ok(Some(frame::queue_bind(args.channel, args.exchange_name, args.queue_name, args.routing_key)))
 }
+
+pub(crate) fn queue_bind_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    Ok(None)
+}
+
+
+
+
 
 #[derive(Debug)]
 pub(crate) struct ConnOpenArgs {
     pub(crate) virtual_host: String,
     pub(crate) insist: bool
-}
-
-#[derive(Debug)]
-pub(crate) struct ConnOpenOkArgs {
-    pub(crate) known_host: String
-}
-
-impl From<ConnOpenOkArgs> for MethodFrame {
-    fn from(args: ConnOpenOkArgs) -> MethodFrame {
-        frame::connection_open_ok(0)
-    }
-}
-
-pub(crate) fn connection_open(cs: &mut ClientState, args: ConnOpenArgs) -> Result<ConnOpenOkArgs> {
-    Ok(ConnOpenOkArgs {
-        known_host: "".into()
-    })
 }
 
 #[derive(Debug)]
@@ -125,24 +110,6 @@ pub(crate) struct ChannelOpenArgs {
 #[derive(Debug)]
 pub(crate) struct ChannelOpenOkArgs {
     pub(crate) channel: u16
-}
-
-impl From<ChannelOpenArgs> for MethodFrame {
-    fn from(args: ChannelOpenArgs) -> MethodFrame {
-        MethodFrame {
-            channel: args.channel,
-            class_method:frame::CHANNEL_OPEN,
-            args: vec![]
-        }
-    }
-}
-
-impl From<MethodFrame> for ChannelOpenOkArgs {
-    fn from(frame: MethodFrame) -> ChannelOpenOkArgs {
-        ChannelOpenOkArgs {
-            channel: frame.channel
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -157,28 +124,6 @@ pub(crate) struct ExchangeDeclareOkArgs {
     pub(crate) channel: u16
 }
 
-impl From<ExchangeDeclareOkArgs> for MethodFrame {
-    fn from(args: ExchangeDeclareOkArgs) -> MethodFrame {
-        frame::exchange_declare_ok(args.channel)
-    }
-}
-
-impl From<MethodFrame> for ExchangeDeclareArgs {
-    fn from(mf: MethodFrame) -> ExchangeDeclareArgs {
-        ExchangeDeclareArgs {
-            channel: mf.channel,
-            exchange_name: "xchg-name".into(),
-            exchange_type: "fanout".into()
-        }
-    }
-}
-
-pub(crate) fn exchange_declare(cs: &mut ClientState, args: ExchangeDeclareArgs) -> Result<ExchangeDeclareOkArgs> {
-    Ok(ExchangeDeclareOkArgs {
-        channel: args.channel
-    })
-}
-
 #[derive(Debug)]
 pub(crate) struct QueueDeclareArgs {
     pub(crate) channel: u16,
@@ -188,27 +133,6 @@ pub(crate) struct QueueDeclareArgs {
 #[derive(Debug)]
 pub(crate) struct QueueDeclareOkArgs {
     pub(crate) channel: u16
-}
-
-impl From<MethodFrame> for QueueDeclareArgs {
-    fn from(mf: MethodFrame) -> QueueDeclareArgs {
-        QueueDeclareArgs {
-            channel: mf.channel,
-            queue_name: "queue".into()
-        }
-    }
-}
-
-impl From<QueueDeclareOkArgs> for MethodFrame {
-    fn from(args: QueueDeclareOkArgs) -> MethodFrame {
-        frame::queue_declare_ok(args.channel, "queue".into(), 0, 0)
-    }
-}
-
-pub(crate) fn queue_declare(cs: &mut ClientState, args: QueueDeclareArgs) -> Result<QueueDeclareOkArgs> {
-    Ok(QueueDeclareOkArgs {
-        channel: args.channel
-    })
 }
 
 #[derive(Debug)]
@@ -222,39 +146,6 @@ pub(crate) struct QueueBindArgs {
 #[derive(Debug)]
 pub(crate) struct QueueBindOkArgs {
     pub(crate) channel: u16
-}
-
-impl From<MethodFrame> for QueueBindArgs {
-    fn from(mf: MethodFrame) -> QueueBindArgs {
-        QueueBindArgs {
-            channel: mf.channel,
-            queue_name: "queue".into(),
-            exchange_name: "xchg-name".into(),
-            routing_key: "".into()
-        }
-    }
-}
-
-impl From<QueueBindOkArgs> for MethodFrame {
-    fn from(args: QueueBindOkArgs) -> MethodFrame {
-        frame::queue_bind_ok(args.channel)
-    }
-}
-
-pub(crate) fn queue_bind(cs: &mut ClientState, args: QueueBindArgs) -> Result<QueueBindOkArgs> {
-    Ok(QueueBindOkArgs {
-        channel: args.channel
-    })
-}
-
-//???
-enum Phase {
-    Uninitialized,
-    Connected,
-    Authenticated,
-    ChannelOpened,
-    ChannelClosed,
-    Closing
 }
 
 #[cfg(test)]

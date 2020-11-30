@@ -3,12 +3,39 @@ mod client_sm;
 
 use env_logger::Builder;
 use log::{info, error};
+use std::fmt;
 use std::io::Write;
 use std::time::Instant;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub struct ClientError {
+    pub code: u16,
+    pub message: String
+}
+
+impl std::fmt::Debug for ClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientError")
+         .field("code", &self.code)
+         .field("message", &self.message)
+         .finish()
+    }
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientError")
+         .field("code", &self.code)
+         .field("message", &self.message)
+         .finish()
+    }
+}
+
+impl std::error::Error for ClientError {
+}
 
 #[allow(dead_code)]
 async fn publish_bench(connection: &client::Connection) -> Result<()> {
