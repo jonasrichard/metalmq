@@ -3,6 +3,7 @@ name = "ironmq-client"
 version = "0.1.0"
 authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
 edition = "2018"
+license = "Apache 2.0"
 keywords = ["amqp", "messaging"]
 repository = "https://github.com/jonasrichard/ironmq"
 description = "IromMQ client library (AMQP 0.9)"
