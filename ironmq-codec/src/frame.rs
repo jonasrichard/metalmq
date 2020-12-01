@@ -40,7 +40,7 @@ pub type ClassMethod = u32;
 pub type ClassId = u16;
 pub type Weight = u16;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum AMQPFrame {
     AMQPHeader,
     Method(Box<MethodFrame>),
@@ -48,14 +48,14 @@ pub enum AMQPFrame {
     ContentBody(Box<ContentBodyFrame>)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MethodFrame {
     pub channel: Channel,
     pub class_method: ClassMethod,
     pub args: Vec<AMQPValue>
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContentHeaderFrame {
     pub channel: Channel,
     pub class_id: ClassId,
@@ -65,7 +65,7 @@ pub struct ContentHeaderFrame {
     pub args: Vec<AMQPValue>
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContentBodyFrame {
     pub channel: Channel,
     pub body: Vec<u8>
