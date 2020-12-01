@@ -1,0 +1,16 @@
+[package]
+name = "benches"
+version = "0.0.0"
+publish = false
+edition = "2018"
+
+[dependencies]
+bencher = "0.1"
+bytes = "0.6"
+ironmq-codec = { version = "0.0", path = "../ironmq-codec" }
+tokio-util = { version = "0.5", features = ["codec"] }
+
+[[bench]]
+name = "encoder"
+path = "encoder.rs"
+harness = false

@@ -3,5 +3,7 @@
 members = [
     "ironmq",
     "ironmq-codec",
-    "ironmq-client"
+    "ironmq-client",
+
+    "benches"
 ]
