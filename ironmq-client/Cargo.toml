@@ -3,7 +3,7 @@ name = "ironmq-client"
 version = "0.1.0"
 authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
 edition = "2018"
-license = "Apache 2.0"
+license = "Apache-2.0"
 keywords = ["amqp", "messaging"]
 repository = "https://github.com/jonasrichard/ironmq"
 description = "IromMQ client library (AMQP 0.9)"
@@ -12,7 +12,7 @@ description = "IromMQ client library (AMQP 0.9)"
 bytes = "0.6"
 env_logger = "0.7"
 futures = "0.3"
-ironmq-codec = { path = "../ironmq-codec" }
+ironmq-codec = { version = "0.0.1", path = "../ironmq-codec" }
 lazy_static = "1.4"
 log = "0.4"
 tokio = { version = "0.3", features = ["full"] }

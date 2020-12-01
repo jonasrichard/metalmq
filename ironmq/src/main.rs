@@ -1,8 +1,9 @@
 use env_logger::Builder;
 use futures::SinkExt;
 use futures::stream::StreamExt;
-use ironmq_codec::codec::{AMQPCodec, AMQPFrame};
+use ironmq_codec::codec::AMQPCodec;
 use ironmq_codec::frame;
+use ironmq_codec::frame::AMQPFrame;
 use log::{error, info};
 use std::io::Write;
 use tokio::net::{TcpListener, TcpStream};
@@ -24,6 +25,10 @@ fn setup_logger() {
         .init();
 }
 
+fn wrap(mf: frame::MethodFrame) -> AMQPFrame {
+    AMQPFrame::Method(Box::new(mf))
+}
+
 async fn handle_client(socket: TcpStream) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
 
@@ -36,41 +41,41 @@ async fn handle_client(socket: TcpStream) -> Result<()> {
 
                 match frame {
                     AMQPFrame::AMQPHeader =>
-                        sink.send(frame::connection_start(0u16)).await?,
-                    AMQPFrame::Method(channel, class_method, args) => {
-                        match class_method {
+                        sink.send(wrap(frame::connection_start(0u16))).await?,
+                    AMQPFrame::Method(method_frame) => {
+                        match method_frame.class_method {
                             frame::CONNECTION_START_OK =>
-                                sink.send(frame::connection_tune(channel)).await?,
+                                sink.send(wrap(frame::connection_tune(0))).await?,
                             frame::CONNECTION_TUNE_OK =>
                                 (),
                             frame::CONNECTION_OPEN => {
-                                info!("Open vhost {:?}", args[0]);
-                                sink.send(frame::connection_open_ok(channel)).await?
+                                info!("Open vhost {:?}", method_frame.args[0]);
+                                sink.send(wrap(frame::connection_open_ok(0))).await?
                             },
                             frame::CONNECTION_CLOSE => {
-                                sink.send(frame::connection_close_ok(channel)).await?;
+                                sink.send(wrap(frame::connection_close_ok(0))).await?;
 
                                 return Ok(())
                             },
                             frame::CHANNEL_OPEN => {
-                                info!("Open channel {}", channel);
-                                sink.send(frame::channel_open_ok(channel)).await?
+                                info!("Open channel {:?}", method_frame.channel);
+                                sink.send(wrap(frame::channel_open_ok(method_frame.channel))).await?
                             },
                             frame::EXCHANGE_DECLARE => {
-                                info!("Exchange declare {:?} {:?}", args[1], args[2]);
-                                sink.send(frame::exchange_declare_ok(channel)).await?
+                                info!("Exchange declare {:?} {:?}", method_frame.args[1], method_frame.args[2]);
+                                sink.send(wrap(frame::exchange_declare_ok(method_frame.channel))).await?
                             },
                             frame::BASIC_PUBLISH => {
-                                info!("Publish {:?}", args[1])
+                                info!("Publish {:?}", method_frame.args[1])
                             },
                             m =>
                                 panic!("Unsupported method frame {:?}", m)
                         }
                     },
-                    AMQPFrame::ContentHeader(_channel, _class, _weight, size, _, _) =>
-                        info!("Content header, size = {}", size),
-                    AMQPFrame::ContentBody(_channel, bytes) =>
-                        info!("Content {}", String::from_utf8(bytes.to_vec()).unwrap_or_default()),
+                    AMQPFrame::ContentHeader(ch) =>
+                        info!("Content header, size = {}", ch.body_size),
+                    AMQPFrame::ContentBody(cb) =>
+                        info!("Content {}", String::from_utf8(cb.body.to_vec()).unwrap_or_default()),
                 }
             },
             Err(e) =>
