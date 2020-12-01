@@ -40,55 +40,71 @@ pub(crate) enum Command {
 /// Handle the connection start frame coming from the server.
 ///
 /// Announces and agrees on capabilities from server and client side.
-pub(crate) fn connection_start(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn connection_start(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     // TODO store server properties
     Ok(Some(frame::connection_start_ok(0)))
 }
 
-pub(crate) fn connection_tune(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn connection_start_ok(_cs: &mut ClientState) -> Result<Option<MethodFrame>> {
+    Ok(None)
+}
+
+pub(crate) fn connection_tune(cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     cs.state = Phase::Connected;
     // TODO how to handle Error frames?
     Ok(Some(frame::connection_tune_ok(0)))
 }
 
-pub(crate) fn connection_open(cs: &mut ClientState, args: ConnOpenArgs) -> Result<MethodFrame> {
-    Ok(frame::connection_open(0, args.virtual_host))
-}
-
-pub(crate) fn connection_open_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn connection_tune_ok(_cs: &mut ClientState) -> Result<Option<MethodFrame>> {
     Ok(None)
 }
 
-pub(crate) fn channel_open_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn connection_open(_cs: &mut ClientState, args: ConnOpenArgs) -> Result<Option<MethodFrame>> {
+    Ok(Some(frame::connection_open(0, args.virtual_host)))
+}
+
+pub(crate) fn connection_open_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
+    Ok(None)
+}
+
+pub(crate) fn channel_open(_cs: &mut ClientState, args: ChannelOpenArgs) -> Result<Option<MethodFrame>> {
+    Ok(Some(frame::channel_open(args.channel)))
+}
+
+pub(crate) fn channel_open_ok(_cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
     info!("Channel is opened {}", f.channel);
     Ok(None)
 }
 
-pub(crate) fn connection_close_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn connection_close(_cs: &mut ClientState) -> Result<Option<MethodFrame>> {
+    Ok(Some(frame::connection_close(0)))
+}
+
+pub(crate) fn connection_close_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     Ok(None)
 }
 
-pub(crate) fn exchange_declare(cs: &mut ClientState, args: ExchangeDeclareArgs) -> Result<MethodFrame> {
-    Ok(frame::exchange_declare(args.channel, args.exchange_name, args.exchange_type))
+pub(crate) fn exchange_declare(_cs: &mut ClientState, args: ExchangeDeclareArgs) -> Result<Option<MethodFrame>> {
+    Ok(Some(frame::exchange_declare(args.channel, args.exchange_name, args.exchange_type)))
 }
 
-pub(crate) fn exchange_declare_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn exchange_declare_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     Ok(None)
 }
 
-pub(crate) fn queue_declare(cs: &mut ClientState, args: QueueDeclareArgs) -> Result<Option<MethodFrame>> {
+pub(crate) fn queue_declare(_cs: &mut ClientState, args: QueueDeclareArgs) -> Result<Option<MethodFrame>> {
     Ok(Some(frame::queue_declare(args.channel, args.queue_name)))
 }
 
-pub(crate) fn queue_declare_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn queue_declare_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     Ok(None)
 }
 
-pub(crate) fn queue_bind(cs: &mut ClientState, args: QueueBindArgs) -> Result<Option<MethodFrame>> {
+pub(crate) fn queue_bind(_cs: &mut ClientState, args: QueueBindArgs) -> Result<Option<MethodFrame>> {
     Ok(Some(frame::queue_bind(args.channel, args.exchange_name, args.queue_name, args.routing_key)))
 }
 
-pub(crate) fn queue_bind_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn queue_bind_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     Ok(None)
 }
 
@@ -100,6 +116,10 @@ pub(crate) fn queue_bind_ok(cs: &mut ClientState, f: MethodFrame) -> Result<Opti
 pub(crate) struct ConnOpenArgs {
     pub(crate) virtual_host: String,
     pub(crate) insist: bool
+}
+
+#[derive(Debug)]
+pub(crate) struct ConnCloseArgs {
 }
 
 #[derive(Debug)]

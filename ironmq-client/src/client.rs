@@ -127,7 +127,7 @@ fn handle_server_frame(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<
 fn handle_client_request(p: Param, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
     match p {
         Param::Command(c) =>
-            handle_command(c, &mut cs).map(|f| Some(f)),
+            handle_command(c, &mut cs),
         Param::Frame(_) =>
             // is it needed?
             Ok(None)
@@ -183,27 +183,30 @@ fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Resu
 //    }
 //}
 
-fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<AMQPFrame> {
+fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+    if let Command::ConnectionInit = cmd {
+        return Ok(Some(AMQPFrame::AMQPHeader))
+    }
+
     let result = match cmd {
         Command::ConnectionInit =>
-            Ok(AMQPFrame::AMQPHeader),
+            unreachable!(),
         Command::ConnectionOpen(args) =>
-            Ok(frame::connection_open(0, args.virtual_host).into()),
-            //client_sm::connection_open(&mut cs, *args).map(|v| AMQPFrame::from(MethodFrame::from(v))),
+            client_sm::connection_open(&mut cs, *args),
         Command::ConnectionClose =>
-            Ok(frame::connection_close(0).into()),
+            client_sm::connection_close(&mut cs),
         Command::ConnectionStartOk =>
-            Ok(frame::connection_start_ok(0).into()),
+            client_sm::connection_start_ok(&mut cs),
         Command::ConnectionTuneOk =>
-            Ok(frame::connection_tune_ok(0).into()),
-        Command::ChannelOpen(_) =>
-            Ok(frame::channel_open(1).into()),
-        Command::ExchangeDeclare(_) =>
-            Ok(frame::exchange_declare(1, "test".into(), "fanout".into()).into()),
-        Command::QueueDeclare(_) =>
-            Ok(frame::queue_declare(1, "queue".into()).into()),
-        Command::QueueBind(_) =>
-            Ok(frame::queue_bind(1, "queue".into(), "test".into(), "".into()).into()),
+            client_sm::connection_tune_ok(&mut cs),
+        Command::ChannelOpen(args) =>
+            client_sm::channel_open(&mut cs, *args),
+        Command::ExchangeDeclare(args) =>
+            client_sm::exchange_declare(&mut cs, *args),
+        Command::QueueDeclare(args) =>
+            client_sm::queue_declare(&mut cs, *args),
+        Command::QueueBind(args) =>
+            client_sm::queue_bind(&mut cs, *args),
         _ =>
             unimplemented!("{:?}", cmd)
     };
@@ -211,7 +214,7 @@ fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<AMQPFrame> {
     info!("Result = {:?}", result);
     info!("State  = {:?}", cs);
 
-    result
+    result.map(|o| o.map(|f| AMQPFrame::Method(Box::new(f))))
 }
 
 async fn call(conn: &Connection, cmd: Command) -> Result<()> {
