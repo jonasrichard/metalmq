@@ -15,5 +15,5 @@ futures = "0.3"
 ironmq-codec = { version = "0.0.1", path = "../ironmq-codec" }
 lazy_static = "1.4"
 log = "0.4"
-tokio = { version = "0.3", features = ["full"] }
+tokio = { version = "0.3", features = ["macros", "net", "rt", "rt-multi-thread", "stream", "sync"] }
 tokio-util = { version = "0.5", features = ["codec"] }

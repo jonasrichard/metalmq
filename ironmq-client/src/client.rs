@@ -7,6 +7,7 @@ use ironmq_codec::codec::AMQPCodec;
 use ironmq_codec::frame::{AMQPFrame, MethodFrame};
 use ironmq_codec::frame;
 use log::{info, error};
+use std::collections::HashMap;
 use std::fmt;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
@@ -63,16 +64,33 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
     let mut client_state = ClientState{
         state: client_sm::Phase::Uninitialized
     };
+    let mut feedback: HashMap<u16, oneshot::Sender<()>> = HashMap::new();
 
     loop {
         tokio::select! {
             result = stream.next() => {
                 match result {
                     Some(Ok(frame)) => {
-                        if let Ok(response) = handle_server_frame(frame, &mut client_state) {
-                            if let Some(f) = response {
-                                sink.send(f).await?
+                        let channel = channel(&frame);
+
+                        // If someone waits for a message on this channel, notify them
+                        if let Some(ch) = channel {
+                            match feedback.remove(&ch) {
+                                Some(fb) => {
+                                    info!("Notifying waiter on channel {}", ch);
+
+                                    if let Err(_) = fb.send(()) {
+                                        return Err(Box::new(ClientError { code: 2, message: "Cannot unblock client".into()}))
+                                    }
+                                    ()
+                                },
+                                None =>
+                                    ()
                             }
+                        }
+
+                        if let Ok(Some(response)) = handle_server_frame(frame, &mut client_state) {
+                            sink.send(response).await?
                         }
                     },
                     Some(Err(e)) =>
@@ -85,29 +103,33 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                 }
             }
             Some(request) = receiver.recv() => {
-                // TODO here we need to implement that in a channel the messages are serialized
-                // but we can have multiple channels
-                if let Ok(response_frame) = handle_client_request(request.param, &mut client_state) {
-                    if let Some(f) = response_frame {
-                        sink.send(f).await?
-                    }
+                if let Ok(Some(frame_to_send)) = handle_client_request(request.param, &mut client_state) {
+                    info!("Response frame {:?}", frame_to_send);
+
+                    let channel = channel(&frame_to_send);
+
+                    sink.send(frame_to_send).await?;
 
                     if let Some(response_channel) = request.response {
-                        match stream.next().await {
-                            Some(Ok(response_frame)) => {
-                                let r = handle_server_frame(response_frame, &mut client_state);
-                                response_channel.send(());
-                                ()
-                            },
-                            Some(Err(e)) =>
-                                error!("Handle error {:?}", e),
-                            None =>
-                                return Ok(())
+                        if let Some(ch) = channel {
+                            info!("Register waiting on channel {}", ch);
+                            feedback.insert(ch, response_channel);
                         }
                     }
                 }
             }
         }
+    }
+}
+
+fn channel(f: &AMQPFrame) -> Option<u16> {
+    match f {
+        AMQPFrame::AMQPHeader =>
+            Some(0),
+        AMQPFrame::Method(mf) =>
+            Some(mf.channel),
+        _ =>
+            None
     }
 }
 
@@ -117,9 +139,9 @@ fn handle_server_frame(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<
             Ok(None),
         AMQPFrame::Method(mf) =>
             handle_server_method_frame(*mf, &mut cs),
-        AMQPFrame::ContentHeader(ch) =>
+        AMQPFrame::ContentHeader(_) =>
             Ok(None),
-        AMQPFrame::ContentBody(cb) =>
+        AMQPFrame::ContentBody(_) =>
             Ok(None)
     }
 }
@@ -134,20 +156,6 @@ fn handle_client_request(p: Param, mut cs: &mut ClientState) -> Result<Option<AM
     }
 }
 
-//fn handle_frame(input_frame: AMQPFrame, mut cs: &mut ClientState) -> Result<AMQPFrame> {
-//    let result = match input_frame {
-//        AMQPFrame::Method(method_frame) =>
-//            handle_method_frame(*method_frame, &mut cs).map(|mf| mf.into()),
-//        _ =>
-//            unimplemented!()
-//    };
-//
-//    info!("Result = {:?}", result);
-//    info!("State  = {:?}", cs);
-//
-//    result
-//}
-
 /// Handle AMQP frames coming from the server side
 fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
     let result = match mf.class_method {
@@ -159,6 +167,8 @@ fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Resu
             client_sm::connection_open_ok(&mut cs, mf),
         frame::CHANNEL_OPEN_OK =>
             client_sm::channel_open_ok(&mut cs, mf),
+        frame::CHANNEL_CLOSE =>
+            client_sm::channel_close(&mut cs, mf),
         frame::EXCHANGE_DECLARE_OK =>
             client_sm::exchange_declare_ok(&mut cs, mf),
         frame::QUEUE_DECLARE_OK =>
@@ -171,19 +181,14 @@ fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Resu
             unimplemented!("{:?}", mf)
     };
 
+    info!("hsmf {:?}", result);
+
     result.map(|of| of.map(|mf| AMQPFrame::Method(Box::new(mf))))
 }
 
-//fn handle_param(param: Param, mut cs: &mut ClientState) -> Result<AMQPFrame> {
-//    match param {
-//        Param::Command(command) =>
-//            handle_command(command, &mut cs),
-//        Param::Frame(frame) =>
-//            handle_frame(frame, &mut cs)
-//    }
-//}
-
 fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+    info!("Command is {:?}", cmd);
+
     if let Command::ConnectionInit = cmd {
         return Ok(Some(AMQPFrame::AMQPHeader))
     }
@@ -207,8 +212,6 @@ fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<Option<AMQPF
             client_sm::queue_declare(&mut cs, *args),
         Command::QueueBind(args) =>
             client_sm::queue_bind(&mut cs, *args),
-        _ =>
-            unimplemented!("{:?}", cmd)
     };
 
     info!("Result = {:?}", result);

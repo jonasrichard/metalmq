@@ -9,6 +9,7 @@ pub const CONNECTION_CLOSE_OK: u32 = 0x000A0033;
 
 pub const CHANNEL_OPEN: u32 = 0x0014000A;
 pub const CHANNEL_OPEN_OK: u32 = 0x0014000B;
+pub const CHANNEL_CLOSE: u32 = 0x00140028;
 
 pub const EXCHANGE_DECLARE: u32 = 0x0028000A;
 pub const EXCHANGE_DECLARE_OK: u32 = 0x0028000B;
@@ -27,6 +28,7 @@ lazy_static! {
         CONNECTION_OPEN_OK,
         CONNECTION_CLOSE_OK,
         CHANNEL_OPEN_OK,
+        CHANNEL_CLOSE,
         EXCHANGE_DECLARE_OK,
         QUEUE_DECLARE_OK,
         QUEUE_BIND_OK
@@ -121,6 +123,8 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
             vec![AMQPType::SimpleString],
         CHANNEL_OPEN_OK =>
             vec![AMQPType::LongString],
+        CHANNEL_CLOSE =>
+            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::U16, AMQPType::U16],
         EXCHANGE_DECLARE =>
             vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8, AMQPType::FieldTable],
         EXCHANGE_DECLARE_OK =>

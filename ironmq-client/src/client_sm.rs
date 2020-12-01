@@ -9,7 +9,7 @@
 use crate::Result;
 use ironmq_codec::frame;
 use ironmq_codec::frame::{MethodFrame};
-use log::info;
+use log::{error, info};
 
 #[derive(Debug)]
 pub(crate) struct ClientState {
@@ -20,8 +20,8 @@ pub(crate) struct ClientState {
 pub(crate) enum Phase {
     Uninitialized,
     Connected,
-    Authenticated,
-    Closing
+//    Authenticated,
+//    Closing
 }
 
 #[derive(Debug)]
@@ -42,11 +42,11 @@ pub(crate) enum Command {
 /// Announces and agrees on capabilities from server and client side.
 pub(crate) fn connection_start(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
     // TODO store server properties
-    Ok(Some(frame::connection_start_ok(0)))
+    Ok(None)
 }
 
 pub(crate) fn connection_start_ok(_cs: &mut ClientState) -> Result<Option<MethodFrame>> {
-    Ok(None)
+    Ok(Some(frame::connection_start_ok(0)))
 }
 
 pub(crate) fn connection_tune(cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
@@ -73,6 +73,11 @@ pub(crate) fn channel_open(_cs: &mut ClientState, args: ChannelOpenArgs) -> Resu
 
 pub(crate) fn channel_open_ok(_cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
     info!("Channel is opened {}", f.channel);
+    Ok(None)
+}
+
+pub(crate) fn channel_close(_cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+    error!("Channel is closed {:?}", f);
     Ok(None)
 }
 
