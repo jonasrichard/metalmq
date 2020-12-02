@@ -1,3 +1,7 @@
+//! Data structures and converter functions for dealing with AMQP frames.
+//!
+//! All the data types are in the `frame` module, the `codec` implements
+//! the encoding and the decoding.
 pub mod codec;
 pub mod frame;
 
@@ -6,11 +10,14 @@ extern crate lazy_static;
 
 use std::fmt;
 
+/// Type alias for a sync and send error.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
+/// Type alias for a simplified Result with Error.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Error struct used by the crate.
 #[derive(Debug)]
-pub struct FrameError {
+pub(crate) struct FrameError {
     pub code: u16,
     pub message: String
 }
@@ -24,6 +31,19 @@ impl fmt::Display for FrameError {
 impl std::error::Error for FrameError {
 }
 
+/// Shorthand for making errors with error code and error message.
+///
+/// ```no_run
+/// use crate::frame_error;
+///
+/// fn as_string(val: AMQPValue) -> Result<String> {
+///     if let AMQPValue::SimpleString(s) = val {
+///         return Ok(s.clone())
+///     }
+///
+///     frame_error!(10, "Value cannot be converted to string")
+/// }
+/// ```
 #[macro_export]
 macro_rules! frame_error {
     ($code:expr, $message:expr) => {
