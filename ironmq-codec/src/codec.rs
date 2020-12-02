@@ -29,9 +29,6 @@ impl Encoder<AMQPFrame> for AMQPCodec {
                 encode_content_body_frame(&mut buf, body_frame)
         }
 
-        //println!("Encode");
-        //dump(&buf);
-
         Ok(())
     }
 }

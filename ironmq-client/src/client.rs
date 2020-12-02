@@ -1,4 +1,4 @@
-use crate::{ClientError, Result};
+use crate::{client_error, Result};
 use crate::client_sm;
 use crate::client_sm::{ClientState, Command};
 use futures::SinkExt;
@@ -6,7 +6,7 @@ use futures::stream::StreamExt;
 use ironmq_codec::codec::AMQPCodec;
 use ironmq_codec::frame::{AMQPFrame, MethodFrame};
 use ironmq_codec::frame;
-use log::{info, error};
+use log::{debug, error};
 use std::collections::HashMap;
 use std::fmt;
 use tokio::net::TcpStream;
@@ -77,10 +77,8 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                         if let Some(ch) = channel {
                             match feedback.remove(&ch) {
                                 Some(fb) => {
-                                    info!("Notifying waiter on channel {}", ch);
-
                                     if let Err(_) = fb.send(()) {
-                                        return Err(Box::new(ClientError { code: 2, message: "Cannot unblock client".into()}))
+                                        return client_error!(2, "Cannot unblock client")
                                     }
                                     ()
                                 },
@@ -96,15 +94,13 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     Some(Err(e)) =>
                         error!("Handle errors {:?}", e),
                     None => {
-                        info!("Connection is closed");
-
                         return Ok(())
                     }
                 }
             }
             Some(request) = receiver.recv() => {
                 if let Ok(Some(frame_to_send)) = handle_client_request(request.param, &mut client_state) {
-                    info!("Response frame {:?}", frame_to_send);
+                    debug!("Response frame {:?}", frame_to_send);
 
                     let channel = channel(&frame_to_send);
 
@@ -112,7 +108,6 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
 
                     if let Some(response_channel) = request.response {
                         if let Some(ch) = channel {
-                            info!("Register waiting on channel {}", ch);
                             feedback.insert(ch, response_channel);
                         }
                     }
@@ -181,13 +176,13 @@ fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Resu
             unimplemented!("{:?}", mf)
     };
 
-    info!("hsmf {:?}", result);
+    debug!("handle server frame {:?}", result);
 
     result.map(|of| of.map(|mf| AMQPFrame::Method(Box::new(mf))))
 }
 
 fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
-    info!("Command is {:?}", cmd);
+    debug!("Command is {:?}", cmd);
 
     if let Command::ConnectionInit = cmd {
         return Ok(Some(AMQPFrame::AMQPHeader))
@@ -214,8 +209,7 @@ fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<Option<AMQPF
             client_sm::queue_bind(&mut cs, *args),
     };
 
-    info!("Result = {:?}", result);
-    info!("State  = {:?}", cs);
+    debug!("Result = {:?}", result);
 
     result.map(|o| o.map(|f| AMQPFrame::Method(Box::new(f))))
 }
@@ -241,7 +235,7 @@ async fn sync_call(conn: &Connection, cmd: Command) -> Result<()> {
         Ok(()) =>
             Ok(()),
         Err(_) =>
-            Err(Box::new(ClientError { code: 0, message: "Channel recv error".into() }))
+            client_error!(0, "Channel recv error")
     }
 }
 

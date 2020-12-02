@@ -37,6 +37,16 @@ impl std::fmt::Display for ClientError {
 impl std::error::Error for ClientError {
 }
 
+#[macro_export]
+macro_rules! client_error {
+    ($code:expr, $message:expr) => {
+        Err(Box::new(crate::ClientError {
+            code: $code,
+            message: String::from($message)
+        }))
+    }
+}
+
 #[allow(dead_code)]
 async fn publish_bench(connection: &client::Connection) -> Result<()> {
     let now = Instant::now();

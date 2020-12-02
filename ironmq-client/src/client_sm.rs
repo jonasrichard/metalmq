@@ -113,10 +113,6 @@ pub(crate) fn queue_bind_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Op
     Ok(None)
 }
 
-
-
-
-
 #[derive(Debug)]
 pub(crate) struct ConnOpenArgs {
     pub(crate) virtual_host: String,

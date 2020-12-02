@@ -4,9 +4,35 @@ pub mod frame;
 #[macro_use]
 extern crate lazy_static;
 
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
+use std::fmt;
 
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug)]
+pub struct FrameError {
+    pub code: u16,
+    pub message: String
+}
+
+impl fmt::Display for FrameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", &self)
+    }
+}
+
+impl std::error::Error for FrameError {
+}
+
+#[macro_export]
+macro_rules! frame_error {
+    ($code:expr, $message:expr) => {
+        Err(Box::new(crate::FrameError {
+            code: $code,
+            message: String::from($message)
+        }))
+    }
+}
 
 #[cfg(test)]
 mod tests {

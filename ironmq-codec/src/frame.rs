@@ -1,3 +1,5 @@
+use crate::{frame_error, Result};
+
 pub const CONNECTION_START: u32 = 0x000A000A;
 pub const CONNECTION_START_OK: u32 = 0x000A000B;
 pub const CONNECTION_TUNE: u32 = 0x000A001E;
@@ -145,16 +147,15 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
     }
 }
 
-// TODO it should be crate pub!
-/// Check if frame comes from the server, so the client needs to send feedback
-pub fn from_server(frame: &AMQPFrame) -> bool {
-    match frame {
-        AMQPFrame::Method(method_frame) =>
-            FROM_SERVER.contains(&method_frame.class_method),
-        _ =>
-            false
-    }
-}
+// Check if frame comes from the server, so the client needs to send feedback
+//pub fn _from_server(frame: &AMQPFrame) -> bool {
+//    match frame {
+//        AMQPFrame::Method(method_frame) =>
+//            FROM_SERVER.contains(&method_frame.class_method),
+//        _ =>
+//            false
+//    }
+//}
 
 impl From<MethodFrame> for AMQPFrame {
     fn from(mf: MethodFrame) -> AMQPFrame {
@@ -173,6 +174,80 @@ impl From<ContentBodyFrame> for AMQPFrame {
         AMQPFrame::ContentBody(Box::new(cbf))
     }
 }
+
+/// Convenience function for getting string value from argument list.
+pub fn arg_as_string(args: Vec<AMQPValue>, index: usize) -> Result<String> {
+    if let Some(arg) = args.get(index) {
+        if let AMQPValue::SimpleString(s) = arg {
+            return Ok(s.clone())
+        }
+        if let AMQPValue::LongString(s) = arg {
+            return Ok(s.clone())
+        }
+
+        return frame_error!(3, "Cannot convert arg to string")
+    }
+
+    frame_error!(4, "Arg index out of bound")
+}
+
+pub fn arg_as_u8(args: Vec<AMQPValue>, index: usize) -> Result<u8> {
+    if let Some(arg) = args.get(index) {
+        if let AMQPValue::U8(v) = arg {
+            return Ok(*v)
+        }
+
+        return frame_error!(3, "Cannot convert arg to u8")
+    }
+
+    frame_error!(4, "Arg index out of bound")
+}
+
+pub fn arg_as_u16(args: Vec<AMQPValue>, index: usize) -> Result<u16> {
+    if let Some(arg) = args.get(index) {
+        if let AMQPValue::U16(v) = arg {
+            return Ok(*v)
+        }
+
+        return frame_error!(3, "Cannot convert arg to u16")
+    }
+
+    frame_error!(4, "Arg index out of bound")
+}
+
+pub fn arg_as_u32(args: Vec<AMQPValue>, index: usize) -> Result<u32> {
+    if let Some(arg) = args.get(index) {
+        if let AMQPValue::U32(v) = arg {
+            return Ok(*v)
+        }
+
+        return frame_error!(3, "Cannot convert arg to u32")
+    }
+
+    frame_error!(4, "Arg index out of bound")
+}
+
+pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<Vec<(String, AMQPFieldValue)>> {
+    if let Some(arg) = args.get(index) {
+        if let AMQPValue::FieldTable(v) = arg {
+            return Ok(v.to_vec())
+        }
+
+        return frame_error!(3, "Cannot convert arg to field table")
+    }
+
+    frame_error!(4, "Arg index out of bound")
+}
+
+//pub fn get_string(ft: Vec<(String, AMQPFieldValue)>, name: String) -> Result<String> {
+//    let field_value = field_table_lookup(&ft, name)?;
+//
+//    if let AMQPFieldValue::LongString(s) = field_value {
+//        return Ok(s)
+//    }
+//
+//    frame_error!(6, "Cannot convert field value to string")
+//}
 
 pub fn connection_start(channel: u16) -> MethodFrame {
     let mut capabilities = Vec::<(String, AMQPFieldValue)>::new();
