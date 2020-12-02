@@ -1,5 +1,6 @@
 use crate::frame::*;
 use bytes::{Buf, BufMut, BytesMut};
+use std::collections::HashMap;
 use tokio_util::codec::{Decoder, Encoder};
 
 const FRAME_METHOD_FRAME: u8 = 0x01;
@@ -120,7 +121,12 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
             AMQPType::LongString =>
                 args.push(AMQPValue::LongString(decode_long_string(&mut src))),
             AMQPType::FieldTable =>
-                args.push(AMQPValue::FieldTable(Box::new(decode_field_table(&mut src)))),
+                match decode_field_table(&mut src) {
+                    None =>
+                        args.push(AMQPValue::EmptyFieldTable),
+                    Some(table) =>
+                        args.push(AMQPValue::FieldTable(Box::new(table)))
+                }
         }
     }
 
@@ -163,9 +169,12 @@ fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
             AMQPFieldValue::LongString(string_value)
         },
         b'F' => {
-            let table = decode_field_table(&mut buf);
-
-            AMQPFieldValue::FieldTable(Box::new(table))
+            match decode_field_table(&mut buf) {
+                None =>
+                    AMQPFieldValue::EmptyFieldTable,
+                Some(table) =>
+                    AMQPFieldValue::FieldTable(Box::new(table))
+            }
         },
         t =>
             panic!("Unknown type {}", t)
@@ -190,21 +199,24 @@ fn decode_long_string(buf: &mut BytesMut) -> String {
 ///
 /// The buffer points to the beginning of the field table which is a `u32` length
 /// information.
-fn decode_field_table(buf: &mut BytesMut) -> Vec<(String, AMQPFieldValue)> {
+fn decode_field_table(buf: &mut BytesMut) -> Option<HashMap<String, AMQPFieldValue>> {
     let ft_len = buf.get_u32() as usize;
+
+    if ft_len == 0 {
+        return None
+    }
+
     let mut ft_buf = buf.split_to(ft_len);
-    let mut table = Vec::new();
+    let mut table = HashMap::new();
 
     while ft_buf.has_remaining() {
         let field_name = decode_short_string(&mut ft_buf);
         let field_value = decode_value(&mut ft_buf);
 
-        //info!("Field name -> value {} -> {:?}", field_name, field_value);
-
-        table.push((field_name, field_value));
+        table.insert(field_name, field_value);
     }
 
-    table
+    Some(table)
 }
 
 fn encode_method_frame(buf: &mut BytesMut, mf: MethodFrame) {
@@ -264,8 +276,10 @@ fn encode_value(mut buf: &mut BytesMut, value: AMQPValue) {
             encode_short_string(&mut buf, v),
         AMQPValue::LongString(v) =>
             encode_long_string(&mut buf, v),
+        AMQPValue::EmptyFieldTable =>
+            encode_empty_field_table(&mut buf),
         AMQPValue::FieldTable(v) =>
-            encode_field_table(&mut buf, v.to_vec()),
+            encode_field_table(&mut buf, *v),
     }
 }
 
@@ -280,7 +294,11 @@ fn encode_long_string(buf: &mut BytesMut, s: String) {
     buf.put(s.as_bytes());
 }
 
-fn encode_field_table(buf: &mut BytesMut, ft: Vec<(String, AMQPFieldValue)>) {
+fn encode_empty_field_table(buf: &mut BytesMut) {
+    buf.put_u32(0);
+}
+
+fn encode_field_table(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) {
     let mut ft_buf = BytesMut::with_capacity(4096);
 
     for (name, value) in ft {
@@ -301,10 +319,13 @@ fn encode_field_table(buf: &mut BytesMut, ft: Vec<(String, AMQPFieldValue)>) {
                 ft_buf.put_u32(v.len() as u32);
                 ft_buf.put(v.as_bytes());
             },
+            AMQPFieldValue::EmptyFieldTable =>
+                encode_empty_field_table(&mut ft_buf),
             AMQPFieldValue::FieldTable(v) => {
                 ft_buf.put_u8(b'F');
 
-                encode_field_table(&mut ft_buf, v.to_vec());
+                // TODO we are copying here
+                encode_field_table(&mut ft_buf, *v);
             },
         }
     }

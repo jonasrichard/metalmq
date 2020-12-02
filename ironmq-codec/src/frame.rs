@@ -1,4 +1,5 @@
 use crate::{frame_error, Result};
+use std::collections::HashMap;
 
 pub const CONNECTION_START: u32 = 0x000A000A;
 pub const CONNECTION_START_OK: u32 = 0x000A000B;
@@ -91,7 +92,8 @@ pub enum AMQPValue {
     U32(u32),
     SimpleString(String),
     LongString(String),
-    FieldTable(Box<Vec<(String, AMQPFieldValue)>>)
+    EmptyFieldTable,
+    FieldTable(Box<HashMap<String, AMQPFieldValue>>)
 }
 
 #[derive(Clone, Debug)]
@@ -99,63 +101,61 @@ pub enum AMQPFieldValue {
     Bool(bool),
 //    SimpleString(String),
     LongString(String),
-    FieldTable(Box<Vec<(String, AMQPFieldValue)>>)
+    EmptyFieldTable,
+    FieldTable(Box<HashMap<String, AMQPFieldValue>>)
 }
+
+macro_rules! t_u8 { () => { AMQPType::U8 } }
+macro_rules! t_u16 { () => { AMQPType::U16 } }
+macro_rules! t_u32 { () => { AMQPType::U32 } }
+macro_rules! t_ls{ () => { AMQPType::LongString } }
+macro_rules! t_ss { () => { AMQPType::SimpleString } }
+macro_rules! t_ft { () => { AMQPType::FieldTable } }
 
 // Implement enum or lookup table to avoid vec! allocations
 pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
     match class_method {
         CONNECTION_START =>
-            vec![AMQPType::U8, AMQPType::U8, AMQPType::FieldTable, AMQPType::LongString, AMQPType::LongString],
+            vec![t_u8!(), t_u8!(), t_ft!(), t_ls!(), t_ls!()],
         CONNECTION_START_OK =>
-            vec![AMQPType::FieldTable, AMQPType::SimpleString, AMQPType::LongString, AMQPType::SimpleString],
+            vec![t_ft!(), t_ss!(), t_ls!(), t_ss!()],
         CONNECTION_TUNE =>
-            vec![AMQPType::U16, AMQPType::U32, AMQPType::U16],
+            vec![t_u16!(), t_u32!(), t_u16!()],
         CONNECTION_TUNE_OK =>
-            vec![AMQPType::U16, AMQPType::U32, AMQPType::U16],
+            vec![t_u16!(), t_u32!(), t_u16!()],
         CONNECTION_OPEN =>
-            vec![AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8],
+            vec![t_ss!(), t_ss!(), t_u8!()],
         CONNECTION_OPEN_OK =>
-            vec![AMQPType::SimpleString],
+            vec![t_ss!()],
         CONNECTION_CLOSE =>
-            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::U16, AMQPType::U16],
+            vec![t_u16!(), t_ss!(), t_u16!(), t_u16!()],
         CONNECTION_CLOSE_OK =>
             vec![],
         CHANNEL_OPEN =>
-            vec![AMQPType::SimpleString],
+            vec![t_ss!()],
         CHANNEL_OPEN_OK =>
-            vec![AMQPType::LongString],
+            vec![t_ls!()],
         CHANNEL_CLOSE =>
-            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::U16, AMQPType::U16],
+            vec![t_u16!(), t_ss!(), t_u16!(), t_u16!()],
         EXCHANGE_DECLARE =>
-            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8, AMQPType::FieldTable],
+            vec![t_u16!(), t_ss!(), t_ss!(), t_u8!(), t_ft!()],
         EXCHANGE_DECLARE_OK =>
             vec![],
         QUEUE_BIND =>
-            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::SimpleString,
-                 AMQPType::U8, AMQPType::FieldTable],
+            vec![t_u16!(), t_ss!(), t_ss!(), t_ss!(),
+                 t_u8!(), t_ft!()],
         QUEUE_BIND_OK =>
             vec![],
         QUEUE_DECLARE =>
-            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::U8, AMQPType::FieldTable],
+            vec![t_u16!(), t_ss!(), t_u8!(), t_ft!()],
         QUEUE_DECLARE_OK =>
-            vec![AMQPType::SimpleString, AMQPType::U32, AMQPType::U32],
+            vec![t_ss!(), t_u32!(), t_u32!()],
         BASIC_PUBLISH =>
-            vec![AMQPType::U16, AMQPType::SimpleString, AMQPType::SimpleString, AMQPType::U8],
+            vec![t_u16!(), t_ss!(), t_ss!(), t_u8!()],
         mc =>
             panic!("Unsupported class+method {:08X}", mc)
     }
 }
-
-// Check if frame comes from the server, so the client needs to send feedback
-//pub fn _from_server(frame: &AMQPFrame) -> bool {
-//    match frame {
-//        AMQPFrame::Method(method_frame) =>
-//            FROM_SERVER.contains(&method_frame.class_method),
-//        _ =>
-//            false
-//    }
-//}
 
 impl From<MethodFrame> for AMQPFrame {
     fn from(mf: MethodFrame) -> AMQPFrame {
@@ -227,10 +227,10 @@ pub fn arg_as_u32(args: Vec<AMQPValue>, index: usize) -> Result<u32> {
     frame_error!(4, "Arg index out of bound")
 }
 
-pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<Vec<(String, AMQPFieldValue)>> {
+pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<HashMap<String, AMQPFieldValue>> {
     if let Some(arg) = args.get(index) {
         if let AMQPValue::FieldTable(v) = arg {
-            return Ok(v.to_vec())
+            return Ok(*v.clone())
         }
 
         return frame_error!(3, "Cannot convert arg to field table")
@@ -239,32 +239,44 @@ pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<Vec<(Str
     frame_error!(4, "Arg index out of bound")
 }
 
-//pub fn get_string(ft: Vec<(String, AMQPFieldValue)>, name: String) -> Result<String> {
-//    let field_value = field_table_lookup(&ft, name)?;
-//
-//    if let AMQPFieldValue::LongString(s) = field_value {
-//        return Ok(s)
-//    }
-//
-//    frame_error!(6, "Cannot convert field value to string")
-//}
+pub fn get_string(ft: HashMap<String, AMQPFieldValue>, name: String) -> Result<String> {
+    if let Some(value) = ft.get(&name) {
+        if let AMQPFieldValue::LongString(s) = value {
+            return Ok(s.clone())
+        }
+    }
+
+    frame_error!(6, "Cannot convert field value to string")
+}
+
+pub fn get_bool(ft: HashMap<String, AMQPFieldValue>, name: String) -> Result<bool> {
+    if let Some(value) = ft.get(&name) {
+        if let AMQPFieldValue::Bool(v) = value {
+            return Ok(*v)
+        }
+    }
+
+    frame_error!(6, "Cannot convert field value to bool")
+}
 
 pub fn connection_start(channel: u16) -> MethodFrame {
-    let mut capabilities = Vec::<(String, AMQPFieldValue)>::new();
-    capabilities.push(("publisher_confirms".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("exchange_exchange_bindings".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("basic.nack".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("connection.blocked".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("consumer_priorities".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("authentication_failure_close".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("per_consumer_qos".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("direct_reply_to".into(), AMQPFieldValue::Bool(true)));
+    let mut capabilities = HashMap::<String, AMQPFieldValue>::new();
 
-    let mut server_properties = Vec::<(String, AMQPFieldValue)>::new();
-    server_properties.push(("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities))));
-    server_properties.push(("product".into(), AMQPFieldValue::LongString("IronMQ server".into())));
-    server_properties.push(("version".into(), AMQPFieldValue::LongString("0.1.0".into())));
+    capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("exchange_exchange_bindings".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("consumer_priorities".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("authentication_failure_close".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("per_consumer_qos".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("direct_reply_to".into(), AMQPFieldValue::Bool(true));
+
+    let mut server_properties = HashMap::<String, AMQPFieldValue>::new();
+
+    server_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
+    server_properties.insert("product".into(), AMQPFieldValue::LongString("IronMQ server".into()));
+    server_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
     let args = vec![
         AMQPValue::U8(0),
@@ -282,20 +294,20 @@ pub fn connection_start(channel: u16) -> MethodFrame {
 }
 
 pub fn connection_start_ok(channel: u16) -> MethodFrame {
-    let mut capabilities = Vec::<(String, AMQPFieldValue)>::new();
+    let mut capabilities = HashMap::<String, AMQPFieldValue>::new();
 
-    capabilities.push(("authentication_failure_on_close".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("basic.nack".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("connection.blocked".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true)));
-    capabilities.push(("publisher_confirms".into(), AMQPFieldValue::Bool(true)));
+    capabilities.insert("authentication_failure_on_close".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
+    capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
 
-    let mut client_properties = Vec::<(String, AMQPFieldValue)>::new();
+    let mut client_properties = HashMap::<String, AMQPFieldValue>::new();
 
-    client_properties.push(("product".into(), AMQPFieldValue::LongString("ironmq-client".into())));
-    client_properties.push(("platform".into(), AMQPFieldValue::LongString("Rust".into())));
-    client_properties.push(("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities))));
-    client_properties.push(("version".into(), AMQPFieldValue::LongString("0.1.0".into())));
+    client_properties.insert("product".into(), AMQPFieldValue::LongString("ironmq-client".into()));
+    client_properties.insert("platform".into(), AMQPFieldValue::LongString("Rust".into()));
+    client_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
+    client_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
     let mut auth = Vec::new();
     auth.extend_from_slice(b"\x00guest\x00guest");
@@ -415,7 +427,7 @@ pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: Stri
         AMQPValue::SimpleString(exchange_name),
         AMQPValue::SimpleString(exchange_type),
         AMQPValue::U8(0), // bits are: x, x, x, nowait, internal, autodelete, durable, passive
-        AMQPValue::FieldTable(Box::new(vec![]))
+        AMQPValue::EmptyFieldTable
     ];
 
     MethodFrame {
@@ -440,7 +452,7 @@ pub fn queue_bind(channel: u16, queue_name: String, exchange_name: String, routi
         AMQPValue::SimpleString(exchange_name),
         AMQPValue::SimpleString(routing_key),
         AMQPValue::U8(0), // xxxxxxx, nowait
-        AMQPValue::FieldTable(Box::new(vec![]))
+        AMQPValue::EmptyFieldTable
     ];
 
     MethodFrame {
@@ -463,7 +475,7 @@ pub fn queue_declare(channel: u16, queue_name: String) -> MethodFrame {
         AMQPValue::U16(0),
         AMQPValue::SimpleString(queue_name),
         AMQPValue::U8(0), // xxx nowait, autodelete, exclusive, durable, passive
-        AMQPValue::FieldTable(Box::new(vec![]))
+        AMQPValue::EmptyFieldTable
     ];
 
     MethodFrame {
