@@ -39,9 +39,6 @@ impl Decoder for AMQPCodec {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        //println!("Decode remaining {}", src.remaining());
-        //dump(&src);
-
         if src.len() < 8 {
             Ok(None)
         } else {

@@ -1,16 +1,17 @@
 use bencher::Bencher;
 use bytes::BytesMut;
 use ironmq_codec::frame::{AMQPFieldValue, AMQPFrame, AMQPValue, MethodFrame};
+use std::collections::HashMap;
 use tokio_util::codec::Encoder;
 
 fn generate_frame() -> AMQPFrame {
-    let mut sub_fields = Vec::<(String, AMQPFieldValue)>::new();
-    sub_fields.push(("another long string".into(), AMQPFieldValue::LongString("the value".into())));
+    let mut sub_fields = HashMap::<String, AMQPFieldValue>::new();
+    sub_fields.insert("another long string".into(), AMQPFieldValue::LongString("the value".into()));
 
-    let mut fields = Vec::<(String, AMQPFieldValue)>::new();
-    fields.push(("long string".into(), AMQPFieldValue::LongString("A long string".into())));
-    fields.push(("bool value".into(), AMQPFieldValue::Bool(true)));
-    fields.push(("".into(), AMQPFieldValue::FieldTable(Box::new(sub_fields))));
+    let mut fields = HashMap::<String, AMQPFieldValue>::new();
+    fields.insert("long string".into(), AMQPFieldValue::LongString("A long string".into()));
+    fields.insert("bool value".into(), AMQPFieldValue::Bool(true));
+    fields.insert("".into(), AMQPFieldValue::FieldTable(Box::new(sub_fields)));
 
     let args = vec![
         AMQPValue::U16(4000),

@@ -8,19 +8,22 @@
 
 use crate::Result;
 use ironmq_codec::frame;
-use ironmq_codec::frame::{MethodFrame};
+use ironmq_codec::frame::{AMQPFieldValue, MethodFrame};
 use log::{error, info};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub(crate) struct ClientState {
-    pub(crate) state: Phase
+    pub(crate) state: Phase,
+    pub(crate) username: String,
+    pub(crate) password: String
 }
 
 #[derive(Debug)]
 pub(crate) enum Phase {
     Uninitialized,
     Connected,
-//    Authenticated,
+    Authenticated,
 //    Closing
 }
 
@@ -45,12 +48,21 @@ pub(crate) fn connection_start(_cs: &mut ClientState, _f: MethodFrame) -> Result
     Ok(None)
 }
 
-pub(crate) fn connection_start_ok(_cs: &mut ClientState) -> Result<Option<MethodFrame>> {
-    Ok(Some(frame::connection_start_ok(0)))
+pub(crate) fn connection_start_ok(cs: &mut ClientState) -> Result<Option<MethodFrame>> {
+    let mut caps = HashMap::<String, AMQPFieldValue>::new();
+
+    caps.insert("authentication_failure_on_close".into(), AMQPFieldValue::Bool(true));
+
+    //capabilities.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
+    //capabilities.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
+    //capabilities.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
+    //capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
+
+    Ok(Some(frame::connection_start_ok(&cs.username, &cs.password, caps)))
 }
 
 pub(crate) fn connection_tune(cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {
-    cs.state = Phase::Connected;
+    cs.state = Phase::Authenticated;
     // TODO how to handle Error frames?
     Ok(Some(frame::connection_tune_ok(0)))
 }

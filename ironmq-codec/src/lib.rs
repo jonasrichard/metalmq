@@ -17,7 +17,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Error struct used by the crate.
 #[derive(Debug)]
-pub(crate) struct FrameError {
+pub struct FrameError {
     pub code: u16,
     pub message: String
 }
@@ -34,9 +34,11 @@ impl std::error::Error for FrameError {
 /// Shorthand for making errors with error code and error message.
 ///
 /// ```no_run
-/// use crate::frame_error;
+/// use ironmq_codec::frame_error;
+/// use ironmq_codec::FrameError;
+/// use ironmq_codec::frame::AMQPValue;
 ///
-/// fn as_string(val: AMQPValue) -> Result<String> {
+/// fn as_string(val: AMQPValue) -> Result<String, Box<dyn std::error::Error>> {
 ///     if let AMQPValue::SimpleString(s) = val {
 ///         return Ok(s.clone())
 ///     }
@@ -47,9 +49,9 @@ impl std::error::Error for FrameError {
 #[macro_export]
 macro_rules! frame_error {
     ($code:expr, $message:expr) => {
-        Err(Box::new(crate::FrameError {
+        ::std::result::Result::Err(Box::new($crate::FrameError {
             code: $code,
-            message: String::from($message)
+            message: ::std::string::String::from($message)
         }))
     }
 }

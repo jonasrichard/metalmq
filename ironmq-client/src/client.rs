@@ -62,7 +62,9 @@ async fn create_connection(url: String) -> Result<Box<Connection>> {
 async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
     let mut client_state = ClientState{
-        state: client_sm::Phase::Uninitialized
+        state: client_sm::Phase::Uninitialized,
+        username: "guest".into(),
+        password: "guest".into()
     };
     let mut feedback: HashMap<u16, oneshot::Sender<()>> = HashMap::new();
 

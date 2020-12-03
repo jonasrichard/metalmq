@@ -84,6 +84,9 @@ pub enum AMQPType {
     FieldTable
 }
 
+/// Type alias for inner type of field value.
+type FieldTable = HashMap<String, AMQPFieldValue>;
+
 #[derive(Clone, Debug)]
 pub enum AMQPValue {
 //    Bool(bool),
@@ -93,7 +96,7 @@ pub enum AMQPValue {
     SimpleString(String),
     LongString(String),
     EmptyFieldTable,
-    FieldTable(Box<HashMap<String, AMQPFieldValue>>)
+    FieldTable(Box<FieldTable>)
 }
 
 #[derive(Clone, Debug)]
@@ -102,7 +105,7 @@ pub enum AMQPFieldValue {
 //    SimpleString(String),
     LongString(String),
     EmptyFieldTable,
-    FieldTable(Box<HashMap<String, AMQPFieldValue>>)
+    FieldTable(Box<FieldTable>)
 }
 
 macro_rules! t_u8 { () => { AMQPType::U8 } }
@@ -227,7 +230,7 @@ pub fn arg_as_u32(args: Vec<AMQPValue>, index: usize) -> Result<u32> {
     frame_error!(4, "Arg index out of bound")
 }
 
-pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<HashMap<String, AMQPFieldValue>> {
+pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<FieldTable> {
     if let Some(arg) = args.get(index) {
         if let AMQPValue::FieldTable(v) = arg {
             return Ok(*v.clone())
@@ -239,7 +242,7 @@ pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<HashMap<
     frame_error!(4, "Arg index out of bound")
 }
 
-pub fn get_string(ft: HashMap<String, AMQPFieldValue>, name: String) -> Result<String> {
+pub fn get_string(ft: FieldTable, name: String) -> Result<String> {
     if let Some(value) = ft.get(&name) {
         if let AMQPFieldValue::LongString(s) = value {
             return Ok(s.clone())
@@ -249,7 +252,7 @@ pub fn get_string(ft: HashMap<String, AMQPFieldValue>, name: String) -> Result<S
     frame_error!(6, "Cannot convert field value to string")
 }
 
-pub fn get_bool(ft: HashMap<String, AMQPFieldValue>, name: String) -> Result<bool> {
+pub fn get_bool(ft: FieldTable, name: String) -> Result<bool> {
     if let Some(value) = ft.get(&name) {
         if let AMQPFieldValue::Bool(v) = value {
             return Ok(*v)
@@ -260,7 +263,7 @@ pub fn get_bool(ft: HashMap<String, AMQPFieldValue>, name: String) -> Result<boo
 }
 
 pub fn connection_start(channel: u16) -> MethodFrame {
-    let mut capabilities = HashMap::<String, AMQPFieldValue>::new();
+    let mut capabilities = FieldTable::new();
 
     capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("exchange_exchange_bindings".into(), AMQPFieldValue::Bool(true));
@@ -272,7 +275,7 @@ pub fn connection_start(channel: u16) -> MethodFrame {
     capabilities.insert("per_consumer_qos".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("direct_reply_to".into(), AMQPFieldValue::Bool(true));
 
-    let mut server_properties = HashMap::<String, AMQPFieldValue>::new();
+    let mut server_properties = FieldTable::new();
 
     server_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
     server_properties.insert("product".into(), AMQPFieldValue::LongString("IronMQ server".into()));
@@ -293,24 +296,21 @@ pub fn connection_start(channel: u16) -> MethodFrame {
     }
 }
 
-pub fn connection_start_ok(channel: u16) -> MethodFrame {
-    let mut capabilities = HashMap::<String, AMQPFieldValue>::new();
-
-    capabilities.insert("authentication_failure_on_close".into(), AMQPFieldValue::Bool(true));
-    capabilities.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
-    capabilities.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
-    capabilities.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
-    capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
-
-    let mut client_properties = HashMap::<String, AMQPFieldValue>::new();
+// TODO here will be an Authentication enum with the different possibilities
+pub fn connection_start_ok(username: &str, password: &str, capabilities: FieldTable) -> MethodFrame {
+    let mut client_properties = FieldTable::new();
 
     client_properties.insert("product".into(), AMQPFieldValue::LongString("ironmq-client".into()));
     client_properties.insert("platform".into(), AMQPFieldValue::LongString("Rust".into()));
     client_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
+    // TODO get the version from the build vars or an external file
     client_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
-    let mut auth = Vec::new();
-    auth.extend_from_slice(b"\x00guest\x00guest");
+    let mut auth = Vec::<u8>::new();
+    auth.push(0x00);
+    auth.extend_from_slice(username.as_bytes());
+    auth.push(0x00);
+    auth.extend_from_slice(password.as_bytes());
 
     let auth_string = String::from_utf8(auth).unwrap();
 
@@ -322,7 +322,7 @@ pub fn connection_start_ok(channel: u16) -> MethodFrame {
     ];
 
     MethodFrame {
-        channel: channel,
+        channel: 0,
         class_method: CONNECTION_START_OK,
         args: args
     }
