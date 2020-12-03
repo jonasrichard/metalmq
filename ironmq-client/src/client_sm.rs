@@ -118,7 +118,7 @@ pub(crate) fn queue_declare_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result
 }
 
 pub(crate) fn queue_bind(_cs: &mut ClientState, args: QueueBindArgs) -> Result<Option<MethodFrame>> {
-    Ok(Some(frame::queue_bind(args.channel, args.exchange_name, args.queue_name, args.routing_key)))
+    Ok(Some(frame::queue_bind(args.channel, args.queue_name, args.exchange_name, args.routing_key)))
 }
 
 pub(crate) fn queue_bind_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result<Option<MethodFrame>> {

@@ -84,6 +84,8 @@ pub async fn main() -> Result<()> {
             client::queue_declare(&connection, 1, "queue-test").await?;
             client::queue_bind(&connection, 1, "queue-test", "test", "").await?;
 
+            client::basic_publish(&connection, 1, "test".into(), "no-key".into(), "Hey man".into()).await?;
+
             client::close(&connection).await?
         },
         Err(e) =>

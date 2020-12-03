@@ -6,6 +6,7 @@ use tokio_util::codec::{Decoder, Encoder};
 const FRAME_METHOD_FRAME: u8 = 0x01;
 const FRAME_CONTENT_HEADER: u8 = 0x02;
 const FRAME_CONTENT_BODY: u8 = 0x03;
+const FRAME_HEARTBEAT: u8 = 0x08;
 const FRAME_AMQP_VERSION: u8 = 0x41;
 
 pub struct AMQPCodec {
@@ -27,7 +28,10 @@ impl Encoder<AMQPFrame> for AMQPCodec {
                 encode_content_header_frame(&mut buf, *header_frame),
 
             AMQPFrame::ContentBody(body_frame) =>
-                encode_content_body_frame(&mut buf, body_frame)
+                encode_content_body_frame(&mut buf, body_frame),
+
+            AMQPFrame::Heartbeat(channel) =>
+                encode_heartbeat_frame(&mut buf, channel)
         }
 
         Ok(())
@@ -80,6 +84,15 @@ impl Decoder for AMQPCodec {
                     }));
 
                     Ok(Some(frame))
+                },
+                FRAME_HEARTBEAT => {
+                    let channel = src.get_u16();
+                    let len = src.get_u32();
+                    let _ = src.split_to(len as usize);
+
+                    let _frame_separator = src.get_u8();
+
+                    Ok(Some(AMQPFrame::Heartbeat(channel)))
                 },
                 FRAME_AMQP_VERSION => {
                     let mut head = [0u8; 7];
@@ -258,6 +271,12 @@ fn encode_content_body_frame(buf: &mut BytesMut, bf: Box<ContentBodyFrame>) {
 
     buf.put_u32(fr_buf.len() as u32);
     buf.put(fr_buf);
+    buf.put_u8(0xCE);
+}
+
+fn encode_heartbeat_frame(buf: &mut BytesMut, channel: Channel) {
+    buf.put_u16(channel);
+    buf.put_u32(0);
     buf.put_u8(0xCE);
 }
 

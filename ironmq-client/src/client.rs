@@ -16,7 +16,7 @@ use tokio_util::codec::Framed;
 #[derive(Debug)]
 enum Param {
     Command(Command),
-    Frame(AMQPFrame)
+    SendContent(u16, String, String, String)
 }
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
@@ -101,15 +101,17 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                 }
             }
             Some(request) = receiver.recv() => {
-                if let Ok(Some(frame_to_send)) = handle_client_request(request.param, &mut client_state) {
-                    debug!("Response frame {:?}", frame_to_send);
+                if let Ok(Some(frames_to_send)) = handle_client_request(request.param, &mut client_state) {
+                    debug!("Response frame {:?}", frames_to_send);
 
-                    let channel = channel(&frame_to_send);
+                    let channel = frames_to_send.first().map(|f| channel(f));
 
-                    sink.send(frame_to_send).await?;
+                    for frame in frames_to_send {
+                        sink.send(frame).await?;
+                    }
 
                     if let Some(response_channel) = request.response {
-                        if let Some(ch) = channel {
+                        if let Some(Some(ch)) = channel {
                             feedback.insert(ch, response_channel);
                         }
                     }
@@ -139,17 +141,25 @@ fn handle_server_frame(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<
         AMQPFrame::ContentHeader(_) =>
             Ok(None),
         AMQPFrame::ContentBody(_) =>
+            Ok(None),
+        AMQPFrame::Heartbeat(_) =>
             Ok(None)
     }
 }
 
-fn handle_client_request(p: Param, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+fn handle_client_request(p: Param, mut cs: &mut ClientState) -> Result<Option<Vec<AMQPFrame>>> {
     match p {
         Param::Command(c) =>
-            handle_command(c, &mut cs),
-        Param::Frame(_) =>
-            // is it needed?
-            Ok(None)
+            handle_command(c, &mut cs).map(|o| o.map(|f| vec![f])),
+        Param::SendContent(channel, exchange, routing_key, payload) => {
+            let bytes = payload.as_bytes();
+
+            Ok(Some(vec![
+                AMQPFrame::Method(Box::new(frame::basic_publish(channel, exchange, routing_key))),
+                AMQPFrame::ContentHeader(Box::new(frame::content_header(channel, bytes.len() as u64))),
+                AMQPFrame::ContentBody(Box::new(frame::content_body(channel, bytes)))
+            ]))
+        }
     }
 }
 
@@ -323,20 +333,8 @@ pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &s
 
 pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: String,
                            routing_key: String, payload: String) -> Result<()> {
-    let bytes = payload.as_bytes();
-
     connection.server_channel.send(Request {
-        param: Param::Frame(frame::basic_publish(channel, exchange_name, routing_key).into()),
-        response: None
-    }).await?;
-
-    connection.server_channel.send(Request {
-        param: Param::Frame(frame::content_header(channel, bytes.len() as u64).into()),
-        response: None
-    }).await?;
-
-    connection.server_channel.send(Request {
-        param: Param::Frame(frame::content_body(channel, bytes).into()),
+        param: Param::SendContent(channel, exchange_name, routing_key, payload),
         response: None
     }).await?;
 

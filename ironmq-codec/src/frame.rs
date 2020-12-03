@@ -48,7 +48,8 @@ pub enum AMQPFrame {
     AMQPHeader,
     Method(Box<MethodFrame>),
     ContentHeader(Box<ContentHeaderFrame>),
-    ContentBody(Box<ContentBodyFrame>)
+    ContentBody(Box<ContentBodyFrame>),
+    Heartbeat(Channel)
 }
 
 #[derive(Clone, Debug)]
