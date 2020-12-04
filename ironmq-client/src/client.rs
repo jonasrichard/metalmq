@@ -1,10 +1,10 @@
-use crate::{client_error, Result};
+use crate::{client_error, ConsumeCallback, Result};
 use crate::client_sm;
 use crate::client_sm::{ClientState, Command};
 use futures::SinkExt;
 use futures::stream::StreamExt;
 use ironmq_codec::codec::AMQPCodec;
-use ironmq_codec::frame::{AMQPFrame, MethodFrame};
+use ironmq_codec::frame::{AMQPFieldValue, AMQPFrame, MethodFrame};
 use ironmq_codec::frame;
 use log::{debug, error};
 use std::collections::HashMap;
@@ -61,11 +61,7 @@ async fn create_connection(url: String) -> Result<Box<Connection>> {
 
 async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec{}).split();
-    let mut client_state = ClientState{
-        state: client_sm::Phase::Uninitialized,
-        username: "guest".into(),
-        password: "guest".into()
-    };
+    let mut client_state = client_sm::client_state();
     let mut feedback: HashMap<u16, oneshot::Sender<()>> = HashMap::new();
 
     loop {
@@ -137,11 +133,12 @@ fn handle_server_frame(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<
         AMQPFrame::AMQPHeader =>
             Ok(None),
         AMQPFrame::Method(mf) =>
+            // TODO copy happens? check with a small poc
             handle_server_method_frame(*mf, &mut cs),
-        AMQPFrame::ContentHeader(_) =>
-            Ok(None),
-        AMQPFrame::ContentBody(_) =>
-            Ok(None),
+        AMQPFrame::ContentHeader(ch) =>
+            client_sm::content_header(&mut cs, *ch),
+        AMQPFrame::ContentBody(cb) =>
+            client_sm::content_body(&mut cs, *cb),
         AMQPFrame::Heartbeat(_) =>
             Ok(None)
     }
@@ -172,6 +169,8 @@ fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Resu
             client_sm::connection_tune(&mut cs, mf),
         frame::CONNECTION_OPEN_OK =>
             client_sm::connection_open_ok(&mut cs, mf),
+        frame::CONNECTION_CLOSE_OK =>
+            client_sm::connection_close_ok(&mut cs, mf),
         frame::CHANNEL_OPEN_OK =>
             client_sm::channel_open_ok(&mut cs, mf),
         frame::CHANNEL_CLOSE =>
@@ -182,8 +181,11 @@ fn handle_server_method_frame(mf: MethodFrame, mut cs: &mut ClientState) -> Resu
             client_sm::queue_declare_ok(&mut cs, mf),
         frame::QUEUE_BIND_OK =>
             client_sm::queue_bind_ok(&mut cs, mf),
-        frame::CONNECTION_CLOSE_OK =>
-            client_sm::connection_close_ok(&mut cs, mf),
+        frame::BASIC_CONSUME_OK =>
+            client_sm::basic_consume_ok(&mut cs, mf),
+        frame::BASIC_DELIVER =>
+            // TODO check if client is consuming messages from that channel + consumer tag
+            client_sm::basic_deliver(&mut cs, mf),
         _ =>
             unimplemented!("{:?}", mf)
     };
@@ -219,6 +221,8 @@ fn handle_command(cmd: Command, mut cs: &mut ClientState) -> Result<Option<AMQPF
             client_sm::queue_declare(&mut cs, *args),
         Command::QueueBind(args) =>
             client_sm::queue_bind(&mut cs, *args),
+        Command::BasicConsume(args) =>
+            client_sm::basic_consume(&mut cs, *args)
     };
 
     debug!("Result = {:?}", result);
@@ -331,10 +335,29 @@ pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &s
     Ok(())
 }
 
-pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: String,
-                           routing_key: String, payload: String) -> Result<()> {
+pub async fn basic_consume(connection: &Connection, channel: u16, queue_name: String,
+                           consumer_tag: String, callback: ConsumeCallback) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let command = client_sm::BasicConsumeArgs {
+        channel: channel,
+        queue_name: queue_name.into(),
+        consumer_tag: consumer_tag.into(),
+        no_local: false,
+        no_ack: false,
+        exclusive: false,
+        no_wait: false,
+        arguments: HashMap::<String, AMQPFieldValue>::new(),
+        callback: callback
+    };
+
+    sync_call(&connection, Command::BasicConsume(Box::new(command))).await?;
+
+    Ok(())
+}
+
+pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: &str,
+                           routing_key: &str, payload: String) -> Result<()> {
     connection.server_channel.send(Request {
-        param: Param::SendContent(channel, exchange_name, routing_key, payload),
+        param: Param::SendContent(channel, exchange_name.into(), routing_key.into(), payload),
         response: None
     }).await?;
 

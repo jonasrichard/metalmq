@@ -1,5 +1,6 @@
 use crate::{frame_error, Result};
 use std::collections::HashMap;
+use std::fmt;
 
 pub const CONNECTION_START: u32 = 0x000A000A;
 pub const CONNECTION_START_OK: u32 = 0x000A000B;
@@ -22,7 +23,10 @@ pub const QUEUE_DECLARE_OK: u32 = 0x0032000B;
 pub const QUEUE_BIND: u32 = 0x00320014;
 pub const QUEUE_BIND_OK: u32 = 0x00320015;
 
+pub const BASIC_CONSUME: u32 = 0x003C0014;
+pub const BASIC_CONSUME_OK: u32 = 0x003C0015;
 pub const BASIC_PUBLISH: u32 = 0x003C0028;
+pub const BASIC_DELIVER: u32 = 0x003C003C;
 
 lazy_static! {
     static ref FROM_SERVER: Vec<u32> = vec![
@@ -34,7 +38,8 @@ lazy_static! {
         CHANNEL_CLOSE,
         EXCHANGE_DECLARE_OK,
         QUEUE_DECLARE_OK,
-        QUEUE_BIND_OK
+        QUEUE_BIND_OK,
+        BASIC_CONSUME_OK
     ];
 }
 
@@ -52,11 +57,18 @@ pub enum AMQPFrame {
     Heartbeat(Channel)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MethodFrame {
     pub channel: Channel,
     pub class_method: ClassMethod,
     pub args: Vec<AMQPValue>
+}
+
+impl fmt::Debug for MethodFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MethodFrame {{ channel={}, class_method={:08X}, args={:?} }}", &self.channel,
+            &self.class_method, &self.args)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +92,7 @@ pub enum AMQPType {
     U8,
     U16,
     U32,
+    U64,
     SimpleString,
     LongString,
     FieldTable
@@ -94,6 +107,7 @@ pub enum AMQPValue {
     U8(u8),
     U16(u16),
     U32(u32),
+    U64(u64),
     SimpleString(String),
     LongString(String),
     EmptyFieldTable,
@@ -112,6 +126,7 @@ pub enum AMQPFieldValue {
 macro_rules! t_u8 { () => { AMQPType::U8 } }
 macro_rules! t_u16 { () => { AMQPType::U16 } }
 macro_rules! t_u32 { () => { AMQPType::U32 } }
+macro_rules! t_u64 { () => { AMQPType::U64 } }
 macro_rules! t_ls{ () => { AMQPType::LongString } }
 macro_rules! t_ss { () => { AMQPType::SimpleString } }
 macro_rules! t_ft { () => { AMQPType::FieldTable } }
@@ -154,8 +169,14 @@ pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
             vec![t_u16!(), t_ss!(), t_u8!(), t_ft!()],
         QUEUE_DECLARE_OK =>
             vec![t_ss!(), t_u32!(), t_u32!()],
+        BASIC_CONSUME =>
+            vec![t_u16!(), t_ss!(), t_ss!(), t_u8!(), t_ft!()],
+        BASIC_CONSUME_OK =>
+            vec![t_ss!()],
         BASIC_PUBLISH =>
             vec![t_u16!(), t_ss!(), t_ss!(), t_u8!()],
+        BASIC_DELIVER =>
+            vec![t_ss!(), t_u64!(), t_u8!(), t_ss!(), t_ss!()],
         mc =>
             panic!("Unsupported class+method {:08X}", mc)
     }
@@ -226,6 +247,18 @@ pub fn arg_as_u32(args: Vec<AMQPValue>, index: usize) -> Result<u32> {
         }
 
         return frame_error!(3, "Cannot convert arg to u32")
+    }
+
+    frame_error!(4, "Arg index out of bound")
+}
+
+pub fn arg_as_u64(args: Vec<AMQPValue>, index: usize) -> Result<u64> {
+    if let Some(arg) = args.get(index) {
+        if let AMQPValue::U64(v) = arg {
+            return Ok(*v)
+        }
+
+        return frame_error!(3, "Cannot convert arg to u64")
     }
 
     frame_error!(4, "Arg index out of bound")
@@ -497,6 +530,45 @@ pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, co
         channel: channel,
         class_method: QUEUE_DECLARE_OK,
         args: args
+    }
+}
+
+pub fn basic_consume(channel: u16, queue_name: String, consumer_tag: String) -> MethodFrame {
+    MethodFrame {
+        channel: channel,
+        class_method: BASIC_CONSUME,
+        args: vec![
+            AMQPValue::U16(0),
+            AMQPValue::SimpleString(queue_name),
+            AMQPValue::SimpleString(consumer_tag),
+            AMQPValue::U8(0x02),  // no ack = true
+            AMQPValue::EmptyFieldTable
+        ]
+    }
+}
+
+pub fn basic_consume_ok(channel: u16, consumer_tag: String) -> MethodFrame {
+    MethodFrame {
+        channel: channel,
+        class_method: BASIC_CONSUME_OK,
+        args: vec![
+            AMQPValue::SimpleString(consumer_tag)
+        ]
+    }
+}
+
+pub fn basic_deliver(channel: u16, consumer_tag: String, delivery_tag: u64, flags: u8,
+                     exchange_name: String, queue_name: String) -> MethodFrame {
+    MethodFrame {
+        channel: channel,
+        class_method: BASIC_DELIVER,
+        args: vec![
+            AMQPValue::SimpleString(consumer_tag),
+            AMQPValue::U64(delivery_tag),
+            AMQPValue::U8(flags),
+            AMQPValue::SimpleString(exchange_name),
+            AMQPValue::SimpleString(queue_name)
+        ]
     }
 }
 

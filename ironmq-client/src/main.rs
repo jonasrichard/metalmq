@@ -7,9 +7,9 @@ use std::fmt;
 use std::io::Write;
 use std::time::Instant;
 
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
-
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub struct ClientError {
     pub code: u16,
@@ -47,6 +47,9 @@ macro_rules! client_error {
     }
 }
 
+type ConsumeHandler = fn(String) -> bool;
+type ConsumeCallback = Box<dyn Fn(String) -> String + Send + Sync>;
+
 #[allow(dead_code)]
 async fn publish_bench(connection: &client::Connection) -> Result<()> {
     let now = Instant::now();
@@ -62,6 +65,11 @@ async fn publish_bench(connection: &client::Connection) -> Result<()> {
     Ok(())
 }
 
+fn consumer_handler(s: String) -> String {
+    info!("Handling content {}", s);
+    "".into()
+}
+
 #[tokio::main]
 pub async fn main() -> Result<()> {
     let mut builder = Builder::from_default_env();
@@ -74,17 +82,26 @@ pub async fn main() -> Result<()> {
         })
         .init();
 
+    let exchange = "test";
+    let queue = "queue-test";
+    let consumer_tag = "ctag1";
+
     match client::connect("127.0.0.1:5672".into()).await {
         Ok(connection) => {
             info!("Connection is opened");
             client::open(&connection, "/".into()).await?;
             client::channel_open(&connection, 1).await?;
 
-            client::exchange_declare(&connection, 1, "test", "fanout").await?;
-            client::queue_declare(&connection, 1, "queue-test").await?;
-            client::queue_bind(&connection, 1, "queue-test", "test", "").await?;
+            client::exchange_declare(&connection, 1, exchange, "fanout").await?;
+            client::queue_declare(&connection, 1, queue).await?;
+            client::queue_bind(&connection, 1, queue, exchange, "").await?;
 
-            client::basic_publish(&connection, 1, "test".into(), "no-key".into(), "Hey man".into()).await?;
+            client::basic_publish(&connection, 1, exchange, "no-key", "Hey man".into()).await?;
+
+            client::basic_consume(&connection, 1, queue.into(), consumer_tag.into(), Box::new(consumer_handler)).await?;
+
+            let (_tx, rx) = tokio::sync::oneshot::channel::<()>();
+            rx.await;
 
             client::close(&connection).await?
         },

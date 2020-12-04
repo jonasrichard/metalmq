@@ -77,6 +77,7 @@ async fn handle_client(socket: TcpStream) -> Result<()> {
                     AMQPFrame::ContentBody(cb) =>
                         info!("Content {}", String::from_utf8(cb.body.to_vec()).unwrap_or_default()),
                     AMQPFrame::Heartbeat(ch) =>
+                        // TODO send back a heartbeat
                         info!("Heartbeat {}", ch)
                 }
             },

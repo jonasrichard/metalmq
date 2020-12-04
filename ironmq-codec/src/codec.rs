@@ -126,6 +126,8 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
                 args.push(AMQPValue::U16(src.get_u16())),
             AMQPType::U32 =>
                 args.push(AMQPValue::U32(src.get_u32())),
+            AMQPType::U64 =>
+                args.push(AMQPValue::U64(src.get_u64())),
             AMQPType::SimpleString =>
                 args.push(AMQPValue::SimpleString(decode_short_string(&mut src))),
             AMQPType::LongString =>
@@ -148,8 +150,6 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
 }
 
 fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
-    dump(&src);
-
     let class_id = src.get_u16();
     let weight = src.get_u16();
     let body_size = src.get_u64();
@@ -288,6 +288,8 @@ fn encode_value(mut buf: &mut BytesMut, value: AMQPValue) {
             buf.put_u16(v),
         AMQPValue::U32(v) =>
             buf.put_u32(v),
+        AMQPValue::U64(v) =>
+            buf.put_u64(v),
         AMQPValue::SimpleString(v) =>
             encode_short_string(&mut buf, v),
         AMQPValue::LongString(v) =>
