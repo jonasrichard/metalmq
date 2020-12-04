@@ -151,6 +151,15 @@ fn handle_client_request(p: Param, mut cs: &mut ClientState) -> Result<Option<Ve
         Param::SendContent(channel, exchange, routing_key, payload) => {
             let bytes = payload.as_bytes();
 
+            let args = client_sm::BasicPublishArgs {
+                channel: channel,
+                exchange_name: exchange.clone(),
+                routing_key: routing_key.clone(),
+                mandatory: false
+            };
+
+            client_sm::basic_publish(&mut cs, args);
+
             Ok(Some(vec![
                 AMQPFrame::Method(Box::new(frame::basic_publish(channel, exchange, routing_key))),
                 AMQPFrame::ContentHeader(Box::new(frame::content_header(channel, bytes.len() as u64))),
