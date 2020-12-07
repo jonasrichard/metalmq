@@ -12,6 +12,8 @@ const FRAME_AMQP_VERSION: u8 = 0x41;
 pub struct AMQPCodec {
 }
 
+// TODO change type of encoder, decoder, they should deal with Vec<AMQPFrame>
+
 impl Encoder<AMQPFrame> for AMQPCodec {
     type Error = std::io::Error;
 
