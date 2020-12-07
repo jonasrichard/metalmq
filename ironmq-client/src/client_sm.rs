@@ -164,12 +164,14 @@ pub(crate) fn basic_consume_ok(_cs: &mut ClientState, _f: MethodFrame) -> Result
     Ok(None)
 }
 
-pub(crate) fn basic_deliver(cs: &mut ClientState, f: MethodFrame) -> Result<Option<MethodFrame>> {
+pub(crate) fn basic_deliver(cs: &mut ClientState, mut f: MethodFrame) -> Result<Option<MethodFrame>> {
     // TODO validate consumer tag and channel, probably we need to send an error if we get a
     // content but we are not consuming
+    let consumer_tag = frame::value_as_string(f.args.remove(0))?;
+
     let content = DeliveredContent {
         channel: f.channel,
-        consumer_tag: frame::arg_as_string(f.args, 0)?,
+        consumer_tag: consumer_tag,
         header: None
     };
 

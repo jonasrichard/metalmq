@@ -48,7 +48,8 @@ pub type ClassMethod = u32;
 pub type ClassId = u16;
 pub type Weight = u16;
 
-#[derive(Clone, Debug)]
+// #[derive(Clone)]
+#[derive(Debug)]
 pub enum AMQPFrame {
     AMQPHeader,
     Method(Box<MethodFrame>),
@@ -57,7 +58,7 @@ pub enum AMQPFrame {
     Heartbeat(Channel)
 }
 
-#[derive(Clone)]
+//#[derive(Clone)]
 pub struct MethodFrame {
     pub channel: Channel,
     pub class_method: ClassMethod,
@@ -71,7 +72,8 @@ impl fmt::Debug for MethodFrame {
     }
 }
 
-#[derive(Clone, Debug)]
+//#[derive(Clone)]
+#[derive(Debug)]
 pub struct ContentHeaderFrame {
     pub channel: Channel,
     pub class_id: ClassId,
@@ -81,7 +83,8 @@ pub struct ContentHeaderFrame {
     pub args: Vec<AMQPValue>
 }
 
-#[derive(Clone, Debug)]
+//#[derive(Clone)]
+#[derive(Debug)]
 pub struct ContentBodyFrame {
     pub channel: Channel,
     pub body: Vec<u8>
@@ -101,7 +104,8 @@ pub enum AMQPType {
 /// Type alias for inner type of field value.
 type FieldTable = HashMap<String, AMQPFieldValue>;
 
-#[derive(Clone, Debug)]
+//#[derive(Clone)]
+#[derive(Debug)]
 pub enum AMQPValue {
 //    Bool(bool),
     U8(u8),
@@ -114,7 +118,8 @@ pub enum AMQPValue {
     FieldTable(Box<FieldTable>)
 }
 
-#[derive(Clone, Debug)]
+//#[derive(Clone)]
+#[derive(Debug)]
 pub enum AMQPFieldValue {
     Bool(bool),
 //    SimpleString(String),
@@ -200,20 +205,16 @@ impl From<ContentBodyFrame> for AMQPFrame {
     }
 }
 
-/// Convenience function for getting string value from argument list.
-pub fn arg_as_string(args: Vec<AMQPValue>, index: usize) -> Result<String> {
-    if let Some(arg) = args.get(index) {
-        if let AMQPValue::SimpleString(s) = arg {
-            return Ok(s.clone())
-        }
-        if let AMQPValue::LongString(s) = arg {
-            return Ok(s.clone())
-        }
-
-        return frame_error!(3, "Cannot convert arg to string")
+// Convenience function for getting string value from an `AMQPValue`.
+pub fn value_as_string(val: AMQPValue) -> Result<String> {
+    match val {
+        AMQPValue::SimpleString(s) =>
+            Ok(s),
+        AMQPValue::LongString(s) =>
+            Ok(s),
+        _ =>
+            frame_error!(3, "Cannot convert to string")
     }
-
-    frame_error!(4, "Arg index out of bound")
 }
 
 pub fn arg_as_u8(args: Vec<AMQPValue>, index: usize) -> Result<u8> {
@@ -264,27 +265,27 @@ pub fn arg_as_u64(args: Vec<AMQPValue>, index: usize) -> Result<u64> {
     frame_error!(4, "Arg index out of bound")
 }
 
-pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<FieldTable> {
-    if let Some(arg) = args.get(index) {
-        if let AMQPValue::FieldTable(v) = arg {
-            return Ok(*v.clone())
-        }
+//pub fn arg_as_field_table(args: Vec<AMQPValue>, index: usize) -> Result<FieldTable> {
+//    if let Some(arg) = args.get(index) {
+//        if let AMQPValue::FieldTable(v) = arg {
+//            return Ok(**v)
+//        }
+//
+//        return frame_error!(3, "Cannot convert arg to field table")
+//    }
+//
+//    frame_error!(4, "Arg index out of bound")
+//}
 
-        return frame_error!(3, "Cannot convert arg to field table")
-    }
-
-    frame_error!(4, "Arg index out of bound")
-}
-
-pub fn get_string(ft: FieldTable, name: String) -> Result<String> {
-    if let Some(value) = ft.get(&name) {
-        if let AMQPFieldValue::LongString(s) = value {
-            return Ok(s.clone())
-        }
-    }
-
-    frame_error!(6, "Cannot convert field value to string")
-}
+//pub fn get_string(ft: FieldTable, name: String) -> Result<String> {
+//    if let Some(value) = ft.get(&name) {
+//        if let AMQPFieldValue::LongString(s) = value {
+//            return Ok(s.clone())
+//        }
+//    }
+//
+//    frame_error!(6, "Cannot convert field value to string")
+//}
 
 pub fn get_bool(ft: FieldTable, name: String) -> Result<bool> {
     if let Some(value) = ft.get(&name) {
