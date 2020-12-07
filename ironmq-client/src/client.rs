@@ -344,8 +344,11 @@ pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &s
     Ok(())
 }
 
-pub async fn basic_consume(connection: &Connection, channel: u16, queue_name: String,
-                           consumer_tag: String, callback: ConsumeCallback) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn basic_consume<'a>(connection: &Connection,
+                               channel: u16,
+                               queue_name: &'a str,
+                               consumer_tag: &'a str,
+                               cb: fn(String) -> String) -> Result<()> {
     let command = client_sm::BasicConsumeArgs {
         channel: channel,
         queue_name: queue_name.into(),
@@ -355,7 +358,7 @@ pub async fn basic_consume(connection: &Connection, channel: u16, queue_name: St
         exclusive: false,
         no_wait: false,
         arguments: HashMap::<String, AMQPFieldValue>::new(),
-        callback: callback
+        callback: Box::new(cb)
     };
 
     sync_call(&connection, Command::BasicConsume(Box::new(command))).await?;

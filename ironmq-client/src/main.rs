@@ -98,7 +98,7 @@ pub async fn main() -> Result<()> {
 
             client::basic_publish(&connection, 1, exchange, "no-key", "Hey man".into()).await?;
 
-            client::basic_consume(&connection, 1, queue.into(), consumer_tag.into(), Box::new(consumer_handler)).await?;
+            client::basic_consume(&connection, 1, queue, consumer_tag, consumer_handler).await?;
 
             let (_tx, rx) = tokio::sync::oneshot::channel::<()>();
             rx.await;
