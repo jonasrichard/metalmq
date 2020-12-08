@@ -133,7 +133,7 @@ fn handle_server_frame(f: AMQPFrame, mut cs: &mut dyn Client) -> Result<Option<A
 fn handle_client_request(f: AMQPFrame, mut cs: &mut dyn Client) -> Result<Option<AMQPFrame>> {
     match f {
         AMQPFrame::Method(ch, cm, args) => handle_command(ch, cm, args, &mut cs),
-        _ => Ok(Some(f))
+        _ => Ok(Some(f)),
     }
 }
 
@@ -346,27 +346,26 @@ pub async fn basic_publish(
         })
         .await?;
 
-        Param::SendContent(channel, exchange, routing_key, payload) => {
-            let bytes = payload.as_bytes();
+    //Param::SendContent(channel, exchange, routing_key, payload) => {
+    //    let bytes = payload.as_bytes();
 
-            let args = client_sm::BasicPublishArgs {
-                channel: channel,
-                exchange_name: exchange.clone(),
-                routing_key: routing_key.clone(),
-                mandatory: false,
-            };
+    //    let args = client_sm::BasicPublishArgs {
+    //        channel: channel,
+    //        exchange_name: exchange.clone(),
+    //        routing_key: routing_key.clone(),
+    //        mandatory: false,
+    //    };
 
-            client_sm::basic_publish(&mut cs, args);
+    //    client_sm::basic_publish(&mut cs, args);
 
-            Ok(Some(vec![
-                frame::basic_publish(channel, exchange, routing_key),
-                AMQPFrame::ContentHeader(Box::new(frame::content_header(
-                    channel,
-                    bytes.len() as u64,
-                ))),
-                AMQPFrame::ContentBody(Box::new(frame::content_body(channel, bytes))),
-            ]))
-        }
-    }
+    //    Ok(Some(vec![
+    //        frame::basic_publish(channel, exchange, routing_key),
+    //        AMQPFrame::ContentHeader(Box::new(frame::content_header(
+    //            channel,
+    //            bytes.len() as u64,
+    //        ))),
+    //        AMQPFrame::ContentBody(Box::new(frame::content_body(channel, bytes))),
+    //    ]))
+    //}
     Ok(())
 }
