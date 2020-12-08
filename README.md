@@ -1,5 +1,8 @@
 # IronMQ
 
+[![Crates.io][crates-badge]][crates-url]
+[![Build Status][actions-badge]][actions-url]
+
 [crates-badge]: https://img.shields.io/crates/v/ironmq.svg
 [crates-url]: https://crates.io/crates/ironmq
 [actions-badge]: https://github.com/jonasrichard/ironmq/workflows/CI/badge.svg
