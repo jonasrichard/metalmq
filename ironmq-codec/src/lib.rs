@@ -5,9 +5,6 @@
 pub mod codec;
 pub mod frame;
 
-#[macro_use]
-extern crate lazy_static;
-
 use std::fmt;
 
 /// Type alias for a sync and send error.
@@ -19,7 +16,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct FrameError {
     pub code: u16,
-    pub message: String
+    pub message: String,
 }
 
 impl fmt::Display for FrameError {
@@ -28,8 +25,7 @@ impl fmt::Display for FrameError {
     }
 }
 
-impl std::error::Error for FrameError {
-}
+impl std::error::Error for FrameError {}
 
 /// Shorthand for making errors with error code and error message.
 ///
@@ -51,9 +47,9 @@ macro_rules! frame_error {
     ($code:expr, $message:expr) => {
         ::std::result::Result::Err(Box::new($crate::FrameError {
             code: $code,
-            message: ::std::string::String::from($message)
+            message: ::std::string::String::from($message),
         }))
-    }
+    };
 }
 
 #[cfg(test)]
@@ -61,15 +57,15 @@ mod tests {
     use super::*;
     use bytes::{Buf, BufMut, BytesMut};
     use codec::AMQPCodec;
-    use frame::{AMQPFrame, AMQPValue, MethodFrame};
+    use frame::{AMQPFrame, AMQPValue, MethodFrameArgs};
     use tokio_util::codec::Encoder;
 
     #[test]
     fn encode_header_frame() {
-        let mut encoder = AMQPCodec{};
+        let mut encoder = AMQPCodec {};
         let mut buf = BytesMut::with_capacity(1024);
 
-        let res = encoder.encode(AMQPFrame::AMQPHeader, &mut buf);
+        let res = encoder.encode(AMQPFrame::Header, &mut buf);
 
         assert!(res.is_ok());
 
@@ -83,7 +79,7 @@ mod tests {
 
     #[test]
     fn encode_method_frame() {
-        let mut encoder = AMQPCodec{};
+        let mut encoder = AMQPCodec {};
         let mut buf = BytesMut::with_capacity(1024);
 
         let args = vec![
@@ -91,13 +87,12 @@ mod tests {
             AMQPValue::U16(0x1122),
             AMQPValue::U32(0x55667788),
             AMQPValue::SimpleString("test".into()),
-            AMQPValue::LongString("longtest".into())
+            AMQPValue::LongString("longtest".into()),
         ];
-        let res = encoder.encode(AMQPFrame::Method(Box::new(MethodFrame {
-            channel: 0x0205,
-            class_method: 0x00FF00FE,
-            args: args
-        })) , &mut buf);
+        let res = encoder.encode(
+            AMQPFrame::Method(0x0205, 0x00FF00FE, MethodFrameArgs::Other(Box::new(args))),
+            &mut buf,
+        );
 
         assert!(res.is_ok());
 

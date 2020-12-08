@@ -23,7 +23,7 @@ RUST_LOG=info cargo run
 In order to validate AMQP packages we also need a stable AMQP client implementation which is the `pika`. It uses Python, so one need to install `pipenv` to run that.
 
 ```
-cd client091
+cd ironmq-client
 pipenv run bin/basic_publish.sh
 ```
 
