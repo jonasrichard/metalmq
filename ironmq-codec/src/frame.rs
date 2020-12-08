@@ -43,7 +43,14 @@ pub enum AMQPFrame {
 
 #[derive(Debug)]
 pub enum MethodFrameArgs {
+    ConnectionStart(ConnectionStartArgs),
+    ConnectionStartOk(ConnectionStartOkArgs),
+    ConnectionTune(ConnectionTuneArgs),
+    ConnectionTuneOk(ConnectionTuneOkArgs),
     ConnectionOpen(ConnectionOpenArgs),
+    ConnectionOpenOk,
+    ConnectionClose(ConnectionCloseArgs),
+    ConnectionCloseOk,
     Other(Box<Vec<AMQPValue>>),
 }
 
@@ -99,47 +106,52 @@ pub enum AMQPFieldValue {
     FieldTable(Box<FieldTable>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConnectionStartArgs {
-    version_major: u8,
-    version_minor: u8,
-    capabilities: FieldTable,
-    properties: FieldTable,
-    mechanisms: String,
-    locales: String,
+    pub version_major: u8,
+    pub version_minor: u8,
+    pub capabilities: Option<FieldTable>,
+    pub properties: Option<FieldTable>,
+    pub mechanisms: String,
+    pub locales: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConnectionStartOkArgs {
-    capabilities: FieldTable,
-    properties: FieldTable,
-    mechanism: String,
-    response: String,
-    locale: String,
+    pub capabilities: Option<FieldTable>,
+    pub properties: Option<FieldTable>,
+    pub mechanism: String,
+    pub response: String,
+    pub locale: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConnectionTuneArgs {
-    channel_max: u16,
-    frame_max: u16,
-    heartbeat: u16,
+    pub channel_max: u16,
+    pub frame_max: u32,
+    pub heartbeat: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConnectionTuneOkArgs {
-    channel_max: u16,
-    frame_max: u16,
-    heartbeat: u16,
+    pub channel_max: u16,
+    pub frame_max: u32,
+    pub heartbeat: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConnectionOpenArgs {
     pub virtual_host: String,
     pub insist: bool,
 }
 
-#[derive(Debug)]
-pub struct ConnectionOpenOkArgs {}
+#[derive(Debug, Default)]
+pub struct ConnectionCloseArgs {
+    pub code: u16,
+    pub text: String,
+    pub class_id: u16,
+    pub method_id: u16,
+}
 
 #[derive(Debug)]
 pub struct ChannelOpenArgs {}
@@ -156,7 +168,7 @@ pub struct ExchangeDeclareArgs {
     auto_delete: bool,
     internal: bool,
     no_wait: bool,
-    args: FieldTable,
+    args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
@@ -168,7 +180,7 @@ pub struct ExchangeBindArgs {
     destination: String,
     routing_key: String,
     no_wait: bool,
-    args: FieldTable,
+    args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
@@ -182,7 +194,7 @@ pub struct QueueDeclareArgs {
     exclusive: bool,
     auto_delete: bool,
     no_wait: bool,
-    args: FieldTable,
+    args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
@@ -198,7 +210,7 @@ pub struct QueueBindArgs {
     exchange_name: String,
     routing_key: String,
     no_wait: bool,
-    args: FieldTable,
+    args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
@@ -212,7 +224,7 @@ pub struct BasicConsumeArgs {
     no_ack: bool,
     exclusive: bool,
     no_wait: bool,
-    args: FieldTable,
+    args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
@@ -426,15 +438,6 @@ pub fn connection_tune_ok(channel: u16) -> AMQPFrame {
         CONNECTION_TUNE_OK,
         MethodFrameArgs::Other(Box::new(args)),
     )
-}
-
-impl Default for ConnectionOpenArgs {
-    fn default() -> Self {
-        ConnectionOpenArgs {
-            virtual_host: "/".into(),
-            insist: true,
-        }
-    }
 }
 
 pub fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {

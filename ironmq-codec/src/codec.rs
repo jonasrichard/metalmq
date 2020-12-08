@@ -178,7 +178,14 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class_method = src.get_u32();
 
     let method_frame_args = match class_method {
+        CONNECTION_START => decode_connection_start(&mut src),
+        CONNECTION_START_OK => decode_connection_start_ok(&mut src),
+        CONNECTION_TUNE => decode_connection_tune(&mut src),
+        CONNECTION_TUNE_OK => decode_connection_tune_ok(&mut src),
         CONNECTION_OPEN => decode_connection_open(&mut src),
+        CONNECTION_OPEN_OK => decode_connection_open_ok(&mut src),
+        CONNECTION_CLOSE => decode_connection_close(&mut src),
+        CONNECTION_CLOSE_OK => decode_connection_close_ok(),
         _ => {
             let args_type_list = get_method_frame_args_list(class_method);
 
@@ -210,6 +217,53 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, class_method, method_frame_args)
 }
 
+fn decode_connection_start(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ConnectionStartArgs::default();
+    args.version_major = src.get_u8();
+    args.version_minor = src.get_u8();
+    args.properties = decode_field_table(&mut src);
+    args.mechanisms = decode_long_string(&mut src);
+    args.locales = decode_long_string(&mut src);
+
+    //if let Some(ref table) = args.properties {
+    //    if let Some(AMQPFieldValue::FieldTable(cap)) = table.get("capabilities".into()) {
+    //        args.capabilities = Some(**cap.clone());
+    //    }
+    //}
+
+    MethodFrameArgs::ConnectionStart(args)
+}
+
+fn decode_connection_start_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ConnectionStartOkArgs::default();
+    args.properties = decode_field_table(&mut src);
+    args.mechanism = decode_short_string(&mut src);
+    args.response = decode_long_string(&mut src);
+    args.locale = decode_short_string(&mut src);
+
+    // TODO init capabilities!
+
+    MethodFrameArgs::ConnectionStartOk(args)
+}
+
+fn decode_connection_tune(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ConnectionTuneArgs::default();
+    args.channel_max = src.get_u16();
+    args.frame_max = src.get_u32();
+    args.heartbeat = src.get_u16();
+
+    MethodFrameArgs::ConnectionTune(args)
+}
+
+fn decode_connection_tune_ok(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ConnectionTuneOkArgs::default();
+    args.channel_max = src.get_u16();
+    args.frame_max = src.get_u32();
+    args.heartbeat = src.get_u16();
+
+    MethodFrameArgs::ConnectionTuneOk(args)
+}
+
 fn decode_connection_open(mut src: &mut BytesMut) -> MethodFrameArgs {
     let virtual_host = decode_short_string(&mut src);
     let _reserved = decode_short_string(&mut src);
@@ -219,6 +273,26 @@ fn decode_connection_open(mut src: &mut BytesMut) -> MethodFrameArgs {
         virtual_host: virtual_host,
         insist: flags & 0x01 != 0,
     })
+}
+
+fn decode_connection_open_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = decode_short_string(&mut src);
+
+    MethodFrameArgs::ConnectionOpenOk
+}
+
+fn decode_connection_close(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ConnectionCloseArgs::default();
+    args.code = src.get_u16();
+    args.text = decode_short_string(&mut src);
+    args.class_id = src.get_u16();
+    args.method_id = src.get_u16();
+
+    MethodFrameArgs::ConnectionClose(args)
+}
+
+fn decode_connection_close_ok() -> MethodFrameArgs {
+    MethodFrameArgs::ConnectionCloseOk
 }
 
 fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
@@ -309,7 +383,14 @@ fn encode_method_frame(
     fr_buf.put_u32(cm);
 
     match args {
+        MethodFrameArgs::ConnectionStart(args) => encode_connection_start(&mut fr_buf, args),
+        MethodFrameArgs::ConnectionStartOk(args) => encode_connection_start_ok(&mut fr_buf, args),
+        MethodFrameArgs::ConnectionTune(args) => encode_connection_tune(&mut fr_buf, args),
+        MethodFrameArgs::ConnectionTuneOk(args) => encode_connection_tune_ok(&mut fr_buf, args),
         MethodFrameArgs::ConnectionOpen(args) => encode_connection_open(&mut fr_buf, args),
+        MethodFrameArgs::ConnectionOpenOk => encode_connection_open_ok(&mut fr_buf),
+        MethodFrameArgs::ConnectionClose(args) => encode_connection_close(&mut fr_buf, args),
+        MethodFrameArgs::ConnectionCloseOk => (),
         MethodFrameArgs::Other(args) => {
             for arg in *args {
                 encode_value(&mut fr_buf, arg);
@@ -322,6 +403,33 @@ fn encode_method_frame(
     buf.put_u8(0xCE);
 }
 
+fn encode_connection_start(mut buf: &mut BytesMut, args: ConnectionStartArgs) {
+    buf.put_u8(args.version_major);
+    buf.put_u8(args.version_minor);
+    encode_field_table(&mut buf, args.properties);
+    encode_long_string(&mut buf, args.mechanisms);
+    encode_long_string(&mut buf, args.locales);
+}
+
+fn encode_connection_start_ok(mut buf: &mut BytesMut, args: ConnectionStartOkArgs) {
+    encode_field_table(&mut buf, args.properties);
+    encode_short_string(&mut buf, args.mechanism);
+    encode_long_string(&mut buf, args.response);
+    encode_short_string(&mut buf, args.locale);
+}
+
+fn encode_connection_tune(buf: &mut BytesMut, args: ConnectionTuneArgs) {
+    buf.put_u16(args.channel_max);
+    buf.put_u32(args.frame_max);
+    buf.put_u16(args.heartbeat);
+}
+
+fn encode_connection_tune_ok(buf: &mut BytesMut, args: ConnectionTuneOkArgs) {
+    buf.put_u16(args.channel_max);
+    buf.put_u32(args.frame_max);
+    buf.put_u16(args.heartbeat);
+}
+
 fn encode_connection_open(buf: &mut BytesMut, args: ConnectionOpenArgs) {
     encode_short_string(buf, args.virtual_host);
     encode_short_string(buf, "".into());
@@ -332,6 +440,18 @@ fn encode_connection_open(buf: &mut BytesMut, args: ConnectionOpenArgs) {
     }
 
     buf.put_u8(flags);
+}
+
+fn encode_connection_open_ok(mut buf: &mut BytesMut) {
+    // TODO optimize this out to write a 0u8
+    encode_short_string(&mut buf, "".into());
+}
+
+fn encode_connection_close(mut buf: &mut BytesMut, args: ConnectionCloseArgs) {
+    buf.put_u16(args.code);
+    encode_short_string(&mut buf, args.text);
+    buf.put_u16(args.class_id);
+    buf.put_u16(args.method_id);
 }
 
 fn encode_content_header_frame(buf: &mut BytesMut, hf: ContentHeaderFrame) {
@@ -378,7 +498,7 @@ fn encode_value(mut buf: &mut BytesMut, value: AMQPValue) {
         AMQPValue::SimpleString(v) => encode_short_string(&mut buf, v),
         AMQPValue::LongString(v) => encode_long_string(&mut buf, v),
         AMQPValue::EmptyFieldTable => encode_empty_field_table(&mut buf),
-        AMQPValue::FieldTable(v) => encode_field_table(&mut buf, *v),
+        AMQPValue::FieldTable(v) => encode_field_table2(&mut buf, *v),
     }
 }
 
@@ -397,7 +517,14 @@ fn encode_empty_field_table(buf: &mut BytesMut) {
     buf.put_u32(0);
 }
 
-fn encode_field_table(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) {
+fn encode_field_table(mut buf: &mut BytesMut, ft: Option<HashMap<String, AMQPFieldValue>>) {
+    match ft {
+        None => buf.put_u32(0),
+        Some(t) => encode_field_table2(&mut buf, t),
+    }
+}
+
+fn encode_field_table2(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) {
     let mut ft_buf = BytesMut::with_capacity(4096);
 
     for (name, value) in ft {
@@ -423,7 +550,7 @@ fn encode_field_table(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) {
                 ft_buf.put_u8(b'F');
 
                 // TODO we are copying here
-                encode_field_table(&mut ft_buf, *v);
+                encode_field_table2(&mut ft_buf, *v);
             }
         }
     }
