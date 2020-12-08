@@ -100,9 +100,141 @@ pub enum AMQPFieldValue {
 }
 
 #[derive(Debug)]
+pub struct ConnectionStartArgs {
+    version_major: u8,
+    version_minor: u8,
+    capabilities: FieldTable,
+    properties: FieldTable,
+    mechanisms: String,
+    locales: String,
+}
+
+#[derive(Debug)]
+pub struct ConnectionStartOkArgs {
+    capabilities: FieldTable,
+    properties: FieldTable,
+    mechanism: String,
+    response: String,
+    locale: String,
+}
+
+#[derive(Debug)]
+pub struct ConnectionTuneArgs {
+    channel_max: u16,
+    frame_max: u16,
+    heartbeat: u16,
+}
+
+#[derive(Debug)]
+pub struct ConnectionTuneOkArgs {
+    channel_max: u16,
+    frame_max: u16,
+    heartbeat: u16,
+}
+
+#[derive(Debug)]
 pub struct ConnectionOpenArgs {
     pub virtual_host: String,
     pub insist: bool,
+}
+
+#[derive(Debug)]
+pub struct ConnectionOpenOkArgs {}
+
+#[derive(Debug)]
+pub struct ChannelOpenArgs {}
+
+#[derive(Debug)]
+pub struct ChannelOpenOkArgs {}
+
+#[derive(Debug)]
+pub struct ExchangeDeclareArgs {
+    exchange_name: String,
+    exchange_type: String,
+    passive: bool,
+    durable: bool,
+    auto_delete: bool,
+    internal: bool,
+    no_wait: bool,
+    args: FieldTable,
+}
+
+#[derive(Debug)]
+pub struct ExchangeDeclareOkArgs {}
+
+#[derive(Debug)]
+pub struct ExchangeBindArgs {
+    source: String,
+    destination: String,
+    routing_key: String,
+    no_wait: bool,
+    args: FieldTable,
+}
+
+#[derive(Debug)]
+pub struct ExchangeBindOkArgs {}
+
+#[derive(Debug)]
+pub struct QueueDeclareArgs {
+    name: String,
+    passive: bool,
+    durable: bool,
+    exclusive: bool,
+    auto_delete: bool,
+    no_wait: bool,
+    args: FieldTable,
+}
+
+#[derive(Debug)]
+pub struct QueueDeclareOkArgs {
+    name: String,
+    message_count: u32,
+    consumer_count: u32,
+}
+
+#[derive(Debug)]
+pub struct QueueBindArgs {
+    queue_name: String,
+    exchange_name: String,
+    routing_key: String,
+    no_wait: bool,
+    args: FieldTable,
+}
+
+#[derive(Debug)]
+pub struct QueueBindOkArgs {}
+
+#[derive(Debug)]
+pub struct BasicConsumeArgs {
+    queue: String,
+    consumer_tag: String,
+    no_local: bool,
+    no_ack: bool,
+    exclusive: bool,
+    no_wait: bool,
+    args: FieldTable,
+}
+
+#[derive(Debug)]
+pub struct BasicConsumeOkArgs {
+    consumer_tag: String,
+}
+
+#[derive(Debug)]
+pub struct BasicDeliverArgs {
+    consumer_tag: String,
+    delivery_tag: String,
+    redelivered: bool,
+    exchange_name: String,
+    routing_key: String,
+}
+
+#[derive(Debug)]
+pub struct BasicPublishArgs {
+    exchange_name: String,
+    routing_key: String,
+    mandatory: bool,
+    immediate: bool,
 }
 
 impl From<ContentHeaderFrame> for AMQPFrame {

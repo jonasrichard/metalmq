@@ -11,6 +11,7 @@ const FRAME_AMQP_VERSION: u8 = 0x41;
 
 pub struct AMQPCodec {}
 
+// TODO once the converstion for all types will be ready, we can remove these
 macro_rules! t_u8 {
     () => {
         AMQPType::U8
