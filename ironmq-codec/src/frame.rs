@@ -51,6 +51,20 @@ pub enum MethodFrameArgs {
     ConnectionOpenOk,
     ConnectionClose(ConnectionCloseArgs),
     ConnectionCloseOk,
+    ChannelOpen,
+    ChannelOpenOk,
+    ExchangeDeclare(ExchangeDeclareArgs),
+    ExchangeDeclareOk,
+    ExchangeBind(ExchangeBindArgs),
+    ExchangeBindOk,
+    QueueDeclare(QueueDeclareArgs),
+    QueueDeclareOk(QueueDeclareOkArgs),
+    QueueBind(QueueBindArgs),
+    QueueBindOk,
+    BasicConsume(BasicConsumeArgs),
+    BasicConsumeOk(BasicConsumeOkArgs),
+    BasicDeliver(BasicDeliverArgs),
+    BasicPublish(BasicPublishArgs),
     Other(Box<Vec<AMQPValue>>),
 }
 
@@ -82,7 +96,7 @@ pub enum AMQPType {
 }
 
 /// Type alias for inner type of field value.
-type FieldTable = HashMap<String, AMQPFieldValue>;
+pub type FieldTable = HashMap<String, AMQPFieldValue>;
 
 #[derive(Debug)]
 pub enum AMQPValue {
@@ -154,99 +168,84 @@ pub struct ConnectionCloseArgs {
 }
 
 #[derive(Debug)]
-pub struct ChannelOpenArgs {}
-
-#[derive(Debug)]
-pub struct ChannelOpenOkArgs {}
-
-#[derive(Debug)]
 pub struct ExchangeDeclareArgs {
-    exchange_name: String,
-    exchange_type: String,
-    passive: bool,
-    durable: bool,
-    auto_delete: bool,
-    internal: bool,
-    no_wait: bool,
-    args: Option<FieldTable>,
+    pub exchange_name: String,
+    pub exchange_type: String,
+    pub passive: bool,
+    pub durable: bool,
+    pub auto_delete: bool,
+    pub internal: bool,
+    pub no_wait: bool,
+    pub args: Option<FieldTable>,
 }
-
-#[derive(Debug)]
-pub struct ExchangeDeclareOkArgs {}
 
 #[derive(Debug)]
 pub struct ExchangeBindArgs {
-    source: String,
-    destination: String,
-    routing_key: String,
-    no_wait: bool,
-    args: Option<FieldTable>,
+    pub source: String,
+    pub destination: String,
+    pub routing_key: String,
+    pub no_wait: bool,
+    pub args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
-pub struct ExchangeBindOkArgs {}
-
-#[derive(Debug)]
 pub struct QueueDeclareArgs {
-    name: String,
-    passive: bool,
-    durable: bool,
-    exclusive: bool,
-    auto_delete: bool,
-    no_wait: bool,
-    args: Option<FieldTable>,
+    pub name: String,
+    pub passive: bool,
+    pub durable: bool,
+    pub exclusive: bool,
+    pub auto_delete: bool,
+    pub no_wait: bool,
+    pub args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
 pub struct QueueDeclareOkArgs {
-    name: String,
-    message_count: u32,
-    consumer_count: u32,
+    pub name: String,
+    pub message_count: u32,
+    pub consumer_count: u32,
 }
 
 #[derive(Debug)]
 pub struct QueueBindArgs {
-    queue_name: String,
-    exchange_name: String,
-    routing_key: String,
-    no_wait: bool,
-    args: Option<FieldTable>,
+    pub queue_name: String,
+    pub exchange_name: String,
+    pub routing_key: String,
+    pub no_wait: bool,
+    pub args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
-pub struct QueueBindOkArgs {}
-
-#[derive(Debug)]
 pub struct BasicConsumeArgs {
-    queue: String,
-    consumer_tag: String,
-    no_local: bool,
-    no_ack: bool,
-    exclusive: bool,
-    no_wait: bool,
-    args: Option<FieldTable>,
+    pub queue: String,
+    pub consumer_tag: String,
+    pub no_local: bool,
+    pub no_ack: bool,
+    pub exclusive: bool,
+    pub no_wait: bool,
+    pub args: Option<FieldTable>,
 }
 
 #[derive(Debug)]
 pub struct BasicConsumeOkArgs {
-    consumer_tag: String,
+    pub consumer_tag: String,
 }
 
 #[derive(Debug)]
 pub struct BasicDeliverArgs {
-    consumer_tag: String,
-    delivery_tag: String,
-    redelivered: bool,
-    exchange_name: String,
-    routing_key: String,
+    pub consumer_tag: String,
+    pub delivery_tag: u64,
+    pub redelivered: bool,
+    pub exchange_name: String,
+    pub routing_key: String,
 }
 
 #[derive(Debug)]
 pub struct BasicPublishArgs {
-    exchange_name: String,
-    routing_key: String,
-    mandatory: bool,
-    immediate: bool,
+    pub exchange_name: String,
+    pub routing_key: String,
+    pub mandatory: bool,
+    pub immediate: bool,
 }
 
 impl From<ContentHeaderFrame> for AMQPFrame {
@@ -359,19 +358,17 @@ pub fn connection_start(channel: u16) -> AMQPFrame {
     );
     server_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
-    let args = vec![
-        AMQPValue::U8(0),
-        AMQPValue::U8(9),
-        AMQPValue::FieldTable(Box::new(server_properties)),
-        AMQPValue::LongString("PLAIN".into()),
-        AMQPValue::LongString("en_US".into()),
-    ];
-
     AMQPFrame::Method(
         channel,
         CONNECTION_START,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::ConnectionStart(ConnectionStartArgs {
+            version_major: 0,
+            version_minor: 9,
+            capabilities: None,
+            properties: Some(server_properties),
+            mechanisms: "PLAIN".into(),
+            locales: "en_US".into()
+        }))
 }
 
 // TODO here will be an Authentication enum with the different possibilities
@@ -398,46 +395,38 @@ pub fn connection_start_ok(username: &str, password: &str, capabilities: FieldTa
 
     let auth_string = String::from_utf8(auth).unwrap();
 
-    let args = vec![
-        AMQPValue::FieldTable(Box::new(client_properties)),
-        AMQPValue::SimpleString("PLAIN".into()),
-        AMQPValue::LongString(auth_string),
-        AMQPValue::SimpleString("en_US".into()),
-    ];
-
     AMQPFrame::Method(
         0,
         CONNECTION_START_OK,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::ConnectionStartOk(ConnectionStartOkArgs {
+            capabilities: None,
+            properties: Some(client_properties),
+            mechanism: "PLAIN".into(),
+            response: auth_string,
+            locale: "en_US".into()
+        }))
 }
 
 pub fn connection_tune(channel: u16) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(2047),
-        AMQPValue::U32(131_072),
-        AMQPValue::U16(60),
-    ];
-
     AMQPFrame::Method(
         channel,
         CONNECTION_TUNE,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::ConnectionTune(ConnectionTuneArgs {
+            channel_max: 2047,
+            frame_max: 131_072,
+            heartbeat: 60
+        }))
 }
 
 pub fn connection_tune_ok(channel: u16) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(2047),
-        AMQPValue::U32(131_072),
-        AMQPValue::U16(60),
-    ];
-
     AMQPFrame::Method(
         channel,
         CONNECTION_TUNE_OK,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::ConnectionTuneOk(ConnectionTuneOkArgs {
+            channel_max: 2047,
+            frame_max: 131_072,
+            heartbeat: 60
+        }))
 }
 
 pub fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
@@ -446,85 +435,75 @@ pub fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
         CONNECTION_OPEN,
         MethodFrameArgs::ConnectionOpen(ConnectionOpenArgs {
             virtual_host: virtual_host,
-            ..Default::default()
-        }),
-    )
+            insist: true
+        }))
 }
 
 pub fn connection_open_ok(channel: u16) -> AMQPFrame {
-    let args = vec![AMQPValue::SimpleString("".into())];
-
     AMQPFrame::Method(
         channel,
         CONNECTION_OPEN_OK,
-        MethodFrameArgs::Other(Box::new(args)),
+        MethodFrameArgs::ConnectionOpenOk
     )
 }
 
 pub fn connection_close(channel: u16) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(200),
-        AMQPValue::SimpleString("Normal shutdown".into()),
-        AMQPValue::U16(0),
-        AMQPValue::U16(0),
-    ];
-
     AMQPFrame::Method(
         channel,
         CONNECTION_CLOSE,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::ConnectionClose(ConnectionCloseArgs {
+            code: 200,
+            text: "Normal shutdown".into(),
+            class_id: 0,
+            method_id: 0
+        }))
 }
 
 pub fn connection_close_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_CLOSE_OK,
-        MethodFrameArgs::Other(Box::new(vec![])),
-    )
+        MethodFrameArgs::ConnectionCloseOk
+        )
 }
 
 pub fn channel_open(channel: u16) -> AMQPFrame {
-    let args = vec![AMQPValue::SimpleString("".into())];
-
     AMQPFrame::Method(
         channel,
         CHANNEL_OPEN,
-        MethodFrameArgs::Other(Box::new(args)),
+        MethodFrameArgs::ChannelOpen
     )
 }
 
 pub fn channel_open_ok(channel: u16) -> AMQPFrame {
-    let args = vec![AMQPValue::LongString("".into())];
-
     AMQPFrame::Method(
         channel,
         CHANNEL_OPEN_OK,
-        MethodFrameArgs::Other(Box::new(args)),
+        MethodFrameArgs::ChannelOpenOk
     )
 }
 
 pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(0),
-        AMQPValue::SimpleString(exchange_name),
-        AMQPValue::SimpleString(exchange_type),
-        AMQPValue::U8(0), // bits are: x, x, x, nowait, internal, autodelete, durable, passive
-        AMQPValue::EmptyFieldTable,
-    ];
-
     AMQPFrame::Method(
         channel,
         EXCHANGE_DECLARE,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::ExchangeDeclare(ExchangeDeclareArgs {
+            exchange_name: exchange_name,
+            exchange_type: exchange_type,
+            passive: false,
+            durable: false,
+            auto_delete: false,
+            internal: false,
+            no_wait: false,
+            args: None
+        }))
 }
 
 pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         EXCHANGE_DECLARE_OK,
-        MethodFrameArgs::Other(Box::new(vec![])),
+        MethodFrameArgs::ExchangeDeclareOk
     )
 }
 
@@ -534,39 +513,39 @@ pub fn queue_bind(
     exchange_name: String,
     routing_key: String,
 ) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(0),
-        AMQPValue::SimpleString(queue_name),
-        AMQPValue::SimpleString(exchange_name),
-        AMQPValue::SimpleString(routing_key),
-        AMQPValue::U8(0), // xxxxxxx, nowait
-        AMQPValue::EmptyFieldTable,
-    ];
-
-    AMQPFrame::Method(channel, QUEUE_BIND, MethodFrameArgs::Other(Box::new(args)))
+    AMQPFrame::Method(
+        channel,
+        QUEUE_BIND,
+        MethodFrameArgs::QueueBind(QueueBindArgs {
+            queue_name: queue_name,
+            exchange_name: exchange_name,
+            routing_key: routing_key,
+            no_wait: false,
+            args: None
+        }))
 }
 
 pub fn queue_bind_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_BIND_OK,
-        MethodFrameArgs::Other(Box::new(vec![])),
+        MethodFrameArgs::QueueBindOk
     )
 }
 
 pub fn queue_declare(channel: u16, queue_name: String) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(0),
-        AMQPValue::SimpleString(queue_name),
-        AMQPValue::U8(0), // xxx nowait, autodelete, exclusive, durable, passive
-        AMQPValue::EmptyFieldTable,
-    ];
-
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::QueueDeclare(QueueDeclareArgs {
+            name: queue_name,
+            passive: false,
+            durable: false,
+            exclusive: false,
+            auto_delete: false,
+            no_wait: false,
+            args: None
+        }))
 }
 
 pub fn queue_declare_ok(
@@ -575,72 +554,71 @@ pub fn queue_declare_ok(
     message_count: u32,
     consumer_count: u32,
 ) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::SimpleString(queue_name),
-        AMQPValue::U32(message_count),
-        AMQPValue::U32(consumer_count),
-    ];
-
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE_OK,
-        MethodFrameArgs::Other(Box::new(args)),
-    )
+        MethodFrameArgs::QueueDeclareOk(QueueDeclareOkArgs {
+            name: queue_name,
+            message_count: message_count,
+            consumer_count: consumer_count
+        }))
 }
 
 pub fn basic_consume(channel: u16, queue_name: String, consumer_tag: String) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CONSUME,
-        MethodFrameArgs::Other(Box::new(vec![
-            AMQPValue::U16(0),
-            AMQPValue::SimpleString(queue_name),
-            AMQPValue::SimpleString(consumer_tag),
-            AMQPValue::U8(0x02), // no ack = true
-            AMQPValue::EmptyFieldTable,
-        ])),
-    )
+        MethodFrameArgs::BasicConsume(BasicConsumeArgs {
+            queue: queue_name,
+            consumer_tag: consumer_tag,
+            no_local: false,
+            no_ack: false,
+            exclusive: false,
+            no_wait: false,
+            args: None
+        }))
 }
 
 pub fn basic_consume_ok(channel: u16, consumer_tag: String) -> AMQPFrame {
-    let args = Box::new(vec![AMQPValue::SimpleString(consumer_tag)]);
-
-    AMQPFrame::Method(channel, BASIC_CONSUME_OK, MethodFrameArgs::Other(args))
+    AMQPFrame::Method(
+        channel,
+        BASIC_CONSUME_OK,
+        MethodFrameArgs::BasicConsumeOk(BasicConsumeOkArgs {
+            consumer_tag: consumer_tag
+        }))
 }
 
 pub fn basic_deliver(
     channel: u16,
     consumer_tag: String,
     delivery_tag: u64,
-    flags: u8,
+    redelivered: bool,
     exchange_name: String,
-    queue_name: String,
+    routing_key: String,
 ) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_DELIVER,
-        MethodFrameArgs::Other(Box::new(vec![
-            AMQPValue::SimpleString(consumer_tag),
-            AMQPValue::U64(delivery_tag),
-            AMQPValue::U8(flags),
-            AMQPValue::SimpleString(exchange_name),
-            AMQPValue::SimpleString(queue_name),
-        ])),
+        MethodFrameArgs::BasicDeliver(BasicDeliverArgs {
+            consumer_tag: consumer_tag,
+            delivery_tag: delivery_tag,
+            redelivered: redelivered,
+            exchange_name: exchange_name,
+            routing_key: routing_key
+        })
     )
 }
 
 pub fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -> AMQPFrame {
-    let args = vec![
-        AMQPValue::U16(0),
-        AMQPValue::SimpleString(exchange_name),
-        AMQPValue::SimpleString(routing_key),
-        AMQPValue::U8(0), // bits xxxxxx immediate, mandatory
-    ];
-
     AMQPFrame::Method(
         channel,
         BASIC_PUBLISH,
-        MethodFrameArgs::Other(Box::new(args)),
+        MethodFrameArgs::BasicPublish(BasicPublishArgs {
+            exchange_name: exchange_name,
+            routing_key: routing_key,
+            mandatory: true,
+            immediate: true
+        })
     )
 }
 

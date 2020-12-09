@@ -395,7 +395,8 @@ fn encode_method_frame(
             for arg in *args {
                 encode_value(&mut fr_buf, arg);
             }
-        }
+        },
+        _ => unimplemented!()
     }
 
     buf.put_u32(fr_buf.len() as u32);
