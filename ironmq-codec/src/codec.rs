@@ -185,7 +185,19 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         CONNECTION_OPEN => decode_connection_open(&mut src),
         CONNECTION_OPEN_OK => decode_connection_open_ok(&mut src),
         CONNECTION_CLOSE => decode_connection_close(&mut src),
-        CONNECTION_CLOSE_OK => decode_connection_close_ok(),
+        CONNECTION_CLOSE_OK => MethodFrameArgs::ConnectionCloseOk,
+        CHANNEL_OPEN => decode_channel_open(&mut src),
+        CHANNEL_OPEN_OK => decode_channel_open_ok(&mut src),
+        EXCHANGE_DECLARE => decode_exchange_declare(&mut src),
+        EXCHANGE_DECLARE_OK => MethodFrameArgs::ExchangeBindOk,
+        QUEUE_DECLARE => decode_queue_declare(&mut src),
+        QUEUE_DECLARE_OK => decode_queue_declare_ok(&mut src),
+        QUEUE_BIND => decode_queue_bind(&mut src),
+        QUEUE_BIND_OK => MethodFrameArgs::QueueBindOk,
+        BASIC_CONSUME => decode_basic_consume(&mut src),
+        BASIC_CONSUME_OK => decode_basic_consume_ok(&mut src),
+        BASIC_DELIVER => decode_basic_deliver(&mut src),
+        BASIC_PUBLISH => decode_basic_publish(&mut src),
         _ => {
             let args_type_list = get_method_frame_args_list(class_method);
 
@@ -291,9 +303,100 @@ fn decode_connection_close(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::ConnectionClose(args)
 }
 
-fn decode_connection_close_ok() -> MethodFrameArgs {
-    MethodFrameArgs::ConnectionCloseOk
+fn decode_channel_open(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = decode_short_string(&mut src);
+
+    MethodFrameArgs::ChannelOpen
 }
+
+fn decode_channel_open_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = decode_long_string(&mut src);
+
+    MethodFrameArgs::ChannelOpenOk
+}
+
+fn decode_exchange_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ExchangeDeclareArgs::default();
+    let _ = src.get_u16();
+    args.exchange_name = decode_short_string(&mut src);
+    args.exchange_type = decode_short_string(&mut src);
+    args.flags = ExchangeDeclareFlags::from_bits(src.get_u8()).unwrap_or_default();
+    args.args = decode_field_table(&mut src);
+
+    MethodFrameArgs::ExchangeDeclare(args)
+}
+
+fn decode_queue_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueueDeclareArgs::default();
+    let _ = src.get_u16();
+    args.name = decode_short_string(&mut src);
+    args.flags = QueueDeclareFlags::from_bits(src.get_u8()).unwrap_or_default();
+    args.args = decode_field_table(&mut src);
+
+    MethodFrameArgs::QueueDeclare(args)
+}
+
+fn decode_queue_declare_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueueDeclareOkArgs::default();
+    args.name = decode_short_string(&mut src);
+    args.message_count = src.get_u32();
+    args.consumer_count = src.get_u32();
+
+    MethodFrameArgs::QueueDeclareOk(args)
+}
+
+fn decode_queue_bind(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueueBindArgs::default();
+    let _ = src.get_u16();
+    args.queue_name = decode_short_string(&mut src);
+    args.exchange_name = decode_short_string(&mut src);
+    args.routing_key = decode_short_string(&mut src);
+
+    args.no_wait = src.get_u8() != 0;
+    args.args = decode_field_table(&mut src);
+
+    MethodFrameArgs::QueueBind(args)
+}
+
+fn decode_basic_consume(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicConsumeArgs::default();
+    let _ = src.get_u16();
+    args.queue = decode_short_string(&mut src);
+    args.consumer_tag = decode_short_string(&mut src);
+    args.flags = BasicConsumeFlags::from_bits(src.get_u8()).unwrap_or_default();
+    args.args = decode_field_table(&mut src);
+
+    MethodFrameArgs::BasicConsume(args)
+}
+
+fn decode_basic_consume_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicConsumeOkArgs::default();
+    args.consumer_tag = decode_short_string(&mut src);
+
+    MethodFrameArgs::BasicConsumeOk(args)
+}
+
+fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicDeliverArgs::default();
+    args.consumer_tag = decode_short_string(&mut src);
+    args.delivery_tag = src.get_u64();
+    args.redelivered = src.get_u8() != 0;
+    args.exchange_name = decode_short_string(&mut src);
+    args.routing_key = decode_short_string(&mut src);
+
+    MethodFrameArgs::BasicDeliver(args)
+}
+
+fn decode_basic_publish(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicPublishArgs::default();
+    let _ = src.get_u16();
+    args.exchange_name = decode_short_string(&mut src);
+    args.routing_key = decode_short_string(&mut src);
+    args.flags = BasicPublishFlags::from_bits(src.get_u8()).unwrap_or_default();
+
+    MethodFrameArgs::BasicPublish(args)
+}
+
 
 fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class_id = src.get_u16();
@@ -379,28 +482,39 @@ fn encode_method_frame(
     buf.put_u8(1u8);
     buf.put_u16(channel);
 
-    let mut fr_buf = BytesMut::with_capacity(4096);
-    fr_buf.put_u32(cm);
+    let mut fr = BytesMut::with_capacity(4096);
+    fr.put_u32(cm);
 
     match args {
-        MethodFrameArgs::ConnectionStart(args) => encode_connection_start(&mut fr_buf, args),
-        MethodFrameArgs::ConnectionStartOk(args) => encode_connection_start_ok(&mut fr_buf, args),
-        MethodFrameArgs::ConnectionTune(args) => encode_connection_tune(&mut fr_buf, args),
-        MethodFrameArgs::ConnectionTuneOk(args) => encode_connection_tune_ok(&mut fr_buf, args),
-        MethodFrameArgs::ConnectionOpen(args) => encode_connection_open(&mut fr_buf, args),
-        MethodFrameArgs::ConnectionOpenOk => encode_connection_open_ok(&mut fr_buf),
-        MethodFrameArgs::ConnectionClose(args) => encode_connection_close(&mut fr_buf, args),
+        MethodFrameArgs::ConnectionStart(args) => encode_connection_start(&mut fr, args),
+        MethodFrameArgs::ConnectionStartOk(args) => encode_connection_start_ok(&mut fr, args),
+        MethodFrameArgs::ConnectionTune(args) => encode_connection_tune(&mut fr, args),
+        MethodFrameArgs::ConnectionTuneOk(args) => encode_connection_tune_ok(&mut fr, args),
+        MethodFrameArgs::ConnectionOpen(args) => encode_connection_open(&mut fr, args),
+        MethodFrameArgs::ConnectionOpenOk => encode_connection_open_ok(&mut fr),
+        MethodFrameArgs::ConnectionClose(args) => encode_connection_close(&mut fr, args),
         MethodFrameArgs::ConnectionCloseOk => (),
+        MethodFrameArgs::ChannelOpen => encode_channel_open(&mut fr),
+        MethodFrameArgs::ChannelOpenOk => encode_channel_open_ok(&mut fr),
+        MethodFrameArgs::ExchangeDeclare(args) => encode_exchange_declare(&mut fr, args),
+        MethodFrameArgs::ExchangeDeclareOk => (),
+        MethodFrameArgs::QueueDeclare(args) => encode_queue_declare(&mut fr, args),
+        MethodFrameArgs::QueueDeclareOk(args) => encode_queue_declare_ok(&mut fr, args),
+        MethodFrameArgs::QueueBind(args) => encode_queue_bind(&mut fr, args),
+        MethodFrameArgs::QueueBindOk => (),
+        MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
+        MethodFrameArgs::BasicConsume(args) => encode_basic_consume(&mut fr, args),
+        MethodFrameArgs::BasicConsumeOk(args) => encode_basic_consume_ok(&mut fr, args),
         MethodFrameArgs::Other(args) => {
             for arg in *args {
-                encode_value(&mut fr_buf, arg);
+                encode_value(&mut fr, arg);
             }
         },
         _ => unimplemented!()
     }
 
-    buf.put_u32(fr_buf.len() as u32);
-    buf.put(fr_buf);
+    buf.put_u32(fr.len() as u32);
+    buf.put(fr);
     buf.put_u8(0xCE);
 }
 
@@ -443,9 +557,9 @@ fn encode_connection_open(buf: &mut BytesMut, args: ConnectionOpenArgs) {
     buf.put_u8(flags);
 }
 
-fn encode_connection_open_ok(mut buf: &mut BytesMut) {
-    // TODO optimize this out to write a 0u8
-    encode_short_string(&mut buf, "".into());
+fn encode_connection_open_ok(buf: &mut BytesMut) {
+    // encode empty short string
+    buf.put_u8(0);
 }
 
 fn encode_connection_close(mut buf: &mut BytesMut, args: ConnectionCloseArgs) {
@@ -453,6 +567,70 @@ fn encode_connection_close(mut buf: &mut BytesMut, args: ConnectionCloseArgs) {
     encode_short_string(&mut buf, args.text);
     buf.put_u16(args.class_id);
     buf.put_u16(args.method_id);
+}
+
+fn encode_channel_open(buf: &mut BytesMut) {
+    // encode empty short string
+    buf.put_u8(0);
+}
+
+fn encode_channel_open_ok(buf: &mut BytesMut) {
+    // encode empty long string
+    buf.put_u32(0);
+}
+
+fn encode_exchange_declare(mut buf: &mut BytesMut, args: ExchangeDeclareArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, args.exchange_name);
+    encode_short_string(&mut buf, args.exchange_type);
+    buf.put_u8(args.flags.bits());
+    encode_empty_field_table(&mut buf);
+}
+
+fn encode_queue_declare(mut buf: &mut BytesMut, args: QueueDeclareArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, args.name);
+    buf.put_u8(args.flags.bits());
+    encode_empty_field_table(&mut buf);
+}
+
+fn encode_queue_declare_ok(mut buf: &mut BytesMut, args: QueueDeclareOkArgs) {
+    encode_short_string(&mut buf, args.name);
+    buf.put_u32(args.message_count);
+    buf.put_u32(args.consumer_count);
+}
+
+fn encode_queue_bind(mut buf: &mut BytesMut, args: QueueBindArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, args.queue_name);
+    encode_short_string(&mut buf, args.exchange_name);
+    encode_short_string(&mut buf, args.routing_key);
+    if args.no_wait {
+        buf.put_u8(1)
+    } else {
+        buf.put_u8(0)
+    }
+    encode_empty_field_table(&mut buf);
+}
+
+fn encode_basic_consume(mut buf: &mut BytesMut, args: BasicConsumeArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, args.queue);
+    encode_short_string(&mut buf, args.consumer_tag);
+    buf.put_u8(args.flags.bits());
+    encode_empty_field_table(&mut buf);
+}
+
+fn encode_basic_consume_ok(mut buf: &mut BytesMut, args: BasicConsumeOkArgs) {
+    encode_short_string(&mut buf, args.consumer_tag);
+}
+
+        //BASIC_DELIVER => vec![t_ss!(), t_u64!(), t_u8!(), t_ss!(), t_ss!()],
+fn encode_basic_publish(mut buf: &mut BytesMut, args: BasicPublishArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, args.exchange_name);
+    encode_short_string(&mut buf, args.routing_key);
+    buf.put_u8(args.flags.bits());
 }
 
 fn encode_content_header_frame(buf: &mut BytesMut, hf: ContentHeaderFrame) {

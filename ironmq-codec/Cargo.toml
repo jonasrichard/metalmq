@@ -9,6 +9,7 @@ repository = "https://github.com/jonasrichard/ironmq"
 description = "IromMQ codec library"
 
 [dependencies]
+bitflags = "1.2"
 bytes = "0.6"
 futures = "0.3"
 lazy_static = "1.4"

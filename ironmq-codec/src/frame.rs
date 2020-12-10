@@ -167,15 +167,27 @@ pub struct ConnectionCloseArgs {
     pub method_id: u16,
 }
 
-#[derive(Debug)]
+bitflags! {
+    pub struct ExchangeDeclareFlags: u8 {
+        const PASSIVE = 0b00000001;
+        const DURABLE = 0b00000010;
+        const AUTO_DELETE = 0b00000100;
+        const INTERNAL = 0b00001000;
+        const NO_WAIT = 0b00010000;
+    }
+}
+
+impl Default for ExchangeDeclareFlags {
+    fn default() -> Self {
+        ExchangeDeclareFlags::empty()
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct ExchangeDeclareArgs {
     pub exchange_name: String,
     pub exchange_type: String,
-    pub passive: bool,
-    pub durable: bool,
-    pub auto_delete: bool,
-    pub internal: bool,
-    pub no_wait: bool,
+    pub flags: ExchangeDeclareFlags,
     pub args: Option<FieldTable>,
 }
 
@@ -188,25 +200,37 @@ pub struct ExchangeBindArgs {
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug)]
+bitflags! {
+    pub struct QueueDeclareFlags: u8 {
+        const PASSIVE = 0b00000001;
+        const DURABLE = 0b00000010;
+        const EXCLUSIVE = 0b00000100;
+        const AUTO_DELETE = 0b00001000;
+        const NO_WAIT = 0b00010000;
+    }
+}
+
+impl Default for QueueDeclareFlags {
+    fn default() -> Self {
+        QueueDeclareFlags::empty()
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct QueueDeclareArgs {
     pub name: String,
-    pub passive: bool,
-    pub durable: bool,
-    pub exclusive: bool,
-    pub auto_delete: bool,
-    pub no_wait: bool,
+    pub flags: QueueDeclareFlags,
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct QueueDeclareOkArgs {
     pub name: String,
     pub message_count: u32,
     pub consumer_count: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct QueueBindArgs {
     pub queue_name: String,
     pub exchange_name: String,
@@ -215,23 +239,35 @@ pub struct QueueBindArgs {
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug)]
+bitflags! {
+    pub struct BasicConsumeFlags: u8 {
+        const NO_LOCAL = 0b00000001;
+        const NO_ACK = 0b00000010;
+        const EXCLUSIVE = 0b00000100;
+        const NO_WAIT = 0b00001000;
+    }
+}
+
+impl Default for BasicConsumeFlags {
+    fn default() -> Self {
+        BasicConsumeFlags::NO_ACK
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct BasicConsumeArgs {
     pub queue: String,
     pub consumer_tag: String,
-    pub no_local: bool,
-    pub no_ack: bool,
-    pub exclusive: bool,
-    pub no_wait: bool,
+    pub flags: BasicConsumeFlags,
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BasicConsumeOkArgs {
     pub consumer_tag: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BasicDeliverArgs {
     pub consumer_tag: String,
     pub delivery_tag: u64,
@@ -240,12 +276,24 @@ pub struct BasicDeliverArgs {
     pub routing_key: String,
 }
 
-#[derive(Debug)]
+bitflags! {
+    pub struct BasicPublishFlags: u8 {
+        const MANDATORY = 0b00000001;
+        const IMMEDIATE = 0b00000010;
+    }
+}
+
+impl Default for BasicPublishFlags {
+    fn default() -> Self {
+        BasicPublishFlags::empty()
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct BasicPublishArgs {
     pub exchange_name: String,
     pub routing_key: String,
-    pub mandatory: bool,
-    pub immediate: bool,
+    pub flags: BasicPublishFlags
 }
 
 impl From<ContentHeaderFrame> for AMQPFrame {
@@ -490,11 +538,7 @@ pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: Stri
         MethodFrameArgs::ExchangeDeclare(ExchangeDeclareArgs {
             exchange_name: exchange_name,
             exchange_type: exchange_type,
-            passive: false,
-            durable: false,
-            auto_delete: false,
-            internal: false,
-            no_wait: false,
+            flags: ExchangeDeclareFlags::empty(),
             args: None
         }))
 }
@@ -539,11 +583,7 @@ pub fn queue_declare(channel: u16, queue_name: String) -> AMQPFrame {
         QUEUE_DECLARE,
         MethodFrameArgs::QueueDeclare(QueueDeclareArgs {
             name: queue_name,
-            passive: false,
-            durable: false,
-            exclusive: false,
-            auto_delete: false,
-            no_wait: false,
+            flags: QueueDeclareFlags::empty(),
             args: None
         }))
 }
@@ -571,10 +611,7 @@ pub fn basic_consume(channel: u16, queue_name: String, consumer_tag: String) -> 
         MethodFrameArgs::BasicConsume(BasicConsumeArgs {
             queue: queue_name,
             consumer_tag: consumer_tag,
-            no_local: false,
-            no_ack: false,
-            exclusive: false,
-            no_wait: false,
+            flags: BasicConsumeFlags::default(),
             args: None
         }))
 }
@@ -616,8 +653,7 @@ pub fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -
         MethodFrameArgs::BasicPublish(BasicPublishArgs {
             exchange_name: exchange_name,
             routing_key: routing_key,
-            mandatory: true,
-            immediate: true
+            flags: BasicPublishFlags::empty()
         })
     )
 }

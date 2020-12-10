@@ -9,7 +9,7 @@
 use crate::{ConsumeCallback, Result};
 use ironmq_codec::frame;
 use ironmq_codec::frame::{Channel};
-//use log::{error, info};
+use log::{error, info};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -57,6 +57,8 @@ pub(crate) trait Client {
 
     fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
     fn exchange_declare_ok(&mut self) -> MaybeFrame;
+    fn exchange_bind(&mut self, channel: Channel, args: frame::ExchangeBindArgs) -> MaybeFrame;
+    fn exchange_bind_ok(&mut self) -> MaybeFrame;
 
     fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame;
     fn queue_declare_ok(&mut self, args: frame::QueueDeclareOkArgs) -> MaybeFrame;
@@ -84,11 +86,14 @@ pub(crate) fn new() -> ClientState {
 
 impl Client for ClientState {
     fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> MaybeFrame {
-        // TODO analyse server capabilities
+        info!("Server supported mechanisms: {}", args.mechanisms);
+        // TODO here we need to send start_ok not in the other function
         Ok(None)
     }
 
     fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
+        self.state = Phase::Connected;
+
         let mut caps = frame::FieldTable::new();
 
         caps.insert(
@@ -151,6 +156,14 @@ impl Client for ClientState {
     }
 
     fn exchange_declare_ok(&mut self) -> MaybeFrame {
+        Ok(None)
+    }
+
+    fn exchange_bind(&mut self, channel: Channel, args: frame::ExchangeBindArgs) -> MaybeFrame {
+        unimplemented!()
+    }
+
+    fn exchange_bind_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 

@@ -27,6 +27,8 @@ impl fmt::Debug for Request {
     }
 }
 
+/// Represents a connection to AMQP server. It is not a trait since async functions in a trait
+/// are not yet supported.
 pub struct Connection {
     server_channel: mpsc::Sender<Request>,
 }
@@ -117,10 +119,10 @@ fn channel(f: &AMQPFrame) -> Option<u16> {
     }
 }
 
-fn handle_server_frame(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+fn handle_server_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
     match f {
         AMQPFrame::Header => Ok(None),
-        AMQPFrame::Method(ch, cm, args) => {
+        AMQPFrame::Method(ch, _, args) => {
             // TODO copy happens? check with a small poc
             handle_server_method_frame(ch, args, cs)
         }
@@ -130,7 +132,7 @@ fn handle_server_frame(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<
     }
 }
 
-fn handle_client_request(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+fn handle_client_request(f: AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
     match f {
         AMQPFrame::Method(ch, cm, args) => handle_command(ch, cm, args, cs),
         _ => Ok(Some(f)),
@@ -141,10 +143,20 @@ fn handle_client_request(f: AMQPFrame, mut cs: &mut ClientState) -> Result<Optio
 fn handle_server_method_frame(
     channel: frame::Channel,
     ma: frame::MethodFrameArgs,
-    mut cs: &mut dyn Client,
+    cs: &mut dyn Client,
 ) -> Result<Option<AMQPFrame>> {
     match ma {
         MethodFrameArgs::ConnectionStart(args) => cs.connection_start(args),
+        MethodFrameArgs::ConnectionTune(args) => cs.connection_tune(args),
+        MethodFrameArgs::ConnectionOpenOk => cs.connection_open_ok(),
+        MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel),
+        MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok(),
+        MethodFrameArgs::ExchangeBindOk => cs.exchange_bind_ok(),
+        MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args),
+        MethodFrameArgs::QueueBindOk => cs.queue_bind_ok(),
+        MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok(),
+        MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args),
+        MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(args),
         //frame::CONNECTION_START => cs.connection_start(args),
         //frame::CONNECTION_TUNE => cs.connection_tune(args),
         //frame::CONNECTION_OPEN_OK => cs.connection_open_ok(args),
@@ -163,16 +175,21 @@ fn handle_server_method_frame(
     }
 }
 
-fn handle_command(channel: frame::Channel, class_method: frame::ClassMethod, ma: MethodFrameArgs, mut cs: &mut dyn Client) -> Result<Option<AMQPFrame>> {
-    debug!("Command is {:?}", ma);
+fn handle_command(channel: frame::Channel, class_method: frame::ClassMethod, ma: MethodFrameArgs, cs: &mut dyn Client) -> Result<Option<AMQPFrame>> {
+    debug!("Outgoing frame is {:?}", ma);
 
     match ma {
         MethodFrameArgs::ConnectionStartOk(args) => cs.connection_start_ok(args),
         MethodFrameArgs::ConnectionTuneOk(args) => cs.connection_tune_ok(args),
         MethodFrameArgs::ConnectionOpen(args) => cs.connection_open(args),
         MethodFrameArgs::ConnectionClose(args) => cs.connection_close(args),
+        MethodFrameArgs::ChannelOpen => cs.channel_open(channel),
+        MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args),
+        MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args),
+        MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args),
+        MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, args),
+        MethodFrameArgs::BasicConsume(args) => cs.basic_consume(channel, args),
         _ => unimplemented!()
-        //Command::ChannelOpen(args) => client_sm::channel_open(&mut cs, *args),
         //Command::ExchangeDeclare(args) => client_sm::exchange_declare(&mut cs, *args),
         //Command::QueueDeclare(args) => client_sm::queue_declare(&mut cs, *args),
         //Command::QueueBind(args) => client_sm::queue_bind(&mut cs, *args),

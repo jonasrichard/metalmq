@@ -40,14 +40,14 @@ impl std::error::Error for ClientError {
 #[macro_export]
 macro_rules! client_error {
     ($code:expr, $message:expr) => {
-        Err(Box::new(crate::ClientError {
+        ::std::result::Result::Err(::std::boxed::Box::new($crate::ClientError {
             code: $code,
-            message: String::from($message)
+            message: ::std::string::String::from($message)
         }))
     }
 }
 
-type ConsumeHandler = fn(String) -> bool;
+//type ConsumeHandler = fn(String) -> bool;
 type ConsumeCallback = Box<dyn Fn(String) -> String + Send + Sync>;
 
 #[allow(dead_code)]
@@ -101,7 +101,9 @@ pub async fn main() -> Result<()> {
             client::basic_consume(&connection, 1, queue, consumer_tag, consumer_handler).await?;
 
             let (_tx, rx) = tokio::sync::oneshot::channel::<()>();
-            rx.await;
+            if let Err(e) = rx.await {
+                error!("Error {}", e)
+            }
 
             client::close(&connection).await?
         },

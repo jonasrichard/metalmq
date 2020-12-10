@@ -5,6 +5,9 @@
 pub mod codec;
 pub mod frame;
 
+#[macro_use]
+extern crate bitflags;
+
 use std::fmt;
 
 /// Type alias for a sync and send error.
