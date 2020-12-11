@@ -156,8 +156,8 @@ fn handle_in_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFram
             // TODO copy happens? check with a small poc
             handle_in_method_frame(ch, args, cs)
         }
-        AMQPFrame::ContentHeader(ch) => cs.content_header(*ch),
-        AMQPFrame::ContentBody(cb) => cs.content_body(*cb),
+        AMQPFrame::ContentHeader(ch) => cs.content_header(ch),
+        AMQPFrame::ContentBody(cb) => cs.content_body(cb),
         AMQPFrame::Heartbeat(_) => Ok(None),
     }
 }
@@ -216,8 +216,8 @@ fn handle_publish(
         Some(publish_frame) =>
             Ok(vec![
                 publish_frame,
-                AMQPFrame::ContentHeader(Box::new(frame::content_header(channel, content.len() as u64))),
-                AMQPFrame::ContentBody(Box::new(frame::content_body(channel, content.as_slice())))
+                AMQPFrame::ContentHeader(frame::content_header(channel, content.len() as u64)),
+                AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice()))
             ]),
         None =>
             unreachable!()

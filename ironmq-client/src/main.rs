@@ -1,3 +1,19 @@
+//! Client of ironmq.
+//!
+//! Usage
+//! ```no_run
+//! use ironmq_client::client;
+//!
+//! async fn client() -> ironmq_client::Result<()> {
+//!     let conn = client::connect("127.0.0.1:5672").await?;
+//!     client::open(&conn, "/".into()).await?;
+//!     client::channel_open(&conn, 1).await?;
+//!     client::basic_publish(&conn, 1, "exchange", "routing", "Hello".into()).await?;
+//!     client::close(&conn).await?;
+//!
+//!     Ok(())
+//! }
+//! ```
 pub mod client;
 mod client_sm;
 

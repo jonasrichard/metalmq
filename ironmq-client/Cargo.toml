@@ -12,7 +12,7 @@ description = "IromMQ client library (AMQP 0.9)"
 bytes = "0.6"
 env_logger = "0.7"
 futures = "0.3"
-ironmq-codec = { version = "0.0.1", path = "../ironmq-codec" }
+ironmq-codec = { version = "0.1", path = "../ironmq-codec" }
 lazy_static = "1.4"
 log = "0.4"
 tokio = { version = "0.3", features = ["macros", "net", "rt", "rt-multi-thread", "stream", "sync"] }

@@ -9,72 +9,8 @@ const FRAME_CONTENT_BODY: u8 = 0x03;
 const FRAME_HEARTBEAT: u8 = 0x08;
 const FRAME_AMQP_VERSION: u8 = 0x41;
 
+/// Placeholder for AMQP encoder and decoder functions.
 pub struct AMQPCodec {}
-
-// TODO once the converstion for all types will be ready, we can remove these
-macro_rules! t_u8 {
-    () => {
-        AMQPType::U8
-    };
-}
-macro_rules! t_u16 {
-    () => {
-        AMQPType::U16
-    };
-}
-macro_rules! t_u32 {
-    () => {
-        AMQPType::U32
-    };
-}
-macro_rules! t_u64 {
-    () => {
-        AMQPType::U64
-    };
-}
-macro_rules! t_ls {
-    () => {
-        AMQPType::LongString
-    };
-}
-macro_rules! t_ss {
-    () => {
-        AMQPType::SimpleString
-    };
-}
-macro_rules! t_ft {
-    () => {
-        AMQPType::FieldTable
-    };
-}
-
-// Implement enum or lookup table to avoid vec! allocations
-pub fn get_method_frame_args_list(class_method: u32) -> Vec<AMQPType> {
-    match class_method {
-        CONNECTION_START => vec![t_u8!(), t_u8!(), t_ft!(), t_ls!(), t_ls!()],
-        CONNECTION_START_OK => vec![t_ft!(), t_ss!(), t_ls!(), t_ss!()],
-        CONNECTION_TUNE => vec![t_u16!(), t_u32!(), t_u16!()],
-        CONNECTION_TUNE_OK => vec![t_u16!(), t_u32!(), t_u16!()],
-        CONNECTION_OPEN => vec![t_ss!(), t_ss!(), t_u8!()],
-        CONNECTION_OPEN_OK => vec![t_ss!()],
-        CONNECTION_CLOSE => vec![t_u16!(), t_ss!(), t_u16!(), t_u16!()],
-        CONNECTION_CLOSE_OK => vec![],
-        CHANNEL_OPEN => vec![t_ss!()],
-        CHANNEL_OPEN_OK => vec![t_ls!()],
-        CHANNEL_CLOSE => vec![t_u16!(), t_ss!(), t_u16!(), t_u16!()],
-        EXCHANGE_DECLARE => vec![t_u16!(), t_ss!(), t_ss!(), t_u8!(), t_ft!()],
-        EXCHANGE_DECLARE_OK => vec![],
-        QUEUE_BIND => vec![t_u16!(), t_ss!(), t_ss!(), t_ss!(), t_u8!(), t_ft!()],
-        QUEUE_BIND_OK => vec![],
-        QUEUE_DECLARE => vec![t_u16!(), t_ss!(), t_u8!(), t_ft!()],
-        QUEUE_DECLARE_OK => vec![t_ss!(), t_u32!(), t_u32!()],
-        BASIC_CONSUME => vec![t_u16!(), t_ss!(), t_ss!(), t_u8!(), t_ft!()],
-        BASIC_CONSUME_OK => vec![t_ss!()],
-        BASIC_PUBLISH => vec![t_u16!(), t_ss!(), t_ss!(), t_u8!()],
-        BASIC_DELIVER => vec![t_ss!(), t_u64!(), t_u8!(), t_ss!(), t_ss!()],
-        mc => panic!("Unsupported class+method {:08X}", mc),
-    }
-}
 
 // TODO change type of encoder, decoder, they should deal with Vec<AMQPFrame>
 
@@ -88,7 +24,7 @@ impl Encoder<AMQPFrame> for AMQPCodec {
             AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, args),
 
             AMQPFrame::ContentHeader(header_frame) => {
-                encode_content_header_frame(&mut buf, *header_frame)
+                encode_content_header_frame(&mut buf, header_frame)
             }
 
             AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, body_frame),
@@ -140,10 +76,10 @@ impl Decoder for AMQPCodec {
                     let _frame_separator = src.get_u8();
 
                     // TODO more effective copy
-                    let frame = AMQPFrame::ContentBody(Box::new(ContentBodyFrame {
+                    let frame = AMQPFrame::ContentBody(ContentBodyFrame {
                         channel: channel,
                         body: bytes.to_vec(),
-                    }));
+                    });
 
                     Ok(Some(frame))
                 }
@@ -198,32 +134,8 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         BASIC_CONSUME_OK => decode_basic_consume_ok(&mut src),
         BASIC_DELIVER => decode_basic_deliver(&mut src),
         BASIC_PUBLISH => decode_basic_publish(&mut src),
-        _ => {
-            let args_type_list = get_method_frame_args_list(class_method);
-
-            let mut args = Vec::<AMQPValue>::new();
-
-            for arg_type in args_type_list {
-                match arg_type {
-                    AMQPType::U8 => args.push(AMQPValue::U8(src.get_u8())),
-                    AMQPType::U16 => args.push(AMQPValue::U16(src.get_u16())),
-                    AMQPType::U32 => args.push(AMQPValue::U32(src.get_u32())),
-                    AMQPType::U64 => args.push(AMQPValue::U64(src.get_u64())),
-                    AMQPType::SimpleString => {
-                        args.push(AMQPValue::SimpleString(decode_short_string(&mut src)))
-                    }
-                    AMQPType::LongString => {
-                        args.push(AMQPValue::LongString(decode_long_string(&mut src)))
-                    }
-                    AMQPType::FieldTable => match decode_field_table(&mut src) {
-                        None => args.push(AMQPValue::EmptyFieldTable),
-                        Some(table) => args.push(AMQPValue::FieldTable(Box::new(table))),
-                    },
-                }
-            }
-
-            MethodFrameArgs::Other(Box::new(args))
-        }
+        _ =>
+            unimplemented!("{:08X}", class_method)
     };
 
     AMQPFrame::Method(channel, class_method, method_frame_args)
@@ -405,14 +317,14 @@ fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let property_flags = src.get_u16();
     // TODO property list, it seems that we need to know from the class_id what is the type list
 
-    AMQPFrame::ContentHeader(Box::new(ContentHeaderFrame {
+    AMQPFrame::ContentHeader(ContentHeaderFrame {
         channel: channel,
         class_id: class_id,
         weight: weight,
         body_size: body_size,
         prop_flags: property_flags,
         args: vec![],
-    }))
+    })
 }
 
 fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
@@ -505,11 +417,11 @@ fn encode_method_frame(
         MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
         MethodFrameArgs::BasicConsume(args) => encode_basic_consume(&mut fr, args),
         MethodFrameArgs::BasicConsumeOk(args) => encode_basic_consume_ok(&mut fr, args),
-        MethodFrameArgs::Other(args) => {
-            for arg in *args {
-                encode_value(&mut fr, arg);
-            }
-        },
+        //MethodFrameArgs::Other(args) => {
+        //    for arg in *args {
+        //        encode_value(&mut fr, arg);
+        //    }
+        //},
         _ => unimplemented!()
     }
 
@@ -650,7 +562,7 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: ContentHeaderFrame) {
     buf.put_u8(0xCE);
 }
 
-fn encode_content_body_frame(buf: &mut BytesMut, bf: Box<ContentBodyFrame>) {
+fn encode_content_body_frame(buf: &mut BytesMut, bf: ContentBodyFrame) {
     buf.put_u8(3u8);
     buf.put_u16(bf.channel);
 
@@ -666,19 +578,6 @@ fn encode_heartbeat_frame(buf: &mut BytesMut, channel: Channel) {
     buf.put_u16(channel);
     buf.put_u32(0);
     buf.put_u8(0xCE);
-}
-
-fn encode_value(mut buf: &mut BytesMut, value: AMQPValue) {
-    match value {
-        AMQPValue::U8(v) => buf.put_u8(v),
-        AMQPValue::U16(v) => buf.put_u16(v),
-        AMQPValue::U32(v) => buf.put_u32(v),
-        AMQPValue::U64(v) => buf.put_u64(v),
-        AMQPValue::SimpleString(v) => encode_short_string(&mut buf, v),
-        AMQPValue::LongString(v) => encode_long_string(&mut buf, v),
-        AMQPValue::EmptyFieldTable => encode_empty_field_table(&mut buf),
-        AMQPValue::FieldTable(v) => encode_field_table2(&mut buf, *v),
-    }
 }
 
 fn encode_short_string(buf: &mut BytesMut, s: String) {

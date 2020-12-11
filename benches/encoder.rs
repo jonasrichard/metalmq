@@ -1,32 +1,16 @@
 use bencher::Bencher;
 use bytes::BytesMut;
-use ironmq_codec::frame::{AMQPFieldValue, AMQPFrame, AMQPValue, MethodFrameArgs};
-use std::collections::HashMap;
+use ironmq_codec::frame;
+use ironmq_codec::frame::{AMQPFrame, MethodFrameArgs};
 use tokio_util::codec::Encoder;
 
 fn generate_frame() -> AMQPFrame {
-    let mut sub_fields = HashMap::<String, AMQPFieldValue>::new();
-    sub_fields.insert(
-        "another long string".into(),
-        AMQPFieldValue::LongString("the value".into()),
-    );
+    let args = frame::QueueDeclareArgs {
+        name: "test queue".into(),
+        ..Default::default()
+    };
 
-    let mut fields = HashMap::<String, AMQPFieldValue>::new();
-    fields.insert(
-        "long string".into(),
-        AMQPFieldValue::LongString("A long string".into()),
-    );
-    fields.insert("bool value".into(), AMQPFieldValue::Bool(true));
-    fields.insert("".into(), AMQPFieldValue::FieldTable(Box::new(sub_fields)));
-
-    let args = vec![
-        AMQPValue::U16(4000),
-        AMQPValue::SimpleString("This is a benchmark string".into()),
-        AMQPValue::LongString("A long string has length info 4 bytes long".into()),
-        AMQPValue::FieldTable(Box::new(fields)),
-    ];
-
-    AMQPFrame::Method(12, 0x1100000A, MethodFrameArgs::Other(Box::new(args)))
+    AMQPFrame::Method(12, frame::QUEUE_DECLARE, MethodFrameArgs::QueueDeclare(args))
 }
 
 fn method_frame(bench: &mut Bencher) {

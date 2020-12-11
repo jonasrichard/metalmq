@@ -32,15 +32,17 @@ pub type ClassMethod = u32;
 pub type ClassId = u16;
 pub type Weight = u16;
 
+/// Represents an AMQP frame.
 #[derive(Debug)]
 pub enum AMQPFrame {
     Header,
     Method(Channel, ClassMethod, MethodFrameArgs),
-    ContentHeader(Box<ContentHeaderFrame>),
-    ContentBody(Box<ContentBodyFrame>),
+    ContentHeader(ContentHeaderFrame),
+    ContentBody(ContentBodyFrame),
     Heartbeat(Channel),
 }
 
+/// Represents all types of method frame arguments.
 #[derive(Debug)]
 pub enum MethodFrameArgs {
     ConnectionStart(ConnectionStartArgs),
@@ -64,8 +66,7 @@ pub enum MethodFrameArgs {
     BasicConsume(BasicConsumeArgs),
     BasicConsumeOk(BasicConsumeOkArgs),
     BasicDeliver(BasicDeliverArgs),
-    BasicPublish(BasicPublishArgs),
-    Other(Box<Vec<AMQPValue>>),
+    BasicPublish(BasicPublishArgs)
 }
 
 #[derive(Debug)]
@@ -82,17 +83,6 @@ pub struct ContentHeaderFrame {
 pub struct ContentBodyFrame {
     pub channel: Channel,
     pub body: Vec<u8>,
-}
-
-#[derive(Debug)]
-pub enum AMQPType {
-    U8,
-    U16,
-    U32,
-    U64,
-    SimpleString,
-    LongString,
-    FieldTable,
 }
 
 /// Type alias for inner type of field value.
@@ -298,13 +288,13 @@ pub struct BasicPublishArgs {
 
 impl From<ContentHeaderFrame> for AMQPFrame {
     fn from(chf: ContentHeaderFrame) -> AMQPFrame {
-        AMQPFrame::ContentHeader(Box::new(chf))
+        AMQPFrame::ContentHeader(chf)
     }
 }
 
 impl From<ContentBodyFrame> for AMQPFrame {
     fn from(cbf: ContentBodyFrame) -> AMQPFrame {
-        AMQPFrame::ContentBody(Box::new(cbf))
+        AMQPFrame::ContentBody(cbf)
     }
 }
 
