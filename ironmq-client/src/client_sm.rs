@@ -9,7 +9,7 @@
 use crate::{ConsumeCallback, Result};
 use ironmq_codec::frame;
 use ironmq_codec::frame::{Channel};
-use log::{error, info};
+use log::info;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -65,7 +65,7 @@ pub(crate) trait Client {
     fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame;
     fn queue_bind_ok(&mut self) -> MaybeFrame;
 
-    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame;
+    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, cb: ConsumeCallback) -> MaybeFrame;
     fn basic_consume_ok(&mut self, args: frame::BasicConsumeOkArgs) -> MaybeFrame;
     fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame;
     fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
@@ -91,7 +91,7 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
+    fn connection_start_ok(&mut self, _args: frame::ConnectionStartOkArgs) -> MaybeFrame {
         self.state = Phase::Connected;
 
         let mut caps = frame::FieldTable::new();
@@ -113,13 +113,13 @@ impl Client for ClientState {
         )))
     }
 
-    fn connection_tune(&mut self, args: frame::ConnectionTuneArgs) -> MaybeFrame {
+    fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> MaybeFrame {
         self.state = Phase::Authenticated;
 
         Ok(Some(frame::connection_tune_ok(0)))
     }
 
-    fn connection_tune_ok(&mut self, args: frame::ConnectionTuneOkArgs) -> MaybeFrame {
+    fn connection_tune_ok(&mut self, _args: frame::ConnectionTuneOkArgs) -> MaybeFrame {
         Ok(None)
     }
 
@@ -131,7 +131,7 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    fn connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame {
+    fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         Ok(Some(frame::connection_close(0)))
     }
 
@@ -143,7 +143,7 @@ impl Client for ClientState {
         Ok(Some(frame::channel_open(channel)))
     }
 
-    fn channel_open_ok(&mut self, channel: frame::Channel) -> MaybeFrame {
+    fn channel_open_ok(&mut self, _channel: frame::Channel) -> MaybeFrame {
         Ok(None)
     }
 
@@ -159,7 +159,7 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    fn exchange_bind(&mut self, channel: Channel, args: frame::ExchangeBindArgs) -> MaybeFrame {
+    fn exchange_bind(&mut self, _channel: Channel, _args: frame::ExchangeBindArgs) -> MaybeFrame {
         unimplemented!()
     }
 
@@ -171,7 +171,7 @@ impl Client for ClientState {
         Ok(Some(frame::queue_declare(channel, args.name)))
     }
 
-    fn queue_declare_ok(&mut self, args: frame::QueueDeclareOkArgs) -> MaybeFrame {
+    fn queue_declare_ok(&mut self, _args: frame::QueueDeclareOkArgs) -> MaybeFrame {
         Ok(None)
     }
 
@@ -183,15 +183,16 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
+    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, cb: ConsumeCallback) -> MaybeFrame {
+        // TODO register callback!
         Ok(Some(frame::basic_consume(channel, args.queue, args.consumer_tag)))
     }
 
-    fn basic_consume_ok(&mut self, args: frame::BasicConsumeOkArgs) -> MaybeFrame {
+    fn basic_consume_ok(&mut self, _args: frame::BasicConsumeOkArgs) -> MaybeFrame {
         Ok(None)
     }
 
-    fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame {
+    fn basic_deliver(&mut self, _args: frame::BasicDeliverArgs) -> MaybeFrame {
         Ok(None)
     }
 
@@ -200,10 +201,12 @@ impl Client for ClientState {
     }
 
     fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame {
+        info!("Content header arrived {:?}", ch);
         Ok(None)
     }
 
-    fn content_body(&mut self, ch: frame::ContentBodyFrame) -> MaybeFrame {
+    fn content_body(&mut self, cb: frame::ContentBodyFrame) -> MaybeFrame {
+        info!("Content body arrived {:?}", cb);
         Ok(None)
     }
 }
@@ -214,28 +217,6 @@ struct DeliveredContent {
     header: Option<frame::ContentHeaderFrame>, // flags
 }
 
-//pub(crate) fn basic_consume(
-//    cs: &mut ClientState,
-//    args: BasicConsumeArgs,
-//) -> Result<Option<MethodFrame>> {
-//    // TODO we shouldn't finalize the subscription here, because we
-//    cs.consumers
-//        .insert((args.channel, args.consumer_tag.clone()), args.callback);
-//
-//    Ok(Some(frame::basic_consume(
-//        args.channel,
-//        args.queue_name,
-//        args.consumer_tag,
-//    )))
-//}
-//
-//pub(crate) fn basic_consume_ok(
-//    _cs: &mut ClientState,
-//    _f: MethodFrame,
-//) -> Result<Option<MethodFrame>> {
-//    Ok(None)
-//}
-//
 //pub(crate) fn basic_deliver(
 //    cs: &mut ClientState,
 //    mut f: MethodFrame,
@@ -254,18 +235,6 @@ struct DeliveredContent {
 //
 //    Ok(None)
 //}
-//
-//pub(crate) fn basic_publish(
-//    _cs: &mut ClientState,
-//    args: BasicPublishArgs,
-//) -> Result<Option<MethodFrame>> {
-//    Ok(Some(frame::basic_publish(
-//        args.channel,
-//        args.exchange_name,
-//        args.routing_key,
-//    )))
-//}
-//
 //pub(crate) fn content_header(
 //    cs: &mut ClientState,
 //    ch: ContentHeaderFrame,
