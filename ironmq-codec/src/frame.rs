@@ -1,4 +1,3 @@
-use crate::{frame_error, Result};
 use std::collections::HashMap;
 
 pub const CONNECTION_START: u32 = 0x000A000A;
@@ -13,6 +12,7 @@ pub const CONNECTION_CLOSE_OK: u32 = 0x000A0033;
 pub const CHANNEL_OPEN: u32 = 0x0014000A;
 pub const CHANNEL_OPEN_OK: u32 = 0x0014000B;
 pub const CHANNEL_CLOSE: u32 = 0x00140028;
+pub const CHANNEL_CLOSE_OK: u32 = 0x00140029;
 
 pub const EXCHANGE_DECLARE: u32 = 0x0028000A;
 pub const EXCHANGE_DECLARE_OK: u32 = 0x0028000B;
@@ -55,6 +55,8 @@ pub enum MethodFrameArgs {
     ConnectionCloseOk,
     ChannelOpen,
     ChannelOpenOk,
+    ChannelClose(ChannelCloseArgs),
+    ChannelCloseOk,
     ExchangeDeclare(ExchangeDeclareArgs),
     ExchangeDeclareOk,
     ExchangeBind(ExchangeBindArgs),
@@ -157,6 +159,14 @@ pub struct ConnectionCloseArgs {
     pub method_id: u16,
 }
 
+#[derive(Debug, Default)]
+pub struct ChannelCloseArgs {
+    pub code: u16,
+    pub text: String,
+    pub class_id: u16,
+    pub method_id: u16,
+}
+
 bitflags! {
     pub struct ExchangeDeclareFlags: u8 {
         const PASSIVE = 0b00000001;
@@ -181,7 +191,7 @@ pub struct ExchangeDeclareArgs {
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExchangeBindArgs {
     pub source: String,
     pub destination: String,
@@ -298,71 +308,12 @@ impl From<ContentBodyFrame> for AMQPFrame {
     }
 }
 
-// Convenience function for getting string value from an `AMQPValue`.
-pub fn value_as_string(val: AMQPValue) -> Result<String> {
-    match val {
-        AMQPValue::SimpleString(s) => Ok(s),
-        AMQPValue::LongString(s) => Ok(s),
-        _ => frame_error!(3, "Cannot convert to string"),
-    }
-}
+/// Split class id and method id from `u32` combined code.
+pub fn split_class_method(cm: u32) -> (u16, u16) {
+    let method_id = (cm & 0x0000FFFF) as u16;
+    let class_id = (cm >> 16) as u16;
 
-pub fn arg_as_u8(args: Vec<AMQPValue>, index: usize) -> Result<u8> {
-    if let Some(arg) = args.get(index) {
-        if let AMQPValue::U8(v) = arg {
-            return Ok(*v);
-        }
-
-        return frame_error!(3, "Cannot convert arg to u8");
-    }
-
-    frame_error!(4, "Arg index out of bound")
-}
-
-pub fn arg_as_u16(args: Vec<AMQPValue>, index: usize) -> Result<u16> {
-    if let Some(arg) = args.get(index) {
-        if let AMQPValue::U16(v) = arg {
-            return Ok(*v);
-        }
-
-        return frame_error!(3, "Cannot convert arg to u16");
-    }
-
-    frame_error!(4, "Arg index out of bound")
-}
-
-pub fn arg_as_u32(args: Vec<AMQPValue>, index: usize) -> Result<u32> {
-    if let Some(arg) = args.get(index) {
-        if let AMQPValue::U32(v) = arg {
-            return Ok(*v);
-        }
-
-        return frame_error!(3, "Cannot convert arg to u32");
-    }
-
-    frame_error!(4, "Arg index out of bound")
-}
-
-pub fn arg_as_u64(args: Vec<AMQPValue>, index: usize) -> Result<u64> {
-    if let Some(arg) = args.get(index) {
-        if let AMQPValue::U64(v) = arg {
-            return Ok(*v);
-        }
-
-        return frame_error!(3, "Cannot convert arg to u64");
-    }
-
-    frame_error!(4, "Arg index out of bound")
-}
-
-pub fn get_bool(ft: FieldTable, name: String) -> Result<bool> {
-    if let Some(value) = ft.get(&name) {
-        if let AMQPFieldValue::Bool(v) = value {
-            return Ok(*v);
-        }
-    }
-
-    frame_error!(6, "Cannot convert field value to bool")
+    (class_id, method_id)
 }
 
 pub fn connection_start(channel: u16) -> AMQPFrame {
@@ -519,6 +470,22 @@ pub fn channel_open_ok(channel: u16) -> AMQPFrame {
         CHANNEL_OPEN_OK,
         MethodFrameArgs::ChannelOpenOk
     )
+}
+
+pub fn channel_close(channel: Channel, code: u16, text: &str, class_id: u16, method_id: u16) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        CHANNEL_CLOSE,
+        MethodFrameArgs::ChannelClose(ChannelCloseArgs {
+            code: code,
+            text: text.into(),
+            class_id: class_id,
+            method_id: method_id
+        }))
+}
+
+pub fn channel_close_ok(channel: Channel) -> AMQPFrame {
+    AMQPFrame::Method(channel, CHANNEL_CLOSE_OK, MethodFrameArgs::ChannelCloseOk)
 }
 
 pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String) -> AMQPFrame {

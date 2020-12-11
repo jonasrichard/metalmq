@@ -109,6 +109,8 @@ pub async fn main() -> Result<()> {
             if let Err(e) = client_conn::handle_client(socket).await {
                 error!("Error handling client {:?}", e)
             }
+
+            info!("Connection is closed");
         });
     }
 }
