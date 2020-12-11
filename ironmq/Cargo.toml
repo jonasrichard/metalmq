@@ -5,6 +5,7 @@ authors = ["Richard Jonas <richard.jonas@erlang-solutions.com>"]
 edition = "2018"
 license = "Apache-2.0"
 keywords = ["amqp", "messaging"]
+readme = "README.md"
 repository = "https://github.com/jonasrichard/ironmq"
 description = "IromMQ server"
 
