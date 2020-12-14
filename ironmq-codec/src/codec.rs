@@ -522,11 +522,7 @@ fn encode_exchange_bind(mut buf: &mut BytesMut, args: ExchangeBindArgs) {
     encode_short_string(&mut buf, args.destination);
     encode_short_string(&mut buf, args.source);
     encode_short_string(&mut buf, args.routing_key);
-    if args.no_wait {
-        buf.put_u8(1);
-    } else {
-        buf.put_u8(0);
-    }
+    buf.put_u8(if args.no_wait { 1 } else { 0 });
     encode_empty_field_table(&mut buf);
 }
 
@@ -548,11 +544,7 @@ fn encode_queue_bind(mut buf: &mut BytesMut, args: QueueBindArgs) {
     encode_short_string(&mut buf, args.queue_name);
     encode_short_string(&mut buf, args.exchange_name);
     encode_short_string(&mut buf, args.routing_key);
-    if args.no_wait {
-        buf.put_u8(1)
-    } else {
-        buf.put_u8(0)
-    }
+    buf.put_u8(if args.no_wait { 1 } else { 0 });
     encode_empty_field_table(&mut buf);
 }
 
@@ -571,11 +563,7 @@ fn encode_basic_consume_ok(mut buf: &mut BytesMut, args: BasicConsumeOkArgs) {
 fn encode_basic_deliver(mut buf: &mut BytesMut, args: BasicDeliverArgs) {
     encode_short_string(&mut buf, args.consumer_tag);
     buf.put_u64(args.delivery_tag);
-    if args.redelivered {
-        buf.put_u8(1)
-    } else {
-        buf.put_u8(0)
-    }
+    buf.put_u8(if args.redelivered { 1 } else { 0 });
     encode_short_string(&mut buf, args.exchange_name);
     encode_short_string(&mut buf, args.routing_key);
 }
@@ -654,12 +642,7 @@ fn encode_field_table2(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) 
         match value {
             AMQPFieldValue::Bool(v) => {
                 ft_buf.put_u8(b't');
-
-                if v {
-                    ft_buf.put_u8(1u8);
-                } else {
-                    ft_buf.put_u8(0u8);
-                }
+                ft_buf.put_u8(if v { 1 } else { 0 });
             }
             AMQPFieldValue::LongString(v) => {
                 ft_buf.put_u8(b'S');

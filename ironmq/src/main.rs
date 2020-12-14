@@ -1,6 +1,7 @@
 mod client_conn;
 mod conn_state;
 mod exchange;
+mod message;
 mod queue;
 
 use env_logger::Builder;
