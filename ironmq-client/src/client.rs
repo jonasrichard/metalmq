@@ -1,3 +1,4 @@
+use crate::Connection;
 use crate::client_sm;
 use crate::client_sm::{Client, ClientState};
 use crate::{client_error, ConsumeCallback, Result};
@@ -13,16 +14,16 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::Framed;
 
-enum Param {
+pub(crate) enum Param {
     Frame(AMQPFrame),
     Consume(AMQPFrame, ConsumeCallback),
     Publish(AMQPFrame, Vec<u8>)
 }
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
-struct Request {
-    param: Param,
-    response: Option<oneshot::Sender<()>>,
+pub(crate) struct Request {
+    pub(crate) param: Param,
+    pub(crate) response: Option<oneshot::Sender<()>>,
 }
 
 impl fmt::Debug for Request {
@@ -37,13 +38,7 @@ impl fmt::Debug for Request {
     }
 }
 
-/// Represents a connection to AMQP server. It is not a trait since async functions in a trait
-/// are not yet supported.
-pub struct Connection {
-    server_channel: mpsc::Sender<Request>,
-}
-
-async fn create_connection(url: String) -> Result<Box<Connection>> {
+pub(crate) async fn create_connection(url: String) -> Result<Box<Connection>> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
             let (sender, receiver) = mpsc::channel(16);
@@ -224,7 +219,7 @@ fn handle_publish(
     }
 }
 
-async fn call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
+pub(crate) async fn call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
     conn.server_channel
         .send(Request {
             param: Param::Frame(frame),
@@ -235,7 +230,7 @@ async fn call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
     Ok(())
 }
 
-async fn sync_call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
+pub(crate) async fn sync_call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     conn.server_channel
@@ -249,116 +244,4 @@ async fn sync_call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
         Ok(()) => Ok(()),
         Err(_) => client_error!(0, "Channel recv error"),
     }
-}
-
-/// Connect to an AMQP server.
-///
-/// This is async code and wait for the Connection.Tune-Ok message.
-///
-/// ```no_run
-/// let conn = client::connect("127.0.0.1:5672").await?;
-/// ```
-pub async fn connect(url: String) -> Result<Box<Connection>> {
-    let connection = create_connection(url).await?;
-
-    sync_call(&connection, AMQPFrame::Header).await?;
-    sync_call(
-        &connection,
-        frame::connection_start_ok("guest", "guest", HashMap::new()),
-    )
-    .await?;
-    call(&connection, frame::connection_tune_ok(0)).await?;
-
-    Ok(connection)
-}
-
-pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
-    sync_call(&connection, frame::connection_open(0, virtual_host)).await?;
-
-    Ok(())
-}
-
-pub async fn close(connection: &Connection) -> Result<()> {
-    sync_call(&connection, frame::connection_close(0)).await?;
-
-    Ok(())
-}
-
-pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
-    sync_call(&connection, frame::channel_open(channel)).await?;
-
-    Ok(())
-}
-
-pub async fn exchange_declare(
-    connection: &Connection,
-    channel: u16,
-    exchange_name: &str,
-    exchange_type: &str,
-) -> Result<()> {
-    let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into());
-
-    sync_call(&connection, frame).await?;
-
-    Ok(())
-}
-
-pub async fn queue_bind(
-    connection: &Connection,
-    channel: u16,
-    queue_name: &str,
-    exchange_name: &str,
-    routing_key: &str,
-) -> Result<()> {
-    let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
-
-    sync_call(&connection, frame).await?;
-
-    Ok(())
-}
-
-pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &str) -> Result<()> {
-    let frame = frame::queue_declare(channel, queue_name.into());
-
-    sync_call(&connection, frame).await?;
-
-    Ok(())
-}
-
-pub async fn basic_consume<'a>(
-    connection: &Connection,
-    channel: u16,
-    queue_name: &'a str,
-    consumer_tag: &'a str,
-    cb: fn(String) -> String,
-) -> Result<()> {
-    let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
-    let (tx, rx) = oneshot::channel();
-
-    connection.server_channel.send(Request {
-        param: Param::Consume(frame, Box::new(cb)),
-        response: Some(tx)
-    }).await?;
-
-    match rx.await {
-        Ok(()) => Ok(()),
-        Err(_) => client_error!(0, "Channel recv error"),
-    }
-}
-
-pub async fn basic_publish(
-    connection: &Connection,
-    channel: u16,
-    exchange_name: &str,
-    routing_key: &str,
-    payload: String,
-) -> Result<()> {
-    let frame = frame::basic_publish(channel, exchange_name.into(), routing_key.into());
-
-    connection.server_channel.send(Request {
-        param: Param::Publish(frame, payload.as_bytes().to_vec()),
-        response: None
-    }).await?;
-
-    Ok(())
 }

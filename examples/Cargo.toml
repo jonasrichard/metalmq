@@ -1,0 +1,13 @@
+[package]
+name = "examples"
+version = "0.0.0"
+publish = false
+edition = "2018"
+
+[dev-dependencies]
+ironmq-client = { version = "0.1", path = "../ironmq-client" }
+tokio = { version = "0.3", features = ["full"] }
+
+[[example]]
+name = "basic"
+path = "basic.rs"
