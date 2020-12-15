@@ -15,7 +15,10 @@ const NOT_ALLOWED: u16 = 530;
 pub(crate) struct ConnectionState {
     virtual_host: String,
     open_channels: HashMap<Channel, ()>,
-    exchanges: HashMap<String, ()>
+    exchanges: HashMap<String, ()>,
+    queues: HashMap<String, ()>,
+    /// Simple exchange-queue binding
+    binding: HashMap<(String, String), ()>
 }
 
 pub(crate) trait Connection {
@@ -24,6 +27,8 @@ pub(crate) trait Connection {
     fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
     fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
     fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
+    fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame;
+    fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame;
     fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
     fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame;
     fn receive_content_body(&mut self, header: frame::ContentBodyFrame) -> MaybeFrame;
@@ -34,7 +39,9 @@ impl Default for ConnectionState {
         ConnectionState {
             virtual_host: "".into(),
             open_channels: HashMap::new(),
-            exchanges: HashMap::new()
+            exchanges: HashMap::new(),
+            queues: HashMap::new(),
+            binding: HashMap::new()
         }
     }
 }
@@ -74,6 +81,24 @@ impl Connection for ConnectionState {
             self.exchanges.insert(args.exchange_name, ());
             Ok(Some(frame::exchange_declare_ok(channel)))
         }
+    }
+
+    fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
+        if !self.queues.contains_key(&args.name) {
+            self.queues.insert(args.name.clone(), ());
+        }
+
+        Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
+    }
+
+    fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
+        let binding = (args.exchange_name, args.queue_name);
+
+        if !self.binding.contains_key(&binding) {
+            self.binding.insert(binding, ());
+        }
+
+        Ok(Some(frame::queue_bind_ok(channel)))
     }
 
     fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {

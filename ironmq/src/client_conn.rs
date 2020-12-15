@@ -67,6 +67,8 @@ async fn handle_method_frame(
         MethodFrameArgs::ChannelOpen => cs.channel_open(channel),
         MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, args),
         MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args),
+        MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args),
+        MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args),
         MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, args),
         _ => {
             error!("Unhandler method frame type {:?}", ma);
