@@ -17,17 +17,16 @@
 pub mod client;
 mod client_sm;
 
-use env_logger::Builder;
 use frame::Channel;
 use ironmq_codec::frame;
-use log::{info, error};
 use std::collections::HashMap;
 use std::fmt;
-use std::io::Write;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 // TODO expose Channel type and put it here!
+
+// TODO feature log should log in trace level
 
 pub type Result<T> = std::result::Result<T, Error>;
 
