@@ -20,7 +20,7 @@ pub(crate) struct Connection {
     exchanges: HashMap<String, ()>,
     queues: HashMap<String, ()>,
     /// Simple exchange-queue binding
-    binding: HashMap<(String, String), ()>
+    binding: HashMap<(String, String), ()>,
 }
 
 pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
@@ -30,17 +30,24 @@ pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         queues: HashMap::new(),
-        binding: HashMap::new()
+        binding: HashMap::new(),
     }
 }
 
-pub(crate) async fn connection_open(conn: &mut Connection, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
+pub(crate) async fn connection_open(
+    conn: &mut Connection,
+    channel: Channel,
+    args: frame::ConnectionOpenArgs,
+) -> MaybeFrame {
     // TODO check if virtual host doens't exist
     conn.virtual_host = args.virtual_host;
     Ok(Some(frame::connection_open_ok(channel)))
 }
 
-pub(crate) async fn connection_close(conn: &mut Connection, args: frame::ConnectionCloseArgs) -> MaybeFrame {
+pub(crate) async fn connection_close(
+    conn: &mut Connection,
+    args: frame::ConnectionCloseArgs,
+) -> MaybeFrame {
     // TODO cleanup
     Ok(Some(frame::connection_close_ok(0)))
 }
@@ -48,48 +55,57 @@ pub(crate) async fn connection_close(conn: &mut Connection, args: frame::Connect
 pub(crate) async fn channel_open(conn: &mut Connection, channel: Channel) -> MaybeFrame {
     if conn.open_channels.contains_key(&channel) {
         let (cid, mid) = frame::split_class_method(frame::CHANNEL_OPEN);
-        Ok(Some(frame::channel_close(channel, CHANNEL_ERROR, "Channel already opened", cid, mid)))
+        Ok(Some(frame::channel_close(
+            channel,
+            CHANNEL_ERROR,
+            "Channel already opened",
+            cid,
+            mid,
+        )))
     } else {
         conn.open_channels.insert(channel, ());
         Ok(Some(frame::channel_open_ok(channel)))
     }
 }
 
-pub(crate) async fn channel_close(conn: &mut Connection, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+pub(crate) async fn channel_close(
+    conn: &mut Connection,
+    channel: Channel,
+    args: frame::ChannelCloseArgs,
+) -> MaybeFrame {
     conn.open_channels.remove(&channel);
     Ok(Some(frame::channel_close_ok(channel)))
 }
 
-pub(crate) async fn exchange_declare(conn: &mut Connection, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
+pub(crate) async fn exchange_declare(
+    conn: &mut Connection,
+    channel: Channel,
+    args: frame::ExchangeDeclareArgs,
+) -> MaybeFrame {
+    let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
     let mut ctx = conn.context.lock().await;
-    let result = exchange::declare(
-        &mut ctx.exchanges,
-        args.exchange_name,
-        args.exchange_type,
-        args.flags.contains(frame::ExchangeDeclareFlags::DURABLE),
-        args.flags.contains(frame::ExchangeDeclareFlags::AUTO_DELETE),
-        args.flags.contains(frame::ExchangeDeclareFlags::INTERNAL),
-        args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE)
-    ).await;
+    let result = exchange::declare(&mut ctx.exchanges, args).await;
 
     match result {
-        Ok(()) =>
-            if args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT) {
+        Ok(()) => {
+            if no_wait {
                 Ok(None)
             } else {
                 Ok(Some(frame::exchange_declare_ok(channel)))
-            },
-        Err(e) =>
-            match e.downcast::<RuntimeError>() {
-                Ok(rte) =>
-                    Ok(Some(AMQPFrame::from(*rte))),
-                Err(e2) =>
-                    Err(e2)
             }
+        }
+        Err(e) => match e.downcast::<RuntimeError>() {
+            Ok(rte) => Ok(Some(AMQPFrame::from(*rte))),
+            Err(e2) => Err(e2),
+        },
     }
 }
 
-pub(crate) async fn queue_declare(conn: &mut Connection, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
+pub(crate) async fn queue_declare(
+    conn: &mut Connection,
+    channel: Channel,
+    args: frame::QueueDeclareArgs,
+) -> MaybeFrame {
     if !conn.queues.contains_key(&args.name) {
         conn.queues.insert(args.name.clone(), ());
     }
@@ -97,7 +113,11 @@ pub(crate) async fn queue_declare(conn: &mut Connection, channel: Channel, args:
     Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
 }
 
-pub(crate) async fn queue_bind(conn: &mut Connection, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
+pub(crate) async fn queue_bind(
+    conn: &mut Connection,
+    channel: Channel,
+    args: frame::QueueBindArgs,
+) -> MaybeFrame {
     let binding = (args.exchange_name, args.queue_name);
 
     if !conn.binding.contains_key(&binding) {
@@ -107,22 +127,38 @@ pub(crate) async fn queue_bind(conn: &mut Connection, channel: Channel, args: fr
     Ok(Some(frame::queue_bind_ok(channel)))
 }
 
-pub(crate) async fn basic_publish(conn: &mut Connection, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
+pub(crate) async fn basic_publish(
+    conn: &mut Connection,
+    channel: Channel,
+    args: frame::BasicPublishArgs,
+) -> MaybeFrame {
     if !conn.exchanges.contains_key(&args.exchange_name) {
         let (cid, mid) = frame::split_class_method(frame::BASIC_PUBLISH);
-        Ok(Some(frame::channel_close(channel, NOT_FOUND, "Exchange not found", cid, mid)))
+        Ok(Some(frame::channel_close(
+            channel,
+            NOT_FOUND,
+            "Exchange not found",
+            cid,
+            mid,
+        )))
     } else {
         Ok(None)
     }
 }
 
-pub(crate) async fn receive_content_header(conn: &mut Connection, header: frame::ContentHeaderFrame) -> MaybeFrame {
+pub(crate) async fn receive_content_header(
+    conn: &mut Connection,
+    header: frame::ContentHeaderFrame,
+) -> MaybeFrame {
     // TODO collect info into a data struct
     info!("Receive content with length {}", header.body_size);
     Ok(None)
 }
 
-pub(crate) async fn receive_content_body(conn: &mut Connection, body: frame::ContentBodyFrame) -> MaybeFrame {
+pub(crate) async fn receive_content_body(
+    conn: &mut Connection,
+    body: frame::ContentBodyFrame,
+) -> MaybeFrame {
     info!("Receive content with length {}", body.body.len());
     Ok(None)
 }

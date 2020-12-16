@@ -9,21 +9,21 @@ use log::{error, info};
 use std::fmt;
 use std::io::Write;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub(crate) struct Context {
-    pub(crate) exchanges: exchange::Exchanges
+    pub(crate) exchanges: exchange::Exchanges,
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum ErrorScope {
     Connection,
-    Channel
+    Channel,
 }
 
 impl Default for ErrorScope {
@@ -39,17 +39,26 @@ pub(crate) struct RuntimeError {
     pub(crate) code: u16,
     pub(crate) text: String,
     pub(crate) class_id: u16,
-    pub(crate) method_id: u16
+    pub(crate) method_id: u16,
 }
 
 impl From<RuntimeError> for ironmq_codec::frame::AMQPFrame {
     fn from(err: RuntimeError) -> ironmq_codec::frame::AMQPFrame {
         match err.scope {
-            ErrorScope::Connection =>
-                ironmq_codec::frame::connection_close(err.channel, err.code, &err.text,
-                                                      err.class_id, err.method_id),
-            ErrorScope::Channel =>
-                ironmq_codec::frame::channel_close(err.channel, err.code, &err.text, err.class_id, err.method_id)
+            ErrorScope::Connection => ironmq_codec::frame::connection_close(
+                err.channel,
+                err.code,
+                &err.text,
+                err.class_id,
+                err.method_id,
+            ),
+            ErrorScope::Channel => ironmq_codec::frame::channel_close(
+                err.channel,
+                err.code,
+                &err.text,
+                err.class_id,
+                err.method_id,
+            ),
         }
     }
 }
@@ -88,7 +97,7 @@ pub async fn main() -> Result<()> {
     let exchanges = exchange::start();
 
     let context = Arc::new(Mutex::new(Context {
-        exchanges: exchanges
+        exchanges: exchanges,
     }));
 
     info!("Listening on port 5672");
