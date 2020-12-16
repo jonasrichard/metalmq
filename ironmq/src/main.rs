@@ -6,12 +6,60 @@ mod queue;
 
 use env_logger::Builder;
 use log::{error, info};
+use std::fmt;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
+
+pub(crate) struct Context {
+    pub(crate) exchanges: exchange::Exchanges
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum ErrorScope {
+    Connection,
+    Channel
+}
+
+impl Default for ErrorScope {
+    fn default() -> Self {
+        ErrorScope::Connection
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct RuntimeError {
+    pub(crate) scope: ErrorScope,
+    pub(crate) channel: ironmq_codec::frame::Channel,
+    pub(crate) code: u16,
+    pub(crate) text: String,
+    pub(crate) class_id: u16,
+    pub(crate) method_id: u16
+}
+
+impl From<RuntimeError> for ironmq_codec::frame::AMQPFrame {
+    fn from(err: RuntimeError) -> ironmq_codec::frame::AMQPFrame {
+        match err.scope {
+            ErrorScope::Connection =>
+                ironmq_codec::frame::connection_close(err.channel, err.code, &err.text,
+                                                      err.class_id, err.method_id),
+            ErrorScope::Channel =>
+                ironmq_codec::frame::channel_close(err.channel, err.code, &err.text, err.class_id, err.method_id)
+        }
+    }
+}
+
+impl std::fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for RuntimeError {}
 
 fn setup_logger() {
     let mut builder = Builder::from_default_env();
@@ -32,74 +80,15 @@ fn setup_logger() {
         .init();
 }
 
-//async fn handle_client(socket: TcpStream) -> Result<()> {
-//    let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-//
-//    while let Some(payload) = stream.next().await {
-//        info!("Result {:?}", payload);
-//
-//        match payload {
-//            Ok(frame) => {
-//                info!("Frame {:?}", frame);
-//
-//                match frame {
-//                    AMQPFrame::AMQPHeader => sink.send(wrap(frame::connection_start(0u16))).await?,
-//                    AMQPFrame::Method(method_frame) => match method_frame.class_method {
-//                        frame::CONNECTION_START_OK => {
-//                            sink.send(wrap(frame::connection_tune(0))).await?
-//                        }
-//                        frame::CONNECTION_TUNE_OK => (),
-//                        frame::CONNECTION_OPEN => {
-//                            info!("Open vhost {:?}", method_frame.args[0]);
-//                            sink.send(wrap(frame::connection_open_ok(0))).await?
-//                        }
-//                        frame::CONNECTION_CLOSE => {
-//                            sink.send(wrap(frame::connection_close_ok(0))).await?;
-//
-//                            return Ok(());
-//                        }
-//                        frame::CHANNEL_OPEN => {
-//                            info!("Open channel {:?}", method_frame.channel);
-//                            sink.send(wrap(frame::channel_open_ok(method_frame.channel)))
-//                                .await?
-//                        }
-//                        frame::EXCHANGE_DECLARE => {
-//                            info!(
-//                                "Exchange declare {:?} {:?}",
-//                                method_frame.args[1], method_frame.args[2]
-//                            );
-//                            sink.send(wrap(frame::exchange_declare_ok(method_frame.channel)))
-//                                .await?
-//                        }
-//                        frame::BASIC_PUBLISH => {
-//                            info!("Publish {:?}", method_frame.args[1])
-//                        }
-//                        m => panic!("Unsupported method frame {:?}", m),
-//                    },
-//                    AMQPFrame::ContentHeader(ch) => {
-//                        info!("Content header, size = {}", ch.body_size)
-//                    }
-//                    AMQPFrame::ContentBody(cb) => info!(
-//                        "Content {}",
-//                        String::from_utf8(cb.body.to_vec()).unwrap_or_default()
-//                    ),
-//                    AMQPFrame::Heartbeat(ch) =>
-//                    // TODO send back a heartbeat
-//                    {
-//                        info!("Heartbeat {}", ch)
-//                    }
-//                }
-//            }
-//            Err(e) => return Err(Box::new(e)),
-//        }
-//    }
-//
-//    Ok(())
-//}
-
 #[tokio::main]
 pub async fn main() -> Result<()> {
     setup_logger();
+
+    let exchanges = exchange::start();
+
+    let context = Arc::new(Mutex::new(Context {
+        exchanges: exchanges
+    }));
 
     info!("Listening on port 5672");
 
@@ -107,9 +96,10 @@ pub async fn main() -> Result<()> {
 
     loop {
         let (socket, _) = listener.accept().await?;
+        let ctx = context.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = client_conn::handle_client(socket).await {
+            if let Err(e) = client_conn::handle_client(socket, ctx).await {
                 error!("Error handling client {:?}", e)
             }
 

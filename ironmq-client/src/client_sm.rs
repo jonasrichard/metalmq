@@ -132,7 +132,7 @@ impl Client for ClientState {
     }
 
     fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
-        Ok(Some(frame::connection_close(0)))
+        Ok(Some(frame::connection_close(0, 200, "Normal close", 0, 0)))
     }
 
     fn connection_close_ok(&mut self) -> MaybeFrame {

@@ -107,7 +107,7 @@ pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
 }
 
 pub async fn close(connection: &Connection) -> Result<()> {
-    client::sync_call(&connection, frame::connection_close(0)).await?;
+    client::sync_call(&connection, frame::connection_close(0, 200, "Normal close", 0, 0)).await?;
 
     Ok(())
 }

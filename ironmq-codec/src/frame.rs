@@ -436,15 +436,15 @@ pub fn connection_open_ok(channel: u16) -> AMQPFrame {
     )
 }
 
-pub fn connection_close(channel: u16) -> AMQPFrame {
+pub fn connection_close(channel: u16, code: u16, text: &str, class_id: u16, method_id: u16) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_CLOSE,
         MethodFrameArgs::ConnectionClose(ConnectionCloseArgs {
-            code: 200,
-            text: "Normal shutdown".into(),
-            class_id: 0,
-            method_id: 0
+            code: code,
+            text: text.into(),
+            class_id: class_id,
+            method_id: method_id
         }))
 }
 
