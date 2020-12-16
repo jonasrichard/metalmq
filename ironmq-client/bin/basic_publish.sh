@@ -7,6 +7,7 @@ connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost')
 channel = connection.channel()
 
 channel.exchange_declare(exchange='test', exchange_type='fanout')
+# channel.exchange_declare(exchange='test', exchange_type='fanout', passive=True)
 
 # channel.queue_declare(queue='logs-queue')
 # channel.queue_bind(queue='logs-queue', exchange='logs')

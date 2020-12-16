@@ -8,7 +8,8 @@ use env_logger::Builder;
 use log::{error, info};
 use std::fmt;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::net::TcpListener;
 
 pub type Result<T> = std::result::Result<T, Error>;

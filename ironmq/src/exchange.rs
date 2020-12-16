@@ -3,6 +3,7 @@
 //! through a channel. When a client is publishing to an exchange it should
 //! clone the exchange channel, so the messages will be handled serially.
 use crate::{conn_state, message, ErrorScope, Result, RuntimeError};
+use log::debug;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -10,6 +11,7 @@ pub(crate) struct Exchanges {
     exchanges: HashMap<String, Exchange>,
 }
 
+#[derive(Debug)]
 pub(crate) struct IncomingMessage {
     message: message::Message,
     ready: oneshot::Sender<()>,
@@ -18,6 +20,7 @@ pub(crate) struct IncomingMessage {
 #[derive(Debug)]
 pub(crate) struct Exchange {
     name: String,
+    exchange_type: String,
     durable: bool,
     auto_delete: bool,
     internal: bool,
@@ -31,15 +34,16 @@ pub(crate) fn start() -> Exchanges {
 }
 
 pub(crate) async fn declare(
-    mut exchanges: &mut HashMap<String, Exchange>,
+    exchanges: &mut Exchanges,
     name: String,
+    exchange_type: String,
     durable: bool,
     auto_delete: bool,
     internal: bool,
     passive: bool,
 ) -> Result<()> {
-    match exchanges.get(&name) {
-        None =>
+    match exchanges.exchanges.get(&name) {
+        None => {
             if passive {
                 Err(Box::new(RuntimeError {
                     scope: ErrorScope::Channel,
@@ -48,15 +52,28 @@ pub(crate) async fn declare(
                     ..Default::default()
                 }))
             } else {
-                create_exchange(&mut exchanges, name, durable, auto_delete, internal).await?;
+                create_exchange(
+                    &mut exchanges.exchanges,
+                    name,
+                    exchange_type,
+                    durable,
+                    auto_delete,
+                    internal,
+                )
+                .await?;
 
                 Ok(())
-            },
-        Some(ex) =>
+            }
+        }
+        Some(ex) => {
             if passive {
                 Ok(())
             } else {
-                if ex.durable != durable || ex.auto_delete != auto_delete || ex.internal != internal {
+                if ex.exchange_type == exchange_type
+                    || ex.durable != durable
+                    || ex.auto_delete != auto_delete
+                    || ex.internal != internal
+                {
                     Err(Box::new(RuntimeError {
                         scope: ErrorScope::Channel,
                         code: conn_state::PRECONDITION_FAILED,
@@ -67,29 +84,42 @@ pub(crate) async fn declare(
                     Ok(())
                 }
             }
+        }
     }
 }
 
-async fn create_exchange(exchanges: &mut HashMap<String, Exchange>, name: String, durable: bool, auto_delete: bool, internal: bool) -> Result<()> {
-    let (sender, receiver) = mpsc::channel(1);
+async fn create_exchange(
+    exchanges: &mut HashMap<String, Exchange>,
+    name: String,
+    exchange_type: String,
+    durable: bool,
+    auto_delete: bool,
+    internal: bool,
+) -> Result<()> {
+    let (sender, mut receiver) = mpsc::channel(1);
     let exchange = Exchange {
         name: name.clone(),
+        exchange_type: exchange_type,
         durable: durable,
         auto_delete: auto_delete,
         internal: internal,
-        input: sender
+        input: sender,
     };
 
+    debug!("New exchange {:?}", exchange);
     exchanges.insert(name, exchange);
 
     tokio::spawn(async move {
-        exchange_loop(receiver);
+        exchange_loop(&mut receiver);
     });
 
     Ok(())
 }
 
-async fn exchange_loop(messages: mpsc::Receiver<IncomingMessage>) {
+async fn exchange_loop(messages: &mut mpsc::Receiver<IncomingMessage>) {
+    while let Some(message) = messages.recv().await {
+        debug!("Exchange: {:?}", message);
+    }
 }
 
 #[cfg(test)]
@@ -100,7 +130,15 @@ mod tests {
     async fn passive_declare_exchange_does_not_exists_channel_error() {
         let mut exchanges = HashMap::new();
 
-        let result = declare(&mut exchanges, "new exchange".into(), false, false, false, true).await;
+        let result = declare(
+            &mut exchanges,
+            "new exchange".into(),
+            false,
+            false,
+            false,
+            true,
+        )
+        .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
@@ -113,13 +151,16 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(1);
         let exchange_name = "orders".to_string();
 
-        exchanges.insert(exchange_name.clone(), Exchange {
-            name: exchange_name.clone(),
-            durable: false,
-            auto_delete: true,
-            internal: false,
-            input: sender
-        });
+        exchanges.insert(
+            exchange_name.clone(),
+            Exchange {
+                name: exchange_name.clone(),
+                durable: false,
+                auto_delete: true,
+                internal: false,
+                input: sender,
+            },
+        );
 
         let result = declare(&mut exchanges, exchange_name, true, true, false, false).await;
 
@@ -135,7 +176,15 @@ mod tests {
         let mut exchanges = HashMap::new();
         let exchange_name = "orders".to_string();
 
-        let result = declare(&mut exchanges, exchange_name.clone(), true, true, false, false).await;
+        let result = declare(
+            &mut exchanges,
+            exchange_name.clone(),
+            true,
+            true,
+            false,
+            false,
+        )
+        .await;
 
         assert!(result.is_ok());
 

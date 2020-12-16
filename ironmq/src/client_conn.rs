@@ -7,8 +7,9 @@ use ironmq_codec::codec::AMQPCodec;
 use ironmq_codec::frame;
 use ironmq_codec::frame::{AMQPFrame, MethodFrameArgs};
 use log::{error, info};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>>) -> Result<()> {

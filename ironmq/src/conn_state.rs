@@ -1,9 +1,10 @@
-use crate::{Context, Result};
+use crate::{exchange, Context, Result, RuntimeError};
 use ironmq_codec::frame;
 use ironmq_codec::frame::{AMQPFrame, Channel};
 use log::info;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub(crate) type MaybeFrame = Result<Option<AMQPFrame>>;
 
@@ -60,12 +61,31 @@ pub(crate) async fn channel_close(conn: &mut Connection, channel: Channel, args:
 }
 
 pub(crate) async fn exchange_declare(conn: &mut Connection, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
-    if conn.exchanges.contains_key(&args.exchange_name) {
-        let (cid, mid) = frame::split_class_method(frame::EXCHANGE_DECLARE);
-        Ok(Some(frame::channel_close(channel, NOT_ALLOWED, "Exchange already exists", cid, mid)))
-    } else {
-        conn.exchanges.insert(args.exchange_name, ());
-        Ok(Some(frame::exchange_declare_ok(channel)))
+    let mut ctx = conn.context.lock().await;
+    let result = exchange::declare(
+        &mut ctx.exchanges,
+        args.exchange_name,
+        args.exchange_type,
+        args.flags.contains(frame::ExchangeDeclareFlags::DURABLE),
+        args.flags.contains(frame::ExchangeDeclareFlags::AUTO_DELETE),
+        args.flags.contains(frame::ExchangeDeclareFlags::INTERNAL),
+        args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE)
+    ).await;
+
+    match result {
+        Ok(()) =>
+            if args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT) {
+                Ok(None)
+            } else {
+                Ok(Some(frame::exchange_declare_ok(channel)))
+            },
+        Err(e) =>
+            match e.downcast::<RuntimeError>() {
+                Ok(rte) =>
+                    Ok(Some(AMQPFrame::from(*rte))),
+                Err(e2) =>
+                    Err(e2)
+            }
     }
 }
 
