@@ -1,10 +1,12 @@
-use crate::{exchange, Context, Result, RuntimeError};
+use crate::{Context, Result, RuntimeError};
+use crate::exchange;
+use crate::message;
 use ironmq_codec::frame;
 use ironmq_codec::frame::{AMQPFrame, Channel};
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 pub(crate) type MaybeFrame = Result<Option<AMQPFrame>>;
 
@@ -13,14 +15,24 @@ pub(crate) const PRECONDITION_FAILED: u16 = 406;
 pub(crate) const CHANNEL_ERROR: u16 = 504;
 pub(crate) const NOT_ALLOWED: u16 = 530;
 
+/// All the transient data of a connection are stored here.
 pub(crate) struct Connection {
     context: Arc<Mutex<Context>>,
     virtual_host: String,
     open_channels: HashMap<Channel, ()>,
-    exchanges: HashMap<String, ()>,
+    exchanges: HashMap<String, mpsc::Sender<message::Message>>,
     queues: HashMap<String, ()>,
     /// Simple exchange-queue binding
     binding: HashMap<(String, String), ()>,
+    in_flight_contents: HashMap<Channel, PublishedContent>
+}
+
+#[derive(Debug)]
+struct PublishedContent {
+    channel: Channel,
+    exchange: String,
+    length: Option<u64>,
+    content: Option<Vec<u8>>
 }
 
 pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
@@ -31,6 +43,7 @@ pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
         exchanges: HashMap::new(),
         queues: HashMap::new(),
         binding: HashMap::new(),
+        in_flight_contents: HashMap::new()
     }
 }
 
@@ -44,10 +57,7 @@ pub(crate) async fn connection_open(
     Ok(Some(frame::connection_open_ok(channel)))
 }
 
-pub(crate) async fn connection_close(
-    conn: &mut Connection,
-    args: frame::ConnectionCloseArgs,
-) -> MaybeFrame {
+pub(crate) async fn connection_close(conn: &mut Connection, args: frame::ConnectionCloseArgs) -> MaybeFrame {
     // TODO cleanup
     Ok(Some(frame::connection_close_ok(0)))
 }
@@ -68,26 +78,22 @@ pub(crate) async fn channel_open(conn: &mut Connection, channel: Channel) -> May
     }
 }
 
-pub(crate) async fn channel_close(
-    conn: &mut Connection,
-    channel: Channel,
-    args: frame::ChannelCloseArgs,
-) -> MaybeFrame {
+pub(crate) async fn channel_close(conn: &mut Connection, channel: Channel,
+                                  args: frame::ChannelCloseArgs) -> MaybeFrame {
     conn.open_channels.remove(&channel);
     Ok(Some(frame::channel_close_ok(channel)))
 }
 
-pub(crate) async fn exchange_declare(
-    conn: &mut Connection,
-    channel: Channel,
-    args: frame::ExchangeDeclareArgs,
-) -> MaybeFrame {
+pub(crate) async fn exchange_declare(conn: &mut Connection, channel: Channel,
+                                     args: frame::ExchangeDeclareArgs) -> MaybeFrame {
     let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
     let mut ctx = conn.context.lock().await;
-    let result = exchange::declare(&mut ctx.exchanges, args).await;
+    let result = exchange::declare(&mut ctx.exchanges, &args).await;
 
     match result {
-        Ok(()) => {
+        Ok(ch) => {
+            conn.exchanges.insert(args.exchange_name.clone(), ch);
+
             if no_wait {
                 Ok(None)
             } else {
@@ -101,11 +107,8 @@ pub(crate) async fn exchange_declare(
     }
 }
 
-pub(crate) async fn queue_declare(
-    conn: &mut Connection,
-    channel: Channel,
-    args: frame::QueueDeclareArgs,
-) -> MaybeFrame {
+pub(crate) async fn queue_declare(conn: &mut Connection, channel: Channel,
+                                  args: frame::QueueDeclareArgs,) -> MaybeFrame {
     if !conn.queues.contains_key(&args.name) {
         conn.queues.insert(args.name.clone(), ());
     }
@@ -113,11 +116,8 @@ pub(crate) async fn queue_declare(
     Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
 }
 
-pub(crate) async fn queue_bind(
-    conn: &mut Connection,
-    channel: Channel,
-    args: frame::QueueBindArgs,
-) -> MaybeFrame {
+pub(crate) async fn queue_bind(conn: &mut Connection, channel: Channel,
+                               args: frame::QueueBindArgs,) -> MaybeFrame {
     let binding = (args.exchange_name, args.queue_name);
 
     if !conn.binding.contains_key(&binding) {
@@ -127,11 +127,9 @@ pub(crate) async fn queue_bind(
     Ok(Some(frame::queue_bind_ok(channel)))
 }
 
-pub(crate) async fn basic_publish(
-    conn: &mut Connection,
-    channel: Channel,
-    args: frame::BasicPublishArgs,
-) -> MaybeFrame {
+pub(crate) async fn basic_publish(conn: &mut Connection, channel: Channel,
+                                  args: frame::BasicPublishArgs) -> MaybeFrame {
+
     if !conn.exchanges.contains_key(&args.exchange_name) {
         let (cid, mid) = frame::split_class_method(frame::BASIC_PUBLISH);
         Ok(Some(frame::channel_close(
@@ -142,6 +140,14 @@ pub(crate) async fn basic_publish(
             mid,
         )))
     } else {
+        // TODO check if there is in flight content in the channel -> error
+        conn.in_flight_contents.insert(channel, PublishedContent {
+            channel: channel,
+            exchange: args.exchange_name,
+            length: None,
+            content: None
+        });
+
         Ok(None)
     }
 }
@@ -152,6 +158,11 @@ pub(crate) async fn receive_content_header(
 ) -> MaybeFrame {
     // TODO collect info into a data struct
     info!("Receive content with length {}", header.body_size);
+
+    if let Some(pc) = conn.in_flight_contents.get_mut(&header.channel) {
+        pc.length = Some(header.body_size);
+    }
+
     Ok(None)
 }
 
@@ -160,5 +171,23 @@ pub(crate) async fn receive_content_body(
     body: frame::ContentBodyFrame,
 ) -> MaybeFrame {
     info!("Receive content with length {}", body.body.len());
-    Ok(None)
+
+    if let Some(pc) = conn.in_flight_contents.remove(&body.channel) {
+        let msg = message::Message {
+            content: body.body,
+            processed: None
+        };
+
+        match conn.exchanges.get(&pc.exchange) {
+            Some(ch) => {
+                ch.send(msg).await;
+                Ok(None)
+            },
+            None =>
+                // TODO error, exchange cannot be found
+                Ok(None)
+        }
+    } else {
+        Ok(None)
+    }
 }

@@ -1,5 +1,4 @@
-mod client_conn;
-mod conn_state;
+mod client;
 mod exchange;
 mod message;
 mod queue;
@@ -109,7 +108,7 @@ pub async fn main() -> Result<()> {
         let ctx = context.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = client_conn::handle_client(socket, ctx).await {
+            if let Err(e) = client::conn::handle_client(socket, ctx).await {
                 error!("Error handling client {:?}", e)
             }
 

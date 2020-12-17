@@ -1,5 +1,5 @@
-use crate::conn_state;
-use crate::conn_state::Connection;
+use super::state;
+use super::state::Connection;
 use crate::{Context, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
@@ -14,7 +14,7 @@ use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let mut cs = conn_state::new(context);
+    let mut cs = state::new(context);
 
     while let Some(payload) = stream.next().await {
         info!("Payload {:?}", payload);
@@ -47,8 +47,8 @@ async fn handle_client_frame(mut cs: &mut Connection, f: AMQPFrame) -> Result<Op
     match f {
         Header => Ok(Some(frame::connection_start(0))),
         Method(ch, _, mf) => handle_method_frame(cs, ch, mf).await,
-        ContentHeader(ch) => conn_state::receive_content_header(&mut cs, ch).await,
-        ContentBody(cb) => conn_state::receive_content_body(&mut cs, cb).await,
+        ContentHeader(ch) => state::receive_content_header(&mut cs, ch).await,
+        ContentBody(cb) => state::receive_content_body(&mut cs, cb).await,
         _ => {
             error!("Unhandler frame type {:?}", f);
             Ok(None)
@@ -66,14 +66,14 @@ async fn handle_method_frame(
     match ma {
         ConnectionStartOk(_) => Ok(Some(frame::connection_tune(0))),
         ConnectionTuneOk(_) => Ok(None),
-        ConnectionOpen(args) => conn_state::connection_open(&mut cs, channel, args).await,
-        ConnectionClose(args) => conn_state::connection_close(&mut cs, args).await,
-        ChannelOpen => conn_state::channel_open(&mut cs, channel).await,
-        ChannelClose(args) => conn_state::channel_close(&mut cs, channel, args).await,
-        ExchangeDeclare(args) => conn_state::exchange_declare(&mut cs, channel, args).await,
-        QueueDeclare(args) => conn_state::queue_declare(&mut cs, channel, args).await,
-        QueueBind(args) => conn_state::queue_bind(&mut cs, channel, args).await,
-        BasicPublish(args) => conn_state::basic_publish(&mut cs, channel, args).await,
+        ConnectionOpen(args) => state::connection_open(&mut cs, channel, args).await,
+        ConnectionClose(args) => state::connection_close(&mut cs, args).await,
+        ChannelOpen => state::channel_open(&mut cs, channel).await,
+        ChannelClose(args) => state::channel_close(&mut cs, channel, args).await,
+        ExchangeDeclare(args) => state::exchange_declare(&mut cs, channel, args).await,
+        QueueDeclare(args) => state::queue_declare(&mut cs, channel, args).await,
+        QueueBind(args) => state::queue_bind(&mut cs, channel, args).await,
+        BasicPublish(args) => state::basic_publish(&mut cs, channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
             Ok(None)

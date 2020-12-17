@@ -6,6 +6,6 @@ pub(crate) type MessageId = String;
 
 #[derive(Debug)]
 pub(crate) struct Message {
-    content: Vec<u8>,
-    processed: Option<oneshot::Sender<MessageId>>,
+    pub(crate) content: Vec<u8>,
+    pub(crate) processed: Option<oneshot::Sender<MessageId>>,
 }
