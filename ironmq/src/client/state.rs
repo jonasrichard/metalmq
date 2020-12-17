@@ -47,11 +47,8 @@ pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
     }
 }
 
-pub(crate) async fn connection_open(
-    conn: &mut Connection,
-    channel: Channel,
-    args: frame::ConnectionOpenArgs,
-) -> MaybeFrame {
+pub(crate) async fn connection_open(conn: &mut Connection, channel: Channel,
+                                    args: frame::ConnectionOpenArgs) -> MaybeFrame {
     // TODO check if virtual host doens't exist
     conn.virtual_host = args.virtual_host;
     Ok(Some(frame::connection_open_ok(channel)))
@@ -64,14 +61,7 @@ pub(crate) async fn connection_close(conn: &mut Connection, args: frame::Connect
 
 pub(crate) async fn channel_open(conn: &mut Connection, channel: Channel) -> MaybeFrame {
     if conn.open_channels.contains_key(&channel) {
-        let (cid, mid) = frame::split_class_method(frame::CHANNEL_OPEN);
-        Ok(Some(frame::channel_close(
-            channel,
-            CHANNEL_ERROR,
-            "Channel already opened",
-            cid,
-            mid,
-        )))
+        channel_error(channel, CHANNEL_ERROR, "Channel already opened", frame::CHANNEL_OPEN)
     } else {
         conn.open_channels.insert(channel, ());
         Ok(Some(frame::channel_open_ok(channel)))
@@ -131,14 +121,7 @@ pub(crate) async fn basic_publish(conn: &mut Connection, channel: Channel,
                                   args: frame::BasicPublishArgs) -> MaybeFrame {
 
     if !conn.exchanges.contains_key(&args.exchange_name) {
-        let (cid, mid) = frame::split_class_method(frame::BASIC_PUBLISH);
-        Ok(Some(frame::channel_close(
-            channel,
-            NOT_FOUND,
-            "Exchange not found",
-            cid,
-            mid,
-        )))
+        channel_error(channel, NOT_FOUND, "Exchange not found", frame::BASIC_PUBLISH)
     } else {
         // TODO check if there is in flight content in the channel -> error
         conn.in_flight_contents.insert(channel, PublishedContent {
@@ -152,10 +135,7 @@ pub(crate) async fn basic_publish(conn: &mut Connection, channel: Channel,
     }
 }
 
-pub(crate) async fn receive_content_header(
-    conn: &mut Connection,
-    header: frame::ContentHeaderFrame,
-) -> MaybeFrame {
+pub(crate) async fn receive_content_header(conn: &mut Connection, header: frame::ContentHeaderFrame) -> MaybeFrame {
     // TODO collect info into a data struct
     info!("Receive content with length {}", header.body_size);
 
@@ -166,10 +146,7 @@ pub(crate) async fn receive_content_header(
     Ok(None)
 }
 
-pub(crate) async fn receive_content_body(
-    conn: &mut Connection,
-    body: frame::ContentBodyFrame,
-) -> MaybeFrame {
+pub(crate) async fn receive_content_body(conn: &mut Connection, body: frame::ContentBodyFrame) -> MaybeFrame {
     info!("Receive content with length {}", body.body.len());
 
     if let Some(pc) = conn.in_flight_contents.remove(&body.channel) {
@@ -190,4 +167,15 @@ pub(crate) async fn receive_content_body(
     } else {
         Ok(None)
     }
+}
+
+fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
+    let (cid, mid) = frame::split_class_method(cm_id);
+
+    Ok(Some(frame::channel_close(
+                channel,
+                code,
+                text,
+                cid,
+                mid)))
 }
