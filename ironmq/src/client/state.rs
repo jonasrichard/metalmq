@@ -91,7 +91,11 @@ pub(crate) async fn exchange_declare(conn: &mut Connection, channel: Channel,
             }
         }
         Err(e) => match e.downcast::<RuntimeError>() {
-            Ok(rte) => Ok(Some(AMQPFrame::from(*rte))),
+            Ok(mut rte) => {
+                rte.channel = channel;
+
+                Ok(Some(AMQPFrame::from(*rte)))
+            },
             Err(e2) => Err(e2),
         },
     }

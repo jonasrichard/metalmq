@@ -23,10 +23,12 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
             Ok(frame) => match handle_client_frame(&mut cs, frame).await? {
                 Some(response_frame) => {
                     if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
+                        info!("Outgoing {:?}", response_frame);
                         sink.send(response_frame).await?;
 
                         return Ok(());
                     } else {
+                        info!("Outgoing {:?}", response_frame);
                         sink.send(response_frame).await?;
                     }
                 }

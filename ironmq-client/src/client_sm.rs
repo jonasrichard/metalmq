@@ -53,7 +53,8 @@ pub(crate) trait Client {
 
     fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
     fn channel_open_ok(&mut self, channel: Channel) -> MaybeFrame;
-    fn channel_close(&mut self) -> MaybeFrame;
+    fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
+    fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
 
     fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
     fn exchange_declare_ok(&mut self) -> MaybeFrame;
@@ -139,20 +140,26 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    fn channel_open(&mut self, channel: frame::Channel) -> MaybeFrame {
+    fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
         Ok(Some(frame::channel_open(channel)))
     }
 
-    fn channel_open_ok(&mut self, _channel: frame::Channel) -> MaybeFrame {
+    fn channel_open_ok(&mut self, _channel: Channel) -> MaybeFrame {
         Ok(None)
     }
 
-    fn channel_close(&mut self) -> MaybeFrame {
+    fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+        Ok(Some(frame::channel_close(channel, args.code, &args.text, args.class_id, args.method_id)))
+    }
+
+    fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+        // TODO handle that the server closed the channel
+        //Ok(Some(frame::channel_close_ok(channel)))
         Ok(None)
     }
 
     fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
-        Ok(Some(frame::exchange_declare(channel, args.exchange_name, args.exchange_type)))
+        Ok(Some(frame::exchange_declare(channel, args.exchange_name, args.exchange_type, Some(args.flags))))
     }
 
     fn exchange_declare_ok(&mut self) -> MaybeFrame {

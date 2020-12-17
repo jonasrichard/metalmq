@@ -1,7 +1,6 @@
-use crate::Connection;
 use crate::client_sm;
 use crate::client_sm::{Client, ClientState};
-use crate::{client_error, ConsumeCallback, Result};
+use crate::{client_error, Connection, ConnectionErrorCallback, ConsumeCallback, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
@@ -17,7 +16,8 @@ use tokio_util::codec::Framed;
 pub(crate) enum Param {
     Frame(AMQPFrame),
     Consume(AMQPFrame, ConsumeCallback),
-    Publish(AMQPFrame, Vec<u8>)
+    Publish(AMQPFrame, Vec<u8>),
+    ConnectionErrorHandler(ConnectionErrorCallback)
 }
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
@@ -28,13 +28,12 @@ pub(crate) struct Request {
 
 impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Request")
-         .field("param", match &self.param {
-             Param::Frame(frame) => frame,
-             Param::Consume(frame, _) => frame,
-             Param::Publish(frame, _) => frame
-         })
-         .finish()
+        match &self.param {
+            Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
+            Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
+            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
+            Param::ConnectionErrorHandler(_) => write!(f, "Request{{ConnectionErrorHandler}}")
+        }
     }
 }
 
@@ -175,7 +174,8 @@ fn handle_in_method_frame(
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok(),
         MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args),
         MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(args),
-        //frame::CHANNEL_CLOSE => cs.channel_close(channel, args),
+        MethodFrameArgs::ChannelClose(args) => cs.handle_channel_close(channel, args),
+        MethodFrameArgs::ChannelCloseOk => cs.channel_open_ok(channel),
         //    // TODO check if client is consuming messages from that channel + consumer tag
         _ => unimplemented!("{:?}", ma),
     }
@@ -190,6 +190,7 @@ fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut Clien
         MethodFrameArgs::ConnectionOpen(args) => cs.connection_open(args),
         MethodFrameArgs::ConnectionClose(args) => cs.connection_close(args),
         MethodFrameArgs::ChannelOpen => cs.channel_open(channel),
+        MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, args),
         MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args),
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args),
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args),

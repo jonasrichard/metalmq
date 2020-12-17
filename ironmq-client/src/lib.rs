@@ -17,10 +17,12 @@
 pub mod client;
 mod client_sm;
 
+use env_logger::Builder;
 use frame::Channel;
 use ironmq_codec::frame;
 use std::collections::HashMap;
 use std::fmt;
+use std::io::Write;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
@@ -68,7 +70,25 @@ macro_rules! client_error {
     }
 }
 
+#[derive(Debug)]
+pub struct ConnectionError {
+    pub code: u16,
+    pub text: String,
+    pub class_id: u16,
+    pub method_id: u16
+}
+
+#[derive(Debug)]
+pub struct ChannelError {
+    pub channel: Channel,
+    pub code: u16,
+    pub text: String,
+    pub class_id: u16,
+    pub method_id: u16
+}
+
 type ConsumeCallback = Box<dyn Fn(String) -> String + Send + Sync>;
+type ConnectionErrorCallback = Box<dyn Fn(ConnectionError) + Send + Sync>;
 
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
 /// are not yet supported.
@@ -100,6 +120,15 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     Ok(connection)
 }
 
+pub async fn connection_error_handler(connection: &Connection, handler: ConnectionErrorCallback) -> Result<()> {
+    connection.server_channel.send(client::Request {
+        param: client::Param::ConnectionErrorHandler(handler),
+        response: None,
+    }).await?;
+
+    Ok(())
+}
+
 pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
     client::sync_call(&connection, frame::connection_open(0, virtual_host)).await?;
 
@@ -129,13 +158,9 @@ pub async fn channel_close(connection: &Connection, channel: Channel) -> Result<
     Ok(())
 }
 
-pub async fn exchange_declare(
-    connection: &Connection,
-    channel: u16,
-    exchange_name: &str,
-    exchange_type: &str,
-) -> Result<()> {
-    let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into());
+pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_name: &str,
+                              exchange_type: &str, flags: Option<frame::ExchangeDeclareFlags>) -> Result<()> {
+    let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into(), flags);
 
     client::sync_call(&connection, frame).await?;
 
@@ -200,6 +225,25 @@ pub async fn basic_publish(
     }).await?;
 
     Ok(())
+}
+
+pub fn setup_logger() {
+    let mut builder = Builder::from_default_env();
+
+    builder
+        .format_timestamp_millis()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} - [{}] {}:{} {}",
+                buf.timestamp_millis(),
+                record.level(),
+                record.file().unwrap_or_default(),
+                record.line().unwrap_or_default(),
+                record.args()
+            )
+        })
+        .init();
 }
 
 #[allow(dead_code)]

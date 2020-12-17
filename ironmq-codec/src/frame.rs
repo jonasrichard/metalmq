@@ -488,14 +488,15 @@ pub fn channel_close_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CHANNEL_CLOSE_OK, MethodFrameArgs::ChannelCloseOk)
 }
 
-pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String) -> AMQPFrame {
+pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String,
+                        flags: Option<ExchangeDeclareFlags>) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         EXCHANGE_DECLARE,
         MethodFrameArgs::ExchangeDeclare(ExchangeDeclareArgs {
             exchange_name: exchange_name,
             exchange_type: exchange_type,
-            flags: ExchangeDeclareFlags::empty(),
+            flags: flags.unwrap_or_default(),
             args: None
         }))
 }
@@ -508,12 +509,7 @@ pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
     )
 }
 
-pub fn queue_bind(
-    channel: u16,
-    queue_name: String,
-    exchange_name: String,
-    routing_key: String,
-) -> AMQPFrame {
+pub fn queue_bind(channel: u16, queue_name: String, exchange_name: String, routing_key: String) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_BIND,
@@ -545,12 +541,7 @@ pub fn queue_declare(channel: u16, queue_name: String) -> AMQPFrame {
         }))
 }
 
-pub fn queue_declare_ok(
-    channel: u16,
-    queue_name: String,
-    message_count: u32,
-    consumer_count: u32,
-) -> AMQPFrame {
+pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, consumer_count: u32) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE_OK,
@@ -582,14 +573,8 @@ pub fn basic_consume_ok(channel: u16, consumer_tag: String) -> AMQPFrame {
         }))
 }
 
-pub fn basic_deliver(
-    channel: u16,
-    consumer_tag: String,
-    delivery_tag: u64,
-    redelivered: bool,
-    exchange_name: String,
-    routing_key: String,
-) -> AMQPFrame {
+pub fn basic_deliver(channel: u16, consumer_tag: String, delivery_tag: u64, redelivered: bool,
+                     exchange_name: String, routing_key: String) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_DELIVER,
