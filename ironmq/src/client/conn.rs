@@ -1,11 +1,9 @@
-use super::state;
-use super::state::Connection;
+use super::state::{self, Connection};
 use crate::{Context, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
-use ironmq_codec::frame;
-use ironmq_codec::frame::{AMQPFrame, MethodFrameArgs};
+use ironmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use log::{error, info};
 use std::sync::Arc;
 use tokio::net::TcpStream;

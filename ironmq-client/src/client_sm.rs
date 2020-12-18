@@ -7,8 +7,7 @@
 //! api it is a typed struct.
 
 use crate::{ConsumeCallback, Result};
-use ironmq_codec::frame;
-use ironmq_codec::frame::{Channel};
+use ironmq_codec::frame::{self, Channel};
 use log::info;
 use std::collections::HashMap;
 use std::fmt;

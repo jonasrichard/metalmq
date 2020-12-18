@@ -1,11 +1,9 @@
-use crate::client_sm;
-use crate::client_sm::{Client, ClientState};
+use crate::client_sm::{self, Client, ClientState};
 use crate::{client_error, Connection, ConsumeCallback, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
-use ironmq_codec::frame;
-use ironmq_codec::frame::{AMQPFrame, MethodFrameArgs};
+use ironmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use log::{debug, error};
 use std::collections::HashMap;
 use std::fmt;

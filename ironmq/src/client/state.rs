@@ -1,8 +1,7 @@
 use crate::{Context, Result, RuntimeError};
 use crate::exchange;
 use crate::message;
-use ironmq_codec::frame;
-use ironmq_codec::frame::{AMQPFrame, Channel};
+use ironmq_codec::frame::{self, AMQPFrame, Channel};
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
