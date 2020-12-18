@@ -99,6 +99,18 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     Ok(connection)
 }
 
+/// Client "connects" to a virtual host. The virtual host may or may not exist,
+/// in case of an error we got a `ClientError` and the connection closes.
+///
+/// ```no_run
+/// use ironmq_client::*;
+///
+/// async fn open(c: &Connection) {
+///     if let ironmq_client::Error(ce) = open(&c, "/invalid".to_string()) {
+///         eprintln!("Virtual host does not exist");
+///     }
+/// }
+/// ```
 pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
     client::sync_call(&connection, frame::connection_open(0, virtual_host)).await?;
 
@@ -182,6 +194,7 @@ pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name:
     Ok(())
 }
 
+/// Convenience function for setting up `env_logger` to see log messages.
 pub fn setup_logger() {
     let mut builder = Builder::from_default_env();
 
