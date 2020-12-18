@@ -8,6 +8,10 @@ keywords = ["amqp", "messaging"]
 repository = "https://github.com/jonasrichard/ironmq"
 description = "IromMQ client library (AMQP 0.9)"
 
+[features]
+default = []
+integration-tests = []
+
 [dependencies]
 bytes = "0.6"
 env_logger = "0.7"

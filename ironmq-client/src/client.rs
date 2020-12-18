@@ -1,6 +1,6 @@
 use crate::client_sm;
 use crate::client_sm::{Client, ClientState};
-use crate::{client_error, Connection, ConnectionErrorCallback, ConsumeCallback, Result};
+use crate::{client_error, Connection, ConsumeCallback, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
@@ -16,14 +16,16 @@ use tokio_util::codec::Framed;
 pub(crate) enum Param {
     Frame(AMQPFrame),
     Consume(AMQPFrame, ConsumeCallback),
-    Publish(AMQPFrame, Vec<u8>),
-    ConnectionErrorHandler(ConnectionErrorCallback)
+    Publish(AMQPFrame, Vec<u8>)
 }
+
+/// Response for passing errors to the client API.
+pub(crate) type Response = oneshot::Sender<Result<()>>;
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 pub(crate) struct Request {
     pub(crate) param: Param,
-    pub(crate) response: Option<oneshot::Sender<()>>,
+    pub(crate) response: Option<Response>,
 }
 
 impl fmt::Debug for Request {
@@ -31,8 +33,7 @@ impl fmt::Debug for Request {
         match &self.param {
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
-            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
-            Param::ConnectionErrorHandler(_) => write!(f, "Request{{ConnectionErrorHandler}}")
+            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame)
         }
     }
 }
@@ -62,7 +63,7 @@ pub(crate) async fn create_connection(url: String) -> Result<Box<Connection>> {
 async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
     let mut client = client_sm::new();
-    let mut feedback: HashMap<u16, oneshot::Sender<()>> = HashMap::new();
+    let mut feedback: HashMap<u16, Response> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -110,23 +111,54 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
     }
 }
 
-fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, oneshot::Sender<()>>) -> Result<()> {
-    if let Some(ch) = channel(&frame) {
-        if let Some(fb) = feedback.remove(&ch) {
-            if let Err(_) = fb.send(()) {
-                return client_error!(2, "Cannot unblock client")
-            }
-        }
-    }
+/// Unblock the client by sending a `Response`. If there is no error on the channel or
+/// in the connection the result will be a unit type. If there is an AMQP channel error,
+/// it sends back to the client call who is blocked on that channel, so the client API
+/// will receive the `ClientError`. If there is a connection error, it notifies all
+/// the calls who are waiting on channels (otherwise the client API would remain blocked)
+/// and sends back the error to a random waiter. (Sorry, if I have a better idea, I fix this.)
+fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Result<()> {
+    match frame {
+        AMQPFrame::Method(_, frame::CONNECTION_CLOSE, MethodFrameArgs::ConnectionClose(args)) => {
+            let err = crate::ClientError {
+                channel: None,
+                code: args.code,
+                message: args.text.clone(),
+                class_method: frame::unify_class_method(args.class_id, args.method_id)
+            };
 
-    Ok(())
+            for (_, fb) in feedback.drain() {
+                if let Err(_) = fb.send(Err(Box::new(err.clone()))) {
+                    // TODO what to do here?
+                }
+            }
+
+            Ok(())
+        },
+        AMQPFrame::Method(channel, frame::CHANNEL_CLOSE, MethodFrameArgs::ChannelClose(args)) => {
+            let err: Result<()> = client_error!(Some(*channel), args.code, args.text.clone(), frame::unify_class_method(args.class_id, args.method_id));
+
+            if let Some(fb) = feedback.remove(&channel) {
+                if let Err(_) = fb.send(err) {
+                    return client_error!(None, 501, "Cannot unblock client", 0)
+                }
+            }
+            Ok(())
+        },
+        AMQPFrame::Method(channel, _, _) => {
+            if let Some(fb) = feedback.remove(&channel) {
+                if let Err(_) = fb.send(Ok(())) {
+                    return client_error!(None, 501, "Cannot unblock client", 0)
+                }
+            }
+            Ok(())
+        },
+        _ =>
+            Ok(())
+    }
 }
 
-fn register_waiter(
-    feedback: &mut HashMap<u16, oneshot::Sender<()>>,
-    frame: &AMQPFrame,
-    response_channel: Option<oneshot::Sender<()>>
-) {
+fn register_waiter(feedback: &mut HashMap<u16, Response>, frame: &AMQPFrame, response_channel: Option<Response>) {
     if let Some(chan) = response_channel {
         if let Some(ch) = channel(&frame) {
             feedback.insert(ch, chan);
@@ -166,6 +198,7 @@ fn handle_in_method_frame(
         MethodFrameArgs::ConnectionStart(args) => cs.connection_start(args),
         MethodFrameArgs::ConnectionTune(args) => cs.connection_tune(args),
         MethodFrameArgs::ConnectionOpenOk => cs.connection_open_ok(),
+        MethodFrameArgs::ConnectionClose(args) => cs.handle_connection_close(args),
         MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel),
         MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok(),
         MethodFrameArgs::ExchangeBindOk => cs.exchange_bind_ok(),
@@ -242,7 +275,8 @@ pub(crate) async fn sync_call(conn: &Connection, frame: AMQPFrame) -> Result<()>
         .await?;
 
     match rx.await {
-        Ok(()) => Ok(()),
-        Err(_) => client_error!(0, "Channel recv error"),
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(_) => client_error!(None, 0, "Channel recv error", 0),
     }
 }

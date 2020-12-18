@@ -50,6 +50,7 @@ pub(crate) trait Client {
     fn connection_open_ok(&mut self) -> MaybeFrame;
     fn connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
     fn connection_close_ok(&mut self) -> MaybeFrame;
+    fn handle_connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
 
     fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
     fn channel_open_ok(&mut self, channel: Channel) -> MaybeFrame;
@@ -137,6 +138,11 @@ impl Client for ClientState {
     }
 
     fn connection_close_ok(&mut self) -> MaybeFrame {
+        Ok(None)
+    }
+
+    fn handle_connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame {
+        // TODO close resources, server is about to close connection
         Ok(None)
     }
 

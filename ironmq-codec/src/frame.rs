@@ -35,7 +35,11 @@ pub type Weight = u16;
 /// Represents an AMQP frame.
 #[derive(Debug)]
 pub enum AMQPFrame {
+    /// Header is to be sent to the server at first, announcing the AMQP version we support
     Header,
+    /// Represents the AMQP RPC frames. Connection based calls have a channel number 0, otherwise
+    /// channel is the current channel on which the frames are sent. The RPC arguments are
+    /// represented in `MethodFrameArgs`.
     Method(Channel, ClassMethod, MethodFrameArgs),
     ContentHeader(ContentHeaderFrame),
     ContentBody(ContentBodyFrame),
@@ -316,35 +320,28 @@ pub fn split_class_method(cm: u32) -> (u16, u16) {
     (class_id, method_id)
 }
 
+/// Combine class id and method id to a single `u32` value
+pub fn unify_class_method(class: u16, method: u16) -> u32 {
+    ((class as u32) << 16) | (method as u32)
+}
+
 pub fn connection_start(channel: u16) -> AMQPFrame {
     let mut capabilities = FieldTable::new();
 
     capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
-    capabilities.insert(
-        "exchange_exchange_bindings".into(),
-        AMQPFieldValue::Bool(true),
-    );
+    capabilities.insert("exchange_exchange_bindings".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("consumer_priorities".into(), AMQPFieldValue::Bool(true));
-    capabilities.insert(
-        "authentication_failure_close".into(),
-        AMQPFieldValue::Bool(true),
-    );
+    capabilities.insert("authentication_failure_close".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("per_consumer_qos".into(), AMQPFieldValue::Bool(true));
     capabilities.insert("direct_reply_to".into(), AMQPFieldValue::Bool(true));
 
     let mut server_properties = FieldTable::new();
 
-    server_properties.insert(
-        "capabilities".into(),
-        AMQPFieldValue::FieldTable(Box::new(capabilities)),
-    );
-    server_properties.insert(
-        "product".into(),
-        AMQPFieldValue::LongString("IronMQ server".into()),
-    );
+    server_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
+    server_properties.insert("product".into(), AMQPFieldValue::LongString("IronMQ server".into()));
     server_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
     AMQPFrame::Method(
@@ -364,15 +361,9 @@ pub fn connection_start(channel: u16) -> AMQPFrame {
 pub fn connection_start_ok(username: &str, password: &str, capabilities: FieldTable) -> AMQPFrame {
     let mut client_properties = FieldTable::new();
 
-    client_properties.insert(
-        "product".into(),
-        AMQPFieldValue::LongString("ironmq-client".into()),
-    );
+    client_properties.insert("product".into(), AMQPFieldValue::LongString("ironmq-client".into()));
     client_properties.insert("platform".into(), AMQPFieldValue::LongString("Rust".into()));
-    client_properties.insert(
-        "capabilities".into(),
-        AMQPFieldValue::FieldTable(Box::new(capabilities)),
-    );
+    client_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
     // TODO get the version from the build vars or an external file
     client_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 

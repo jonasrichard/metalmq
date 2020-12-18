@@ -18,7 +18,6 @@ pub mod client;
 mod client_sm;
 
 use env_logger::Builder;
-use frame::Channel;
 use ironmq_codec::frame;
 use std::collections::HashMap;
 use std::fmt;
@@ -26,34 +25,32 @@ use std::io::Write;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
-// TODO expose Channel type and put it here!
+/// AMQP channel number
+pub type Channel = frame::Channel;
+/// AMQP method class id
+pub type ClassId = frame::ClassId;
+/// AMQP class id method id number
+pub type ClassMethod = frame::ClassMethod;
 
 // TODO feature log should log in trace level
 
+/// Custom error type which uses `Error` as an error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A sendable, syncable boxed error, usable between async threads.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+#[derive(Clone, Debug)]
 pub struct ClientError {
+    pub channel: Option<Channel>,
     pub code: u16,
-    pub message: String
-}
-
-impl std::fmt::Debug for ClientError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ClientError")
-         .field("code", &self.code)
-         .field("message", &self.message)
-         .finish()
-    }
+    pub message: String,
+    pub class_method: u32
 }
 
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ClientError")
-         .field("code", &self.code)
-         .field("message", &self.message)
-         .finish()
+        write!(f, "{:?}", self)
     }
 }
 
@@ -62,33 +59,17 @@ impl std::error::Error for ClientError {
 
 #[macro_export]
 macro_rules! client_error {
-    ($code:expr, $message:expr) => {
+    ($channel:expr, $code:expr, $message:expr, $cm:expr) => {
         ::std::result::Result::Err(::std::boxed::Box::new($crate::ClientError {
+            channel: $channel,
             code: $code,
-            message: ::std::string::String::from($message)
+            message: ::std::string::String::from($message),
+            class_method: $cm
         }))
     }
 }
 
-#[derive(Debug)]
-pub struct ConnectionError {
-    pub code: u16,
-    pub text: String,
-    pub class_id: u16,
-    pub method_id: u16
-}
-
-#[derive(Debug)]
-pub struct ChannelError {
-    pub channel: Channel,
-    pub code: u16,
-    pub text: String,
-    pub class_id: u16,
-    pub method_id: u16
-}
-
 type ConsumeCallback = Box<dyn Fn(String) -> String + Send + Sync>;
-type ConnectionErrorCallback = Box<dyn Fn(ConnectionError) + Send + Sync>;
 
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
 /// are not yet supported.
@@ -102,7 +83,9 @@ pub struct Connection {
 ///
 /// ```no_run
 /// async fn connect() -> ironmq_client::Result<()> {
-///     let conn = ironmq_client::connect("127.0.0.1:5672".to_string()).await?;
+///     let url = "127.0.0.1:5672".to_string();
+///
+///     let conn = ironmq_client::connect(url).await?;
 ///     Ok(())
 /// }
 /// ```
@@ -110,23 +93,10 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
     let connection = client::create_connection(url).await?;
 
     client::sync_call(&connection, frame::AMQPFrame::Header).await?;
-    client::sync_call(
-        &connection,
-        frame::connection_start_ok("guest", "guest", HashMap::new()),
-    )
-    .await?;
+    client::sync_call(&connection, frame::connection_start_ok("guest", "guest", HashMap::new()),) .await?;
     client::call(&connection, frame::connection_tune_ok(0)).await?;
 
     Ok(connection)
-}
-
-pub async fn connection_error_handler(connection: &Connection, handler: ConnectionErrorCallback) -> Result<()> {
-    connection.server_channel.send(client::Request {
-        param: client::Param::ConnectionErrorHandler(handler),
-        response: None,
-    }).await?;
-
-    Ok(())
 }
 
 pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
@@ -150,10 +120,7 @@ pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
 pub async fn channel_close(connection: &Connection, channel: Channel) -> Result<()> {
     let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
 
-    client::sync_call(
-        &connection,
-        frame::channel_close(channel, 200, "Normal close", cid, mid)
-    ).await?;
+    client::sync_call(&connection, frame::channel_close(channel, 200, "Normal close", cid, mid)).await?;
 
     Ok(())
 }
@@ -167,13 +134,8 @@ pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_na
     Ok(())
 }
 
-pub async fn queue_bind(
-    connection: &Connection,
-    channel: u16,
-    queue_name: &str,
-    exchange_name: &str,
-    routing_key: &str,
-) -> Result<()> {
+pub async fn queue_bind(connection: &Connection, channel: u16, queue_name: &str, exchange_name: &str,
+                        routing_key: &str) -> Result<()> {
     let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
 
     client::sync_call(&connection, frame).await?;
@@ -189,13 +151,8 @@ pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &s
     Ok(())
 }
 
-pub async fn basic_consume<'a>(
-    connection: &Connection,
-    channel: u16,
-    queue_name: &'a str,
-    consumer_tag: &'a str,
-    cb: fn(String) -> String,
-) -> Result<()> {
+pub async fn basic_consume<'a>(connection: &Connection, channel: u16, queue_name: &'a str, consumer_tag: &'a str,
+                               cb: fn(String) -> String) -> Result<()> {
     let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
     let (tx, rx) = oneshot::channel();
 
@@ -205,18 +162,16 @@ pub async fn basic_consume<'a>(
     }).await?;
 
     match rx.await {
-        Ok(()) => Ok(()),
-        Err(_) => client_error!(0, "Channel recv error"),
+        Ok(response) => match response {
+            Ok(()) => Ok(()),
+            Err(e) => Err(e)
+        },
+        Err(_) => client_error!(None, 501, "Channel recv error", 0)
     }
 }
 
-pub async fn basic_publish(
-    connection: &Connection,
-    channel: u16,
-    exchange_name: &str,
-    routing_key: &str,
-    payload: String,
-) -> Result<()> {
+pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: &str, routing_key: &str,
+                           payload: String) -> Result<()> {
     let frame = frame::basic_publish(channel, exchange_name.into(), routing_key.into());
 
     connection.server_channel.send(client::Request {
@@ -233,17 +188,10 @@ pub fn setup_logger() {
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
-            writeln!(
-                buf,
-                "{} - [{}] {}:{} {}",
-                buf.timestamp_millis(),
-                record.level(),
-                record.file().unwrap_or_default(),
-                record.line().unwrap_or_default(),
-                record.args()
+            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(),
+                record.file().unwrap_or_default(), record.line().unwrap_or_default(), record.args()
             )
-        })
-        .init();
+        }).init();
 }
 
 #[allow(dead_code)]
@@ -260,52 +208,3 @@ async fn publish_bench(connection: &Connection) -> Result<()> {
 
     Ok(())
 }
-
-//fn consumer_handler(s: String) -> String {
-//    info!("Handling content {}", s);
-//    "".into()
-//}
-//
-//#[tokio::main]
-//pub async fn main() -> Result<()> {
-//    let mut builder = Builder::from_default_env();
-//
-//    builder
-//        .format_timestamp_millis()
-//        .format(|buf, record| {
-//            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(),
-//                record.file().unwrap_or_default(), record.line().unwrap_or_default(), record.args())
-//        })
-//        .init();
-//
-//    let exchange = "test";
-//    let queue = "queue-test";
-//    let consumer_tag = "ctag1";
-//
-//    match connect("127.0.0.1:5672".into()).await {
-//        Ok(connection) => {
-//            info!("Connection is opened");
-//            open(&connection, "/".into()).await?;
-//            channel_open(&connection, 1).await?;
-//
-//            exchange_declare(&connection, 1, exchange, "fanout").await?;
-//            queue_declare(&connection, 1, queue).await?;
-//            queue_bind(&connection, 1, queue, exchange, "").await?;
-//
-//            basic_publish(&connection, 1, exchange, "no-key", "Hey man".into()).await?;
-//
-//            basic_consume(&connection, 1, queue, consumer_tag, consumer_handler).await?;
-//
-//            let (_tx, rx) = tokio::sync::oneshot::channel::<()>();
-//            if let Err(e) = rx.await {
-//                error!("Error {}", e)
-//            }
-//
-//            close(&connection).await?
-//        },
-//        Err(e) =>
-//            error!("Error {}", e)
-//    }
-//
-//    Ok(())
-//}
