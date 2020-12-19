@@ -105,8 +105,8 @@ pub async fn connect(url: String) -> Result<Box<Connection>> {
 /// ```no_run
 /// use ironmq_client::*;
 ///
-/// async fn open(c: &Connection) {
-///     if let ironmq_client::Error(ce) = open(&c, "/invalid".to_string()) {
+/// async fn vhost(c: &Connection) {
+///     if let Err(ce) = open(&c, "/invalid".to_string()).await {
 ///         eprintln!("Virtual host does not exist");
 ///     }
 /// }
@@ -220,4 +220,26 @@ async fn publish_bench(connection: &Connection) -> Result<()> {
     println!("{}/100,000 publish takes {} us", total, now.elapsed().as_micros());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn send_client_error() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
+
+        tx.send(client_error!(None, 404, "Not found", 0));
+
+        let res = rx.await.unwrap();
+
+        assert!(res.is_err());
+
+        let err = res.unwrap_err().downcast::<ClientError>().unwrap();
+        assert_eq!(err.channel, None);
+        assert_eq!(err.code, 404);
+        assert_eq!(err.message, "Not found".to_string());
+        assert_eq!(err.class_method, 0);
+    }
 }
