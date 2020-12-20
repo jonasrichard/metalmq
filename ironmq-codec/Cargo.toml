@@ -12,5 +12,4 @@ description = "IromMQ codec library"
 bitflags = "1.2"
 bytes = "0.6"
 futures = "0.3"
-lazy_static = "1.4"
 tokio-util = { version = "0.5", features = ["codec"] }

@@ -230,7 +230,7 @@ mod tests {
     async fn send_client_error() {
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<()>>();
 
-        tx.send(client_error!(None, 404, "Not found", 0));
+        tx.send(client_error!(None, 404, "Not found", 0)).unwrap();
 
         let res = rx.await.unwrap();
 
