@@ -5,17 +5,20 @@
 //! use ironmq_client::*;
 //!
 //! async fn client() -> Result<()> {
-//!     let conn = connect("127.0.0.1:5672".to_string()).await?;
-//!     open(&conn, "/".into()).await?;
-//!     channel_open(&conn, 1).await?;
-//!     basic_publish(&conn, 1, "exchange", "routing", "Hello".into()).await?;
-//!     close(&conn).await?;
+//!     let client = connect("127.0.0.1:5672").await?;
+//!     client.open("/").await?;
+//!     client.channel_open(1).await?;
+//!     client.basic_publish(1, "exchange", "routing", "Hello".into()).await?;
+//!     client.close().await?;
 //!
 //!     Ok(())
 //! }
 //! ```
 pub mod client;
 mod client_sm;
+
+#[macro_use]
+extern crate async_trait;
 
 use env_logger::Builder;
 use ironmq_codec::frame;
@@ -83,115 +86,133 @@ pub struct Connection {
 ///
 /// ```no_run
 /// async fn connect() -> ironmq_client::Result<()> {
-///     let url = "127.0.0.1:5672".to_string();
-///
-///     let conn = ironmq_client::connect(url).await?;
+///     let conn = ironmq_client::connect("127.0.0.1:5672").await?;
 ///     Ok(())
 /// }
 /// ```
-pub async fn connect(url: String) -> Result<Box<Connection>> {
-    let connection = client::create_connection(url).await?;
+pub async fn connect(url: &str) -> Result<Box<dyn Client>> {
+    let connection = client::create_connection(url.into()).await?;
 
     client::sync_call(&connection, frame::AMQPFrame::Header).await?;
-    client::sync_call(&connection, frame::connection_start_ok("guest", "guest", HashMap::new()),) .await?;
+    client::sync_call(&connection, frame::connection_start_ok("guest", "guest", HashMap::new())) .await?;
     client::call(&connection, frame::connection_tune_ok(0)).await?;
 
     Ok(connection)
 }
 
-/// Client "connects" to a virtual host. The virtual host may or may not exist,
-/// in case of an error we got a `ClientError` and the connection closes.
-///
-/// ```no_run
-/// use ironmq_client::*;
-///
-/// async fn vhost(c: &Connection) {
-///     if let Err(ce) = open(&c, "/invalid".to_string()).await {
-///         eprintln!("Virtual host does not exist");
-///     }
-/// }
-/// ```
-pub async fn open(connection: &Connection, virtual_host: String) -> Result<()> {
-    client::sync_call(&connection, frame::connection_open(0, virtual_host)).await?;
-
-    Ok(())
+#[async_trait]
+pub trait Client {
+    async fn open(&self, virtual_host: &str) -> Result<()>;
+    async fn close(&self) -> Result<()>;
+    async fn channel_open(&self, channel: Channel) -> Result<()>;
+    async fn channel_close(&self, channel: Channel) -> Result<()>;
+    async fn exchange_declare(&self, channel: Channel, exchange_name: &str, exchange_type: &str,
+                              flags: Option<frame::ExchangeDeclareFlags>) -> Result<()>;
+    async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
+                        routing_key: &str) -> Result<()>;
+    async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()>;
+    async fn basic_consume<'a>(&self, channel: Channel, queue_name: &'a str,
+                               consumer_tag: &'a str, cb: fn(String) -> String) -> Result<()>;
+    async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
+                           payload: String) -> Result<()>;
 }
 
-pub async fn close(connection: &Connection) -> Result<()> {
-    client::sync_call(&connection, frame::connection_close(0, 200, "Normal close", 0, 0)).await?;
+#[async_trait]
+impl Client for Connection {
+    /// Client "connects" to a virtual host. The virtual host may or may not exist,
+    /// in case of an error we got a `ClientError` and the connection closes.
+    ///
+    /// ```no_run
+    /// use ironmq_client::*;
+    ///
+    /// async fn vhost(c: &dyn Client) {
+    ///     if let Err(ce) = c.open("/invalid").await {
+    ///         eprintln!("Virtual host does not exist");
+    ///     }
+    /// }
+    /// ```
+    async fn open(&self, virtual_host: &str) -> Result<()> {
+        client::sync_call(&self, frame::connection_open(0, virtual_host.into())).await?;
 
-    Ok(())
-}
-
-pub async fn channel_open(connection: &Connection, channel: u16) -> Result<()> {
-    client::sync_call(&connection, frame::channel_open(channel)).await?;
-
-    Ok(())
-}
-
-pub async fn channel_close(connection: &Connection, channel: Channel) -> Result<()> {
-    let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
-
-    client::sync_call(&connection, frame::channel_close(channel, 200, "Normal close", cid, mid)).await?;
-
-    Ok(())
-}
-
-pub async fn exchange_declare(connection: &Connection, channel: u16, exchange_name: &str,
-                              exchange_type: &str, flags: Option<frame::ExchangeDeclareFlags>) -> Result<()> {
-    let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into(), flags);
-
-    client::sync_call(&connection, frame).await?;
-
-    Ok(())
-}
-
-pub async fn queue_bind(connection: &Connection, channel: u16, queue_name: &str, exchange_name: &str,
-                        routing_key: &str) -> Result<()> {
-    let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
-
-    client::sync_call(&connection, frame).await?;
-
-    Ok(())
-}
-
-pub async fn queue_declare(connection: &Connection, channel: u16, queue_name: &str) -> Result<()> {
-    let frame = frame::queue_declare(channel, queue_name.into());
-
-    client::sync_call(&connection, frame).await?;
-
-    Ok(())
-}
-
-pub async fn basic_consume<'a>(connection: &Connection, channel: u16, queue_name: &'a str, consumer_tag: &'a str,
-                               cb: fn(String) -> String) -> Result<()> {
-    let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
-    let (tx, rx) = oneshot::channel();
-
-    connection.server_channel.send(client::Request {
-        param: client::Param::Consume(frame, Box::new(cb)),
-        response: Some(tx)
-    }).await?;
-
-    match rx.await {
-        Ok(response) => match response {
-            Ok(()) => Ok(()),
-            Err(e) => Err(e)
-        },
-        Err(_) => client_error!(None, 501, "Channel recv error", 0)
+        Ok(())
     }
-}
 
-pub async fn basic_publish(connection: &Connection, channel: u16, exchange_name: &str, routing_key: &str,
+    async fn close(&self) -> Result<()> {
+        client::sync_call(&self, frame::connection_close(0, 200, "Normal close", 0, 0)).await?;
+
+        Ok(())
+    }
+
+    async fn channel_open(&self, channel: u16) -> Result<()> {
+        client::sync_call(&self, frame::channel_open(channel)).await?;
+
+        Ok(())
+    }
+
+    async fn channel_close(&self, channel: Channel) -> Result<()> {
+        let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
+
+        client::sync_call(&self, frame::channel_close(channel, 200, "Normal close", cid, mid)).await?;
+
+        Ok(())
+    }
+
+    async fn exchange_declare(&self, channel: Channel, exchange_name: &str,
+                              exchange_type: &str, flags: Option<frame::ExchangeDeclareFlags>) -> Result<()> {
+        let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into(), flags);
+
+        client::sync_call(&self, frame).await?;
+
+        Ok(())
+    }
+
+    async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
+                        routing_key: &str) -> Result<()> {
+        let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
+
+        client::sync_call(&self, frame).await?;
+
+        Ok(())
+    }
+
+    async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()> {
+        let frame = frame::queue_declare(channel, queue_name.into());
+
+        client::sync_call(&self, frame).await?;
+
+        Ok(())
+    }
+
+    async fn basic_consume<'a>(&self, channel: Channel, queue_name: &'a str, consumer_tag: &'a str,
+                               cb: fn(String) -> String) -> Result<()> {
+        let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
+        let (tx, rx) = oneshot::channel();
+
+        self.server_channel.send(client::Request {
+            param: client::Param::Consume(frame, Box::new(cb)),
+            response: Some(tx)
+        }).await?;
+
+        match rx.await {
+            Ok(response) => match response {
+                Ok(()) => Ok(()),
+                Err(e) => Err(e)
+            },
+            Err(_) => client_error!(None, 501, "Channel recv error", 0)
+        }
+    }
+
+    async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
                            payload: String) -> Result<()> {
-    let frame = frame::basic_publish(channel, exchange_name.into(), routing_key.into());
+        let frame = frame::basic_publish(channel, exchange_name.into(), routing_key.into());
 
-    connection.server_channel.send(client::Request {
-        param: client::Param::Publish(frame, payload.as_bytes().to_vec()),
-        response: None
-    }).await?;
+        self.server_channel.send(client::Request {
+            param: client::Param::Publish(frame, payload.as_bytes().to_vec()),
+            response: None
+        }).await?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Convenience function for setting up `env_logger` to see log messages.
@@ -208,12 +229,12 @@ pub fn setup_logger() {
 }
 
 #[allow(dead_code)]
-async fn publish_bench(connection: &Connection) -> Result<()> {
+async fn publish_bench(client: &dyn Client) -> Result<()> {
     let now = Instant::now();
     let mut total = 0u32;
 
     for _ in 0..100_000u32 {
-        basic_publish(&connection, 1, "test".into(), "no-key".into(), "Hello, world".into()).await?;
+        client.basic_publish(1, "test".into(), "no-key".into(), "Hello, world".into()).await?;
         total += 1;
     }
 

@@ -8,12 +8,12 @@ async fn consume() -> client::Result<()> {
     let exchange = "to-be-deleted";
     let queue = "queue-del";
 
-    let c = client::connect("127.0.0.1:5672".to_string()).await?;
-    client::exchange_declare(&c, 1, exchange, "fanout", None).await?;
-    client::queue_declare(&c, 1, queue).await?;
-    client::queue_bind(&c, 1, queue, exchange, "").await?;
+    let c = client::connect("127.0.0.1:5672").await?;
+    c.exchange_declare(1, exchange, "fanout", None).await?;
+    c.queue_declare(1, queue).await?;
+    c.queue_bind(1, queue, exchange, "").await?;
 
-    client::close(&c).await?;
+    c.close().await?;
 
     Ok(())
 }

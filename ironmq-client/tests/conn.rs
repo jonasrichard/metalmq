@@ -17,7 +17,7 @@ const URL: &str = "127.0.0.1:5672";
 #[tokio::test]
 async fn can_connect() -> Result<()> {
     let c = connect(URL.into()).await?;
-    let result = open(&c, "/invalid".into()).await;
+    let result = c.open("/invalid".into()).await;
 
     assert!(result.is_err());
 
@@ -37,14 +37,14 @@ async fn can_publish() -> Result<()> {
     Ok(())
 }
 
-async fn helper(exchange: &str, queue: &str) -> Result<Box<Connection>> {
+async fn helper(exchange: &str, queue: &str) -> Result<Box<dyn Client>> {
     let c = connect(URL.into()).await?;
-    open(&c, "/".into()).await?;
-    channel_open(&c, 1).await?;
-    exchange_declare(&c, 1, exchange, "fanout", None).await?;
-    queue_declare(&c, 1, queue).await?;
+    c.open("/".into()).await?;
+    c.channel_open(1).await?;
+    c.exchange_declare(1, exchange, "fanout", None).await?;
+    c.queue_declare(1, queue).await?;
 
-    queue_bind(&c, 1, queue, exchange, "").await?;
+    c.queue_bind(1, queue, exchange, "").await?;
 
     Ok(c)
 }

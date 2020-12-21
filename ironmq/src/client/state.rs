@@ -17,7 +17,6 @@ pub(crate) const NOT_ALLOWED: u16 = 530;
 /// All the transient data of a connection are stored here.
 pub(crate) struct Connection {
     context: Arc<Mutex<Context>>,
-    virtual_host: String,
     open_channels: HashMap<Channel, ()>,
     exchanges: HashMap<String, mpsc::Sender<message::Message>>,
     queues: HashMap<String, ()>,
@@ -37,7 +36,6 @@ struct PublishedContent {
 pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
     Connection {
         context: context,
-        virtual_host: "".into(),
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         queues: HashMap::new(),
@@ -48,9 +46,11 @@ pub(crate) fn new(context: Arc<Mutex<Context>>) -> Connection {
 
 pub(crate) async fn connection_open(conn: &mut Connection, channel: Channel,
                                     args: frame::ConnectionOpenArgs) -> MaybeFrame {
-    // TODO check if virtual host doens't exist
-    conn.virtual_host = args.virtual_host;
-    Ok(Some(frame::connection_open_ok(channel)))
+    if args.virtual_host != "/" {
+        connection_error(NOT_ALLOWED, "Cannot connect to virtualhost", frame::CONNECTION_OPEN)
+    } else {
+        Ok(Some(frame::connection_open_ok(channel)))
+    }
 }
 
 pub(crate) async fn connection_close(conn: &mut Connection, args: frame::ConnectionCloseArgs) -> MaybeFrame {
@@ -177,6 +177,17 @@ fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFr
 
     Ok(Some(frame::channel_close(
                 channel,
+                code,
+                text,
+                cid,
+                mid)))
+}
+
+fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
+    let (cid, mid) = frame::split_class_method(cm_id);
+
+    Ok(Some(frame::connection_close(
+                0,
                 code,
                 text,
                 cid,

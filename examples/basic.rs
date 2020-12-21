@@ -1,26 +1,24 @@
-use ironmq_client as client;
+use ironmq_client::{self, Result};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<()> {
     let exchange = "test-xchg";
     let queue = "test-queue";
 
     ironmq_client::setup_logger();
 
-    let conn = ironmq_client::connect("127.0.0.1:5672".into()).await?;
-    ironmq_client::open(&conn, "/".into()).await?;
-    ironmq_client::channel_open(&conn, 1).await?;
+    let client = ironmq_client::connect("127.0.0.1:5672").await?;
+    client.open("/").await?;
+    client.channel_open(1).await?;
 
-    println!("Before");
-    ironmq_client::exchange_declare(&conn, 1, exchange, "fanout", None).await?;
-    println!("After");
-    ironmq_client::queue_declare(&conn, 1, queue).await?;
-    ironmq_client::queue_bind(&conn, 1, queue, exchange, "").await?;
+    client.exchange_declare(1, exchange, "fanout", None).await?;
+    client.queue_declare(1, queue).await?;
+    client.queue_bind(1, queue, exchange, "").await?;
 
-    ironmq_client::basic_publish(&conn, 1, exchange, "no-key", "Hey man".into()).await?;
+    client.basic_publish(1, exchange, "no-key", "Hey man".into()).await?;
 
-    ironmq_client::channel_close(&conn, 1).await?;
-    ironmq_client::close(&conn).await?;
+    client.channel_close(1).await?;
+    client.close().await?;
 
     Ok(())
 }
