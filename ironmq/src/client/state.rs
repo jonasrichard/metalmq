@@ -1,5 +1,5 @@
 use crate::{Context, Result, RuntimeError};
-use crate::exchange;
+use crate::exchange::{self, ExchangeManager};
 use crate::message;
 use ironmq_codec::frame::{self, AMQPFrame, Channel};
 use log::info;
@@ -90,12 +90,15 @@ impl Connection for ConnectionState {
 
     async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
         let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
+        let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
+        let exchange_name = args.exchange_name.clone();
+
         let mut ctx = self.context.lock().await;
-        let result = exchange::declare(&mut ctx.exchanges, &args).await;
+        let result = ctx.exchanges.declare(args.into(), passive).await;
 
         match result {
             Ok(ch) => {
-                self.exchanges.insert(args.exchange_name.clone(), ch);
+                self.exchanges.insert(exchange_name.clone(), ch);
 
                 if no_wait {
                     Ok(None)

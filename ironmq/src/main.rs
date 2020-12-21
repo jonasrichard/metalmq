@@ -79,15 +79,8 @@ fn setup_logger() {
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
-            writeln!(
-                buf,
-                "{} - [{}] {}:{} {}",
-                buf.timestamp_millis(),
-                record.level(),
-                record.file().unwrap_or_default(),
-                record.line().unwrap_or_default(),
-                record.args()
-            )
+            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(), record.file().unwrap_or_default(),
+                record.line().unwrap_or_default(), record.args())
         })
         .init();
 }

@@ -5,117 +5,128 @@
 use crate::{message, ErrorScope, Result, RuntimeError};
 use crate::client::state;
 use ironmq_codec::frame;
-use log::{debug, error};
+use log::{debug, error, info};
 use std::collections::HashMap;
-use std::fmt;
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 
-pub(crate) struct Exchanges {
-    exchanges: HashMap<String, Exchange>,
-}
+type ExchangeChannel = mpsc::Sender<message::Message>;
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct Exchange {
     name: String,
     exchange_type: String,
     durable: bool,
     auto_delete: bool,
-    internal: bool,
-    input: mpsc::Sender<message::Message>,
+    internal: bool
 }
 
-impl fmt::Debug for Exchange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Exchange")
-         .field("name", &self.name)
-         .field("type", &self.exchange_type)
-         .field("durable", &self.durable)
-         .field("auto_delete", &self.auto_delete)
-         .field("internal", &self.internal)
-         .finish()
+impl From<frame::ExchangeDeclareArgs> for Exchange {
+    fn from(f: frame::ExchangeDeclareArgs) -> Self {
+        Exchange {
+            name: f.exchange_name,
+            exchange_type: f.exchange_type,
+            durable: frame::ExchangeDeclareFlags::contains(&f.flags, frame::ExchangeDeclareFlags::DURABLE),
+            auto_delete: frame::ExchangeDeclareFlags::contains(&f.flags, frame::ExchangeDeclareFlags::AUTO_DELETE),
+            internal: frame::ExchangeDeclareFlags::contains(&f.flags, frame::ExchangeDeclareFlags::INTERNAL)
+        }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct ExchangeState {
+    exchange: Exchange,
+    instance_count: u16,
+    input: ExchangeChannel
+}
+
+pub(crate) struct Exchanges {
+    mutex : Arc<Mutex<()>>,
+    exchanges: HashMap<String, ExchangeState>,
+}
+
+#[async_trait]
+pub(crate) trait ExchangeManager: Sync + Send {
+    async fn declare(&mut self, exchange: Exchange, passive: bool) -> Result<ExchangeChannel>;
 }
 
 pub(crate) fn start() -> Exchanges {
     Exchanges {
+        mutex: Arc::new(Mutex::new(())),
         exchanges: HashMap::new(), // TODO add default exchanges from a config or db
     }
 }
 
-pub(crate) async fn declare(exchanges: &mut Exchanges,
-                            args: &frame::ExchangeDeclareArgs) -> Result<mpsc::Sender<message::Message>> {
+#[async_trait]
+impl ExchangeManager for Exchanges {
+    async fn declare(&mut self, exchange: Exchange, passive: bool) -> Result<ExchangeChannel> {
+        let _ = self.mutex.lock();
 
-    let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
-    let durable = args.flags.contains(frame::ExchangeDeclareFlags::DURABLE);
-    let auto_delete = args.flags.contains(frame::ExchangeDeclareFlags::AUTO_DELETE);
-    let internal = args.flags.contains(frame::ExchangeDeclareFlags::INTERNAL);
+        debug!("{:?}", self.exchanges);
 
-    match exchanges.exchanges.get(&args.exchange_name) {
-        None => {
-            if passive {
-                Err(Box::new(RuntimeError {
-                    scope: ErrorScope::Channel,
-                    code: 404,
-                    text: "Exchange not found".into(),
-                    ..Default::default()
-                }))
-            } else {
-                let channel = create_exchange(&mut exchanges.exchanges, &args.exchange_name,
-                                              &args.exchange_type, durable, auto_delete, internal
-                ).await?;
-
-                Ok(channel)
-            }
-        }
-        Some(ex) => {
-            if passive {
-                Ok(ex.input.clone())
-            } else {
-                if ex.exchange_type == args.exchange_type
-                    && (ex.durable != durable || ex.auto_delete != auto_delete || ex.internal != internal)
-                {
-                    error!("Current exchange: {:?} to be declared. {:?}", ex, args);
-
+        match self.exchanges.get_mut(&exchange.name) {
+            None =>
+                if passive {
                     Err(Box::new(RuntimeError {
                         scope: ErrorScope::Channel,
-                        code: state::PRECONDITION_FAILED,
-                        text: "Exchange exists but properties are different".into(),
+                        code: 404,
+                        text: "Exchange not found".into(),
                         ..Default::default()
                     }))
                 } else {
-                    Ok(ex.input.clone())
+                    let channel = create_exchange(&mut self.exchanges, exchange).await?;
+
+                    Ok(channel)
+                },
+            Some(mut current) => {
+                debug!("Current instance {}", current.instance_count);
+
+                if passive {
+                    current.instance_count += 1;
+                    Ok(current.input.clone())
+                } else {
+                    if current.exchange != exchange {
+                        error!("Current exchange: {:?} to be declared. {:?}", current.exchange, exchange);
+
+                        Err(Box::new(RuntimeError {
+                            scope: ErrorScope::Channel,
+                            code: state::PRECONDITION_FAILED,
+                            text: "Exchange exists but properties are different".into(),
+                            ..Default::default()
+                        }))
+                    } else {
+                        current.instance_count += 1;
+                        Ok(current.input.clone())
+                    }
                 }
             }
         }
     }
 }
 
-async fn create_exchange(
-    exchanges: &mut HashMap<String, Exchange>,
-    name: &str,
-    exchange_type: &str,
-    durable: bool,
-    auto_delete: bool,
-    internal: bool,
-) -> Result<mpsc::Sender<message::Message>> {
+async fn create_exchange(exchanges: &mut HashMap<String, ExchangeState>, exchange: Exchange) -> Result<ExchangeChannel> {
     let (sender, mut receiver) = mpsc::channel(1);
     let other = sender.clone();
-    let exchange = Exchange {
-        name: name.to_string(),
-        exchange_type: exchange_type.to_string(),
-        durable: durable,
-        auto_delete: auto_delete,
-        internal: internal,
-        input: sender,
-    };
+    let result = other.clone();
+    let exchange_name = exchange.name.clone();
 
     debug!("New exchange {:?}", exchange);
-    exchanges.insert(name.to_string(), exchange);
+
+    let state = ExchangeState {
+        exchange: exchange,
+        instance_count: 1,
+        input: other
+    };
+
+    exchanges.insert(exchange_name.clone(), state);
 
     tokio::spawn(async move {
         exchange_loop(&mut receiver).await;
+        info!("Exchange processor for {} stop", exchange_name);
+        // TODO this never runs since we always have a copy of the ExchangeChannel
     });
 
-    Ok(other)
+    Ok(result)
 }
 
 async fn exchange_loop(messages: &mut mpsc::Receiver<message::Message>) {
@@ -136,7 +147,7 @@ mod tests {
         args.exchange_name = "new exchange".to_string();
         args.flags |= frame::ExchangeDeclareFlags::PASSIVE;
 
-        let result = declare(&mut exchanges, &args).await;
+        let result = exchanges.declare(args.into(), true).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
@@ -157,17 +168,19 @@ mod tests {
 
         exchanges.exchanges.insert(
             exchange_name.clone(),
-            Exchange {
-                name: exchange_name.clone(),
-                exchange_type: exchange_type.clone(),
-                durable: false,
-                auto_delete: true,
-                internal: false,
-                input: sender,
-            },
-        );
+            ExchangeState {
+                exchange: Exchange {
+                    name: exchange_name.clone(),
+                    exchange_type: exchange_type.clone(),
+                    durable: false,
+                    auto_delete: true,
+                    internal: false
+                },
+                instance_count: 0,
+                input: sender
+            });
 
-        let result = declare(&mut exchanges, &args).await;
+        let result = exchanges.declare(args.into(), false).await;
 
         assert!(result.is_err());
 
@@ -185,14 +198,14 @@ mod tests {
         args.flags |= frame::ExchangeDeclareFlags::DURABLE;
         args.flags |= frame::ExchangeDeclareFlags::AUTO_DELETE;
 
-        let result = declare(&mut exchanges, &args).await;
+        let result = exchanges.declare(args.into(), false).await;
 
         assert!(result.is_ok());
 
-        let ex = exchanges.exchanges.get(&exchange_name).unwrap();
-        assert_eq!(ex.name, exchange_name);
-        assert_eq!(ex.durable, true);
-        assert_eq!(ex.auto_delete, true);
-        assert_eq!(ex.internal, false);
+        let state = exchanges.exchanges.get(&exchange_name).unwrap();
+        assert_eq!(state.exchange.name, exchange_name);
+        assert_eq!(state.exchange.durable, true);
+        assert_eq!(state.exchange.auto_delete, true);
+        assert_eq!(state.exchange.internal, false);
     }
 }
