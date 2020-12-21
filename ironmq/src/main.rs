@@ -3,6 +3,9 @@ mod exchange;
 mod message;
 mod queue;
 
+#[macro_use]
+extern crate async_trait;
+
 use env_logger::Builder;
 use log::{error, info};
 use std::fmt;

@@ -12,13 +12,13 @@ use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let mut cs = state::new(context);
+    let mut conn = state::new(context);
 
     while let Some(payload) = stream.next().await {
         info!("Payload {:?}", payload);
 
         match payload {
-            Ok(frame) => match handle_client_frame(&mut cs, frame).await? {
+            Ok(frame) => match handle_client_frame(&mut *conn, frame).await? {
                 Some(response_frame) => {
                     if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
                         info!("Outgoing {:?}", response_frame);
@@ -41,14 +41,14 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
 
 //type SinkType = SplitSink<Framed<TcpStream, AMQPCodec>, AMQPFrame>;
 
-async fn handle_client_frame(mut cs: &mut Connection, f: AMQPFrame) -> Result<Option<AMQPFrame>> {
+async fn handle_client_frame(conn: &mut dyn Connection, f: AMQPFrame) -> Result<Option<AMQPFrame>> {
     use AMQPFrame::*;
 
     match f {
         Header => Ok(Some(frame::connection_start(0))),
-        Method(ch, _, mf) => handle_method_frame(cs, ch, mf).await,
-        ContentHeader(ch) => state::receive_content_header(&mut cs, ch).await,
-        ContentBody(cb) => state::receive_content_body(&mut cs, cb).await,
+        Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
+        ContentHeader(ch) => conn.receive_content_header(ch).await,
+        ContentBody(cb) => conn.receive_content_body(cb).await,
         _ => {
             error!("Unhandler frame type {:?}", f);
             Ok(None)
@@ -56,24 +56,21 @@ async fn handle_client_frame(mut cs: &mut Connection, f: AMQPFrame) -> Result<Op
     }
 }
 
-async fn handle_method_frame(
-    mut cs: &mut Connection,
-    channel: frame::Channel,
-    ma: frame::MethodFrameArgs,
-) -> Result<Option<AMQPFrame>> {
+async fn handle_method_frame(conn: &mut dyn Connection, channel: frame::Channel,
+                             ma: frame::MethodFrameArgs) -> Result<Option<AMQPFrame>> {
     use MethodFrameArgs::*;
 
     match ma {
         ConnectionStartOk(_) => Ok(Some(frame::connection_tune(0))),
         ConnectionTuneOk(_) => Ok(None),
-        ConnectionOpen(args) => state::connection_open(&mut cs, channel, args).await,
-        ConnectionClose(args) => state::connection_close(&mut cs, args).await,
-        ChannelOpen => state::channel_open(&mut cs, channel).await,
-        ChannelClose(args) => state::channel_close(&mut cs, channel, args).await,
-        ExchangeDeclare(args) => state::exchange_declare(&mut cs, channel, args).await,
-        QueueDeclare(args) => state::queue_declare(&mut cs, channel, args).await,
-        QueueBind(args) => state::queue_bind(&mut cs, channel, args).await,
-        BasicPublish(args) => state::basic_publish(&mut cs, channel, args).await,
+        ConnectionOpen(args) => conn.connection_open(channel, args).await,
+        ConnectionClose(args) => conn.connection_close(args).await,
+        ChannelOpen => conn.channel_open(channel).await,
+        ChannelClose(args) => conn.channel_close(channel, args).await,
+        ExchangeDeclare(args) => conn.exchange_declare(channel, args).await,
+        QueueDeclare(args) => conn.queue_declare(channel, args).await,
+        QueueBind(args) => conn.queue_bind(channel, args).await,
+        BasicPublish(args) => conn.basic_publish(channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
             Ok(None)
