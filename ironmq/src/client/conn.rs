@@ -4,7 +4,7 @@ use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
 use ironmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
-use log::{error, info};
+use log::{error, trace};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -15,18 +15,18 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
     let mut conn = state::new(context);
 
     while let Some(payload) = stream.next().await {
-        info!("Payload {:?}", payload);
+        trace!("Payload {:?}", payload);
 
         match payload {
             Ok(frame) => match handle_client_frame(&mut *conn, frame).await? {
                 Some(response_frame) => {
                     if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
-                        info!("Outgoing {:?}", response_frame);
+                        trace!("Outgoing {:?}", response_frame);
                         sink.send(response_frame).await?;
 
                         return Ok(());
                     } else {
-                        info!("Outgoing {:?}", response_frame);
+                        trace!("Outgoing {:?}", response_frame);
                         sink.send(response_frame).await?;
                     }
                 }
@@ -71,6 +71,7 @@ async fn handle_method_frame(conn: &mut dyn Connection, channel: frame::Channel,
         QueueDeclare(args) => conn.queue_declare(channel, args).await,
         QueueBind(args) => conn.queue_bind(channel, args).await,
         BasicPublish(args) => conn.basic_publish(channel, args).await,
+        BasicConsume(args) => conn.basic_consume(channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
             Ok(None)

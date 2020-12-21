@@ -43,6 +43,7 @@ pub(crate) trait Connection: Sync + Send {
     async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs,) -> MaybeFrame;
     async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs,) -> MaybeFrame;
     async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
+    async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame;
     async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame;
     async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame;
 }
@@ -145,6 +146,10 @@ impl Connection for ConnectionState {
 
             Ok(None)
         }
+    }
+
+    async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
+        Ok(None)
     }
 
     async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {

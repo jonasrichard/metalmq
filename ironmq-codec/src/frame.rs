@@ -33,7 +33,6 @@ pub type ClassId = u16;
 pub type Weight = u16;
 
 /// Represents an AMQP frame.
-#[derive(Debug)]
 pub enum AMQPFrame {
     /// Header is to be sent to the server at first, announcing the AMQP version we support
     Header,
@@ -44,6 +43,23 @@ pub enum AMQPFrame {
     ContentHeader(ContentHeaderFrame),
     ContentBody(ContentBodyFrame),
     Heartbeat(Channel),
+}
+
+impl std::fmt::Debug for AMQPFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AMQPFrame::Header =>
+                write!(f, "Header"),
+            AMQPFrame::Method(ch, cm, args) =>
+                write!(f, "Method(channel={}, {:08X}, {:?})", ch, cm, args),
+            AMQPFrame::ContentHeader(ch) =>
+                write!(f, "ContentHeader({:?})", ch),
+            AMQPFrame::ContentBody(cb) =>
+                write!(f, "ContentBody({:?})", cb),
+            AMQPFrame::Heartbeat(_) =>
+                write!(f, "Heartbeat")
+        }
+    }
 }
 
 /// Represents all types of method frame arguments.

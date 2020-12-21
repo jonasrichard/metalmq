@@ -1,17 +1,23 @@
 extern crate ironmq_client;
 
+mod helper {
+    pub mod conn;
+}
+
 use crate::ironmq_client as client;
+use helper::conn::default_connection;
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn consume() -> client::Result<()> {
     let exchange = "to-be-deleted";
     let queue = "queue-del";
+    let c = default_connection(exchange, queue).await?;
 
-    let c = client::connect("127.0.0.1:5672").await?;
-    c.exchange_declare(1, exchange, "fanout", None).await?;
-    c.queue_declare(1, queue).await?;
-    c.queue_bind(1, queue, exchange, "").await?;
+    c.basic_consume(1, queue, "ctag", |msg| {
+        println!("Message {:?}", msg);
+        "".to_string()
+    }).await?;
 
     c.close().await?;
 

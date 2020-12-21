@@ -5,15 +5,15 @@
 use crate::{message, ErrorScope, Result, RuntimeError};
 use crate::client::state;
 use ironmq_codec::frame;
-use log::debug;
+use log::{debug, error};
 use std::collections::HashMap;
+use std::fmt;
 use tokio::sync::mpsc;
 
 pub(crate) struct Exchanges {
     exchanges: HashMap<String, Exchange>,
 }
 
-#[derive(Debug)]
 pub(crate) struct Exchange {
     name: String,
     exchange_type: String,
@@ -21,6 +21,18 @@ pub(crate) struct Exchange {
     auto_delete: bool,
     internal: bool,
     input: mpsc::Sender<message::Message>,
+}
+
+impl fmt::Debug for Exchange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Exchange")
+         .field("name", &self.name)
+         .field("type", &self.exchange_type)
+         .field("durable", &self.durable)
+         .field("auto_delete", &self.auto_delete)
+         .field("internal", &self.internal)
+         .finish()
+    }
 }
 
 pub(crate) fn start() -> Exchanges {
@@ -59,10 +71,10 @@ pub(crate) async fn declare(exchanges: &mut Exchanges,
                 Ok(ex.input.clone())
             } else {
                 if ex.exchange_type == args.exchange_type
-                    || ex.durable != durable
-                    || ex.auto_delete != auto_delete
-                    || ex.internal != internal
+                    && (ex.durable != durable || ex.auto_delete != auto_delete || ex.internal != internal)
                 {
+                    error!("Current exchange: {:?} to be declared. {:?}", ex, args);
+
                     Err(Box::new(RuntimeError {
                         scope: ErrorScope::Channel,
                         code: state::PRECONDITION_FAILED,
