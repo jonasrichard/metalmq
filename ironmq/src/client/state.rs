@@ -1,11 +1,12 @@
 use crate::{Context, Result, RuntimeError};
-use crate::exchange::{self, ExchangeManager};
+use crate::exchange::{handler::ExchangeChannel, handler::ExchangeCommand, manager::ExchangeManager};
 use crate::message;
+use crate::queue::{manager::QueueManager};
 use ironmq_codec::frame::{self, AMQPFrame, Channel};
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 
 pub(crate) type MaybeFrame = Result<Option<AMQPFrame>>;
 
@@ -18,10 +19,8 @@ pub(crate) const NOT_ALLOWED: u16 = 530;
 pub(crate) struct ConnectionState {
     context: Arc<Mutex<Context>>,
     open_channels: HashMap<Channel, ()>,
-    exchanges: HashMap<String, mpsc::Sender<message::Message>>,
-    queues: HashMap<String, ()>,
-    /// Simple exchange-queue binding
-    binding: HashMap<(String, String), ()>,
+    exchanges: HashMap<String, ExchangeChannel>,
+    queues: HashMap<String, message::MessageChannel>,
     in_flight_contents: HashMap<Channel, PublishedContent>
 }
 
@@ -54,7 +53,6 @@ pub(crate) fn new(context: Arc<Mutex<Context>>) -> Box<dyn Connection> {
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         queues: HashMap::new(),
-        binding: HashMap::new(),
         in_flight_contents: HashMap::new()
     })
 }
@@ -117,19 +115,19 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs,) -> MaybeFrame {
-        if !self.queues.contains_key(&args.name) {
-            self.queues.insert(args.name.clone(), ());
-        }
+    async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
+        let mut ctx = self.context.lock().await;
+        ctx.queues.declare(args.name.clone());
 
         Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
     }
 
     async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs,) -> MaybeFrame {
-        let binding = (args.exchange_name, args.queue_name);
+        let mut ctx = self.context.lock().await;
 
-        if !self.binding.contains_key(&binding) {
-            self.binding.insert(binding, ());
+        if let Ok(ch) = ctx.queues.get_channel(args.queue_name).await {
+            ctx.exchanges.bind_queue(args.exchange_name, ch).await;
+        } else {
         }
 
         Ok(Some(frame::queue_bind_ok(channel)))
@@ -171,13 +169,12 @@ impl Connection for ConnectionState {
 
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
             let msg = message::Message {
-                content: body.body,
-                processed: None
+                content: body.body
             };
 
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
-                    ch.send(msg).await;
+                    ch.send(ExchangeCommand::Message(msg)).await;
                     Ok(None)
                 },
                 None =>

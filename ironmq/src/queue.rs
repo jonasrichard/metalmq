@@ -1,8 +1,6 @@
-use crate::message::Message;
-use std::collections::VecDeque;
+pub(crate) mod handler;
+pub(crate) mod manager;
 
 pub(crate) struct Queue {
     name: String,
-    // TODO I am not sure that we need the message with the ready channel here
-    messages: VecDeque<Message>,
 }

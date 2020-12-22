@@ -19,7 +19,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub(crate) struct Context {
-    pub(crate) exchanges: exchange::Exchanges,
+    pub(crate) exchanges: exchange::manager::Exchanges,
+    pub(crate) queues: queue::manager::Queues,
 }
 
 #[derive(Debug, PartialEq)]
@@ -89,10 +90,12 @@ fn setup_logger() {
 pub async fn main() -> Result<()> {
     setup_logger();
 
-    let exchanges = exchange::start();
+    let exchanges = exchange::manager::start();
+    let queues = queue::manager::start();
 
     let context = Arc::new(Mutex::new(Context {
         exchanges: exchanges,
+        queues: queues
     }));
 
     info!("Listening on port 5672");
