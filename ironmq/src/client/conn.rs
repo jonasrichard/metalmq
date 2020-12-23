@@ -7,36 +7,52 @@ use ironmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use log::{error, trace};
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let mut conn = state::new(context);
+    let (consume_sink, mut consume_stream) = mpsc::channel::<AMQPFrame>(1);
+    let mut conn = state::new(context, consume_sink);
 
-    while let Some(payload) = stream.next().await {
-        trace!("Payload {:?}", payload);
+    loop {
+        tokio::select! {
+            data = stream.next() => {
+                trace!("Payload {:?}", data);
 
-        match payload {
-            Ok(frame) => match handle_client_frame(&mut *conn, frame).await? {
-                Some(response_frame) => {
-                    if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
-                        trace!("Outgoing {:?}", response_frame);
-                        sink.send(response_frame).await?;
+                match data {
+                    Some(payload) =>
+                        match payload {
+                            Ok(frame) => match handle_client_frame(&mut *conn, frame).await? {
+                                Some(response_frame) => {
+                                    if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
+                                        trace!("Outgoing {:?}", response_frame);
+                                        sink.send(response_frame).await?;
 
-                        return Ok(());
-                    } else {
-                        trace!("Outgoing {:?}", response_frame);
-                        sink.send(response_frame).await?;
-                    }
+                                        return Ok(());
+                                    } else {
+                                        trace!("Outgoing {:?}", response_frame);
+                                        sink.send(response_frame).await?;
+                                    }
+                                }
+                                None => (),
+                            },
+                            Err(e) => return Err(Box::new(e)),
+                        },
+                    None =>
+                        break Ok(())
                 }
-                None => (),
-            },
-            Err(e) => return Err(Box::new(e)),
+            }
+            push = consume_stream.recv() => {
+                match push {
+                    Some(outgoing) =>
+                        sink.send(outgoing).await?,
+                    None =>
+                        ()  // TODO is it closed?
+                }
+            }
         }
     }
-
-    Ok(())
 }
 
 //type SinkType = SplitSink<Framed<TcpStream, AMQPCodec>, AMQPFrame>;

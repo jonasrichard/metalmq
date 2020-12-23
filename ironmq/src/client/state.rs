@@ -6,7 +6,7 @@ use ironmq_codec::frame::{self, AMQPFrame, Channel};
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 pub(crate) type MaybeFrame = Result<Option<AMQPFrame>>;
 
@@ -21,7 +21,8 @@ pub(crate) struct ConnectionState {
     open_channels: HashMap<Channel, ()>,
     exchanges: HashMap<String, ExchangeChannel>,
     queues: HashMap<String, message::MessageChannel>,
-    in_flight_contents: HashMap<Channel, PublishedContent>
+    in_flight_contents: HashMap<Channel, PublishedContent>,
+    outgoing: mpsc::Sender<AMQPFrame>
 }
 
 #[derive(Debug)]
@@ -47,13 +48,14 @@ pub(crate) trait Connection: Sync + Send {
     async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame;
 }
 
-pub(crate) fn new(context: Arc<Mutex<Context>>) -> Box<dyn Connection> {
+pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Box<dyn Connection> {
     Box::new(ConnectionState {
         context: context,
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         queues: HashMap::new(),
-        in_flight_contents: HashMap::new()
+        in_flight_contents: HashMap::new(),
+        outgoing: outgoing
     })
 }
 
@@ -150,6 +152,9 @@ impl Connection for ConnectionState {
     }
 
     async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
+        let mut ctx = self.context.lock().await;
+        ctx.queues.consume(args.queue, self.outgoing.clone()).await?;
+
         Ok(None)
     }
 

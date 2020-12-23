@@ -19,6 +19,8 @@ async fn consume() -> client::Result<()> {
         "".to_string()
     }).await?;
 
+    c.basic_publish(1, exchange, "", "Hello".into()).await?;
+
     c.close().await?;
 
     Ok(())
