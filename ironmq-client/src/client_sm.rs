@@ -20,12 +20,22 @@ enum Phase {
     //    Closing
 }
 
+struct DeliveredContent {
+    channel: u16,
+    consumer_tag: String,
+    delivery_tag: u64,
+    exchange_name: String,
+    routing_key: String,
+    body_size: Option<u64>,
+    body: Option<Vec<u8>>
+}
+
 pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
-    consumers: HashMap<(u16, String), MessageSink>,
-    headers: HashMap<u16, DeliveredContent>,
+    consumers: HashMap<(Channel, String), MessageSink>,
+    in_delivery: HashMap<Channel, DeliveredContent>,
 }
 
 impl fmt::Debug for ClientState {
@@ -40,39 +50,40 @@ impl fmt::Debug for ClientState {
 
 type MaybeFrame = Result<Option<frame::AMQPFrame>>;
 
+#[async_trait]
 pub(crate) trait Client {
-    fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> MaybeFrame;
-    fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> MaybeFrame;
-    fn connection_tune(&mut self, args: frame::ConnectionTuneArgs) -> MaybeFrame;
-    fn connection_tune_ok(&mut self, args: frame::ConnectionTuneOkArgs) -> MaybeFrame;
-    fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> MaybeFrame;
-    fn connection_open_ok(&mut self) -> MaybeFrame;
-    fn connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
-    fn connection_close_ok(&mut self) -> MaybeFrame;
-    fn handle_connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
+    async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> MaybeFrame;
+    async fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> MaybeFrame;
+    async fn connection_tune(&mut self, args: frame::ConnectionTuneArgs) -> MaybeFrame;
+    async fn connection_tune_ok(&mut self, args: frame::ConnectionTuneOkArgs) -> MaybeFrame;
+    async fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> MaybeFrame;
+    async fn connection_open_ok(&mut self) -> MaybeFrame;
+    async fn connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
+    async fn connection_close_ok(&mut self) -> MaybeFrame;
+    async fn handle_connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
 
-    fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
-    fn channel_open_ok(&mut self, channel: Channel) -> MaybeFrame;
-    fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
-    fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
+    async fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
+    async fn channel_open_ok(&mut self, channel: Channel) -> MaybeFrame;
+    async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
+    async fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
 
-    fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
-    fn exchange_declare_ok(&mut self) -> MaybeFrame;
-    fn exchange_bind(&mut self, channel: Channel, args: frame::ExchangeBindArgs) -> MaybeFrame;
-    fn exchange_bind_ok(&mut self) -> MaybeFrame;
+    async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
+    async fn exchange_declare_ok(&mut self) -> MaybeFrame;
+    async fn exchange_bind(&mut self, channel: Channel, args: frame::ExchangeBindArgs) -> MaybeFrame;
+    async fn exchange_bind_ok(&mut self) -> MaybeFrame;
 
-    fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame;
-    fn queue_declare_ok(&mut self, args: frame::QueueDeclareOkArgs) -> MaybeFrame;
-    fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame;
-    fn queue_bind_ok(&mut self) -> MaybeFrame;
+    async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame;
+    async fn queue_declare_ok(&mut self, args: frame::QueueDeclareOkArgs) -> MaybeFrame;
+    async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame;
+    async fn queue_bind_ok(&mut self) -> MaybeFrame;
 
-    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame;
-    fn basic_consume_ok(&mut self, args: frame::BasicConsumeOkArgs) -> MaybeFrame;
-    fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame;
-    fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
+    async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame;
+    async fn basic_consume_ok(&mut self, args: frame::BasicConsumeOkArgs) -> MaybeFrame;
+    async fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame;
+    async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
 
-    fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame;
-    fn content_body(&mut self, ch: frame::ContentBodyFrame) -> MaybeFrame;
+    async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame;
+    async fn content_body(&mut self, ch: frame::ContentBodyFrame) -> MaybeFrame;
 }
 
 pub(crate) fn new() -> ClientState {
@@ -80,19 +91,20 @@ pub(crate) fn new() -> ClientState {
         state: Phase::Uninitialized,
         username: "guest".into(),
         password: "guest".into(),
-        consumers: HashMap::<(u16, String), MessageSink>::new(),
-        headers: HashMap::<u16, DeliveredContent>::new(),
+        consumers: HashMap::new(),
+        in_delivery: HashMap::new(),
     }
 }
 
+#[async_trait]
 impl Client for ClientState {
-    fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> MaybeFrame {
+    async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> MaybeFrame {
         info!("Server supported mechanisms: {}", args.mechanisms);
         // TODO here we need to send start_ok not in the other function
         Ok(None)
     }
 
-    fn connection_start_ok(&mut self, _args: frame::ConnectionStartOkArgs) -> MaybeFrame {
+    async fn connection_start_ok(&mut self, _args: frame::ConnectionStartOkArgs) -> MaybeFrame {
         self.state = Phase::Connected;
 
         let mut caps = frame::FieldTable::new();
@@ -114,174 +126,144 @@ impl Client for ClientState {
         )))
     }
 
-    fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> MaybeFrame {
+    async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> MaybeFrame {
         self.state = Phase::Authenticated;
 
         Ok(Some(frame::connection_tune_ok(0)))
     }
 
-    fn connection_tune_ok(&mut self, _args: frame::ConnectionTuneOkArgs) -> MaybeFrame {
+    async fn connection_tune_ok(&mut self, _args: frame::ConnectionTuneOkArgs) -> MaybeFrame {
         Ok(None)
     }
 
-    fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> MaybeFrame {
+    async fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> MaybeFrame {
         Ok(Some(frame::connection_open(0, args.virtual_host)))
     }
 
-    fn connection_open_ok(&mut self) -> MaybeFrame {
+    async fn connection_open_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 
-    fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
+    async fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         Ok(Some(frame::connection_close(0, 200, "Normal close", 0, 0)))
     }
 
-    fn connection_close_ok(&mut self) -> MaybeFrame {
+    async fn connection_close_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 
-    fn handle_connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame {
+    async fn handle_connection_close(&mut self, args: frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO close resources, server is about to close connection
         Ok(None)
     }
 
-    fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
+    async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
         Ok(Some(frame::channel_open(channel)))
     }
 
-    fn channel_open_ok(&mut self, _channel: Channel) -> MaybeFrame {
+    async fn channel_open_ok(&mut self, _channel: Channel) -> MaybeFrame {
         Ok(None)
     }
 
-    fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+    async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
         Ok(Some(frame::channel_close(channel, args.code, &args.text, args.class_id, args.method_id)))
     }
 
-    fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+    async fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
         // TODO handle that the server closed the channel
         //Ok(Some(frame::channel_close_ok(channel)))
         Ok(None)
     }
 
-    fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
+    async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
         Ok(Some(frame::exchange_declare(channel, args.exchange_name, args.exchange_type, Some(args.flags))))
     }
 
-    fn exchange_declare_ok(&mut self) -> MaybeFrame {
+    async fn exchange_declare_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 
-    fn exchange_bind(&mut self, _channel: Channel, _args: frame::ExchangeBindArgs) -> MaybeFrame {
+    async fn exchange_bind(&mut self, _channel: Channel, _args: frame::ExchangeBindArgs) -> MaybeFrame {
         unimplemented!()
     }
 
-    fn exchange_bind_ok(&mut self) -> MaybeFrame {
+    async fn exchange_bind_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 
-    fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
+    async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         Ok(Some(frame::queue_declare(channel, args.name)))
     }
 
-    fn queue_declare_ok(&mut self, _args: frame::QueueDeclareOkArgs) -> MaybeFrame {
+    async fn queue_declare_ok(&mut self, _args: frame::QueueDeclareOkArgs) -> MaybeFrame {
         Ok(None)
     }
 
-    fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
+    async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
         Ok(Some(frame::queue_bind(channel, args.queue_name, args.exchange_name, args.routing_key)))
     }
 
-    fn queue_bind_ok(&mut self) -> MaybeFrame {
+    async fn queue_bind_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 
-    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame {
-        // TODO register callback!
+    async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame {
+        self.consumers.insert((channel, args.queue.clone()), sink);
+
         Ok(Some(frame::basic_consume(channel, args.queue, args.consumer_tag)))
     }
 
-    fn basic_consume_ok(&mut self, _args: frame::BasicConsumeOkArgs) -> MaybeFrame {
+    async fn basic_consume_ok(&mut self, _args: frame::BasicConsumeOkArgs) -> MaybeFrame {
         Ok(None)
     }
 
-    fn basic_deliver(&mut self, _args: frame::BasicDeliverArgs) -> MaybeFrame {
+    async fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame {
+        let dc = DeliveredContent {
+            channel: 0,
+            consumer_tag: args.consumer_tag,
+            delivery_tag: args.delivery_tag,
+            exchange_name: args.exchange_name,
+            routing_key: args.routing_key,
+            body_size: None,
+            body: None
+        };
+
+        self.in_delivery.insert(0, dc);
+
         Ok(None)
     }
 
-    fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
+    async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
         Ok(Some(frame::basic_publish(channel, args.exchange_name, args.routing_key)))
     }
 
-    fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame {
+    async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame {
         info!("Content header arrived {:?}", ch);
+
+        if let Some(dc) = self.in_delivery.get_mut(&0) {
+            dc.body_size = Some(ch.body_size);
+        }
+
+        // TODO error handling
+
         Ok(None)
     }
 
-    fn content_body(&mut self, cb: frame::ContentBodyFrame) -> MaybeFrame {
+    async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> MaybeFrame {
         info!("Content body arrived {:?}", cb);
+
+        if let Some(dc) = self.in_delivery.get(&0) {
+            if let Some(sink) = self.consumers.get(&(0, dc.exchange_name.clone())) {
+                let msg = Message {
+                    channel: 0,
+                    body: cb.body,
+                    length: dc.body_size.unwrap() as usize
+                };
+
+                sink.send(msg).await?
+            }
+        }
+
         Ok(None)
     }
-}
-
-struct DeliveredContent {
-    channel: u16,
-    consumer_tag: String,
-    header: Option<frame::ContentHeaderFrame>, // flags
-}
-
-//pub(crate) fn basic_deliver(
-//    cs: &mut ClientState,
-//    mut f: MethodFrame,
-//) -> Result<Option<MethodFrame>> {
-//    // TODO validate consumer tag and channel, probably we need to send an error if we get a
-//    // content but we are not consuming
-//    let consumer_tag = frame::value_as_string(f.args.remove(0))?;
-//
-//    let content = DeliveredContent {
-//        channel: f.channel,
-//        consumer_tag: consumer_tag,
-//        header: None,
-//    };
-//
-//    cs.headers.insert(f.channel, content);
-//
-//    Ok(None)
-//}
-//pub(crate) fn content_header(
-//    cs: &mut ClientState,
-//    ch: ContentHeaderFrame,
-//) -> Result<Option<AMQPFrame>> {
-//    info!("Received content header {:?}", ch);
-//
-//    if let Some(h) = cs.headers.get_mut(&ch.channel) {
-//        h.header = Some(ch)
-//    }
-//
-//    Ok(None)
-//}
-//
-//pub(crate) fn content_body(
-//    cs: &mut ClientState,
-//    cb: ContentBodyFrame,
-//) -> Result<Option<AMQPFrame>> {
-//    info!("Received body {:?}", cb);
-//
-//    if let Some(h) = cs.headers.remove(&cb.channel) {
-//        let body = String::from_utf8(cb.body)?;
-//
-//        if let Some(handler) = cs.consumers.get(&(cb.channel, h.consumer_tag)) {
-//            handler(body);
-//        }
-//    }
-//
-//    Ok(None)
-//}
-//
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[tokio::test]
-    async fn connect() {}
 }

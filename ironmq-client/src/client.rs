@@ -70,7 +70,7 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     Some(Ok(frame)) => {
                         notify_waiter(&frame, &mut feedback)?;
 
-                        if let Ok(Some(response)) = handle_in_frame(frame, &mut client) {
+                        if let Ok(Some(response)) = handle_in_frame(frame, &mut client).await {
                             sink.send(response).await?
                         }
                     },
@@ -88,17 +88,17 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                         sink.send(AMQPFrame::Header).await?;
                     },
                     Param::Frame(AMQPFrame::Method(ch, _, ma)) =>
-                        if let Some(response) = handle_out_frame(ch, ma, &mut client)? {
+                        if let Some(response) = handle_out_frame(ch, ma, &mut client).await? {
                             register_waiter(&mut feedback, &response, request.response);
                             sink.send(response).await?;
                         },
                     Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) =>
-                        if let Some(response) = client.basic_consume(ch, args, msg_sink)? {
+                        if let Some(response) = client.basic_consume(ch, args, msg_sink).await? {
                             register_waiter(&mut feedback, &response, request.response);
                             sink.send(response).await?;
                         },
                     Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) =>
-                        for response in handle_publish(ch, args, content, &mut client)? {
+                        for response in handle_publish(ch, args, content, &mut client).await? {
                             sink.send(response).await?;
                         },
                     _ =>
@@ -173,73 +173,69 @@ fn channel(f: &AMQPFrame) -> Option<u16> {
     }
 }
 
-fn handle_in_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+async fn handle_in_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
     match f {
         AMQPFrame::Header => Ok(None),
         AMQPFrame::Method(ch, _, args) => {
             // TODO copy happens? check with a small poc
-            handle_in_method_frame(ch, args, cs)
+            handle_in_method_frame(ch, args, cs).await
         }
-        AMQPFrame::ContentHeader(ch) => cs.content_header(ch),
-        AMQPFrame::ContentBody(cb) => cs.content_body(cb),
+        AMQPFrame::ContentHeader(ch) => cs.content_header(ch).await,
+        AMQPFrame::ContentBody(cb) => cs.content_body(cb).await,
         AMQPFrame::Heartbeat(_) => Ok(None),
     }
 }
 
 /// Handle AMQP frames coming from the server side
-fn handle_in_method_frame(
+async fn handle_in_method_frame(
     channel: frame::Channel,
     ma: frame::MethodFrameArgs,
     cs: &mut ClientState,
 ) -> Result<Option<AMQPFrame>> {
     match ma {
-        MethodFrameArgs::ConnectionStart(args) => cs.connection_start(args),
-        MethodFrameArgs::ConnectionTune(args) => cs.connection_tune(args),
-        MethodFrameArgs::ConnectionOpenOk => cs.connection_open_ok(),
-        MethodFrameArgs::ConnectionClose(args) => cs.handle_connection_close(args),
-        MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel),
-        MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok(),
-        MethodFrameArgs::ExchangeBindOk => cs.exchange_bind_ok(),
-        MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args),
-        MethodFrameArgs::QueueBindOk => cs.queue_bind_ok(),
-        MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok(),
-        MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args),
-        MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(args),
-        MethodFrameArgs::ChannelClose(args) => cs.handle_channel_close(channel, args),
-        MethodFrameArgs::ChannelCloseOk => cs.channel_open_ok(channel),
+        MethodFrameArgs::ConnectionStart(args) => cs.connection_start(args).await,
+        MethodFrameArgs::ConnectionTune(args) => cs.connection_tune(args).await,
+        MethodFrameArgs::ConnectionOpenOk => cs.connection_open_ok().await,
+        MethodFrameArgs::ConnectionClose(args) => cs.handle_connection_close(args).await,
+        MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel).await,
+        MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok().await,
+        MethodFrameArgs::ExchangeBindOk => cs.exchange_bind_ok().await,
+        MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
+        MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
+        MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
+        MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
+        MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(args).await,
+        MethodFrameArgs::ChannelClose(args) => cs.handle_channel_close(channel, args).await,
+        MethodFrameArgs::ChannelCloseOk => cs.channel_open_ok(channel).await,
         //    // TODO check if client is consuming messages from that channel + consumer tag
         _ => unimplemented!("{:?}", ma),
     }
 }
 
-fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
     debug!("Outgoing frame is {:?}", ma);
 
     match ma {
-        MethodFrameArgs::ConnectionStartOk(args) => cs.connection_start_ok(args),
-        MethodFrameArgs::ConnectionTuneOk(args) => cs.connection_tune_ok(args),
-        MethodFrameArgs::ConnectionOpen(args) => cs.connection_open(args),
-        MethodFrameArgs::ConnectionClose(args) => cs.connection_close(args),
-        MethodFrameArgs::ChannelOpen => cs.channel_open(channel),
-        MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, args),
-        MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args),
-        MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args),
-        MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args),
-        MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, args),
+        MethodFrameArgs::ConnectionStartOk(args) => cs.connection_start_ok(args).await,
+        MethodFrameArgs::ConnectionTuneOk(args) => cs.connection_tune_ok(args).await,
+        MethodFrameArgs::ConnectionOpen(args) => cs.connection_open(args).await,
+        MethodFrameArgs::ConnectionClose(args) => cs.connection_close(args).await,
+        MethodFrameArgs::ChannelOpen => cs.channel_open(channel).await,
+        MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, args).await,
+        MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args).await,
+        MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args).await,
+        MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args).await,
+        MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, args).await,
         _ => unimplemented!()
-        //Command::ExchangeDeclare(args) => client_sm::exchange_declare(&mut cs, *args),
-        //Command::QueueDeclare(args) => client_sm::queue_declare(&mut cs, *args),
-        //Command::QueueBind(args) => client_sm::queue_bind(&mut cs, *args),
-        //Command::BasicConsume(args) => client_sm::basic_consume(&mut cs, *args),
     }
 }
 
-fn handle_publish(
+async fn handle_publish(
     channel: frame::Channel,
     args: frame::BasicPublishArgs, content: Vec<u8>,
     cs: &mut ClientState
 ) -> Result<Vec<AMQPFrame>> {
-    match cs.basic_publish(channel, args)? {
+    match cs.basic_publish(channel, args).await? {
         Some(publish_frame) =>
             Ok(vec![
                 publish_frame,
