@@ -1,5 +1,5 @@
 use crate::client_sm::{self, Client, ClientState};
-use crate::{client_error, Connection, ConsumeCallback, Result};
+use crate::{client_error, Connection, Message, MessageSink, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
@@ -13,7 +13,7 @@ use tokio_util::codec::Framed;
 
 pub(crate) enum Param {
     Frame(AMQPFrame),
-    Consume(AMQPFrame, ConsumeCallback),
+    Consume(AMQPFrame, MessageSink),
     Publish(AMQPFrame, Vec<u8>)
 }
 
@@ -92,8 +92,8 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                             register_waiter(&mut feedback, &response, request.response);
                             sink.send(response).await?;
                         },
-                    Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), cb) =>
-                        if let Some(response) = client.basic_consume(ch, args, cb)? {
+                    Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) =>
+                        if let Some(response) = client.basic_consume(ch, args, msg_sink)? {
                             register_waiter(&mut feedback, &response, request.response);
                             sink.send(response).await?;
                         },

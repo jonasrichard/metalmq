@@ -6,7 +6,7 @@
 //! AMQP frame or `MethodFrame`, content etc. Everything which talks to the client
 //! api it is a typed struct.
 
-use crate::{ConsumeCallback, Result};
+use crate::{Message, MessageSink, Result};
 use ironmq_codec::frame::{self, Channel};
 use log::info;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
-    consumers: HashMap<(u16, String), ConsumeCallback>,
+    consumers: HashMap<(u16, String), MessageSink>,
     headers: HashMap<u16, DeliveredContent>,
 }
 
@@ -66,7 +66,7 @@ pub(crate) trait Client {
     fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame;
     fn queue_bind_ok(&mut self) -> MaybeFrame;
 
-    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, cb: ConsumeCallback) -> MaybeFrame;
+    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame;
     fn basic_consume_ok(&mut self, args: frame::BasicConsumeOkArgs) -> MaybeFrame;
     fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame;
     fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
@@ -80,7 +80,7 @@ pub(crate) fn new() -> ClientState {
         state: Phase::Uninitialized,
         username: "guest".into(),
         password: "guest".into(),
-        consumers: HashMap::<(u16, String), ConsumeCallback>::new(),
+        consumers: HashMap::<(u16, String), MessageSink>::new(),
         headers: HashMap::<u16, DeliveredContent>::new(),
     }
 }
@@ -195,7 +195,7 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, cb: ConsumeCallback) -> MaybeFrame {
+    fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame {
         // TODO register callback!
         Ok(Some(frame::basic_consume(channel, args.queue, args.consumer_tag)))
     }

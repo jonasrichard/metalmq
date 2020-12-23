@@ -6,6 +6,7 @@ mod helper {
 
 use crate::ironmq_client as client;
 use helper::conn::default_connection;
+use tokio::sync::mpsc;
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
@@ -14,10 +15,8 @@ async fn consume() -> client::Result<()> {
     let queue = "queue-del";
     let c = default_connection(exchange, queue).await?;
 
-    c.basic_consume(1, queue, "ctag", |msg| {
-        println!("Message {:?}", msg);
-        "".to_string()
-    }).await?;
+    let (tx, rx) = mpsc::channel(1);
+    c.basic_consume(1, queue, "ctag", tx).await?;
 
     c.basic_publish(1, exchange, "", "Hello".into()).await?;
 

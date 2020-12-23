@@ -43,6 +43,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A sendable, syncable boxed error, usable between async threads.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+pub type MessageSink = mpsc::Sender<Message>;
+
+#[derive(Debug)]
+pub struct Message {
+    pub channel: Channel,
+    pub body: Vec<u8>,
+    pub length: usize
+}
+
 #[derive(Clone, Debug)]
 pub struct ClientError {
     pub channel: Option<Channel>,
@@ -71,8 +80,6 @@ macro_rules! client_error {
         }))
     }
 }
-
-type ConsumeCallback = Box<dyn Fn(String) -> String + Send + Sync>;
 
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
 /// are not yet supported.
@@ -111,8 +118,8 @@ pub trait Client {
     async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
                         routing_key: &str) -> Result<()>;
     async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()>;
-    async fn basic_consume<'a>(&self, channel: Channel, queue_name: &'a str,
-                               consumer_tag: &'a str, cb: fn(String) -> String) -> Result<()>;
+    async fn basic_consume(&self, channel: Channel, queue_name: &str,
+                           consumer_tag: &str, sink: MessageSink) -> Result<()>;
     async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
                            payload: String) -> Result<()>;
 }
@@ -183,13 +190,13 @@ impl Client for Connection {
         Ok(())
     }
 
-    async fn basic_consume<'a>(&self, channel: Channel, queue_name: &'a str, consumer_tag: &'a str,
-                               cb: fn(String) -> String) -> Result<()> {
+    async fn basic_consume(&self, channel: Channel, queue_name: &str, consumer_tag: &str,
+                           sink: MessageSink) -> Result<()> {
         let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
         let (tx, rx) = oneshot::channel();
 
         self.server_channel.send(client::Request {
-            param: client::Param::Consume(frame, Box::new(cb)),
+            param: client::Param::Consume(frame, sink),
             response: Some(tx)
         }).await?;
 
