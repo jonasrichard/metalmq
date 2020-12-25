@@ -8,7 +8,7 @@
 
 use crate::{Message, MessageSink, Result};
 use ironmq_codec::frame::{self, Channel};
-use log::info;
+use log::{debug, info};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -20,6 +20,7 @@ enum Phase {
     //    Closing
 }
 
+#[derive(Debug)]
 struct DeliveredContent {
     channel: u16,
     consumer_tag: String,
@@ -30,11 +31,13 @@ struct DeliveredContent {
     body: Option<Vec<u8>>
 }
 
+// TODO basic consume subscribe to a queue but when messages are delivered we get only the exchange
+// name
 pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
-    consumers: HashMap<(Channel, String), MessageSink>,
+    consumers: HashMap<Channel, MessageSink>,
     in_delivery: HashMap<Channel, DeliveredContent>,
 }
 
@@ -65,6 +68,7 @@ pub(crate) trait Client {
     async fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
     async fn channel_open_ok(&mut self, channel: Channel) -> MaybeFrame;
     async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
+    async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame;
     async fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
 
     async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
@@ -79,7 +83,7 @@ pub(crate) trait Client {
 
     async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame;
     async fn basic_consume_ok(&mut self, args: frame::BasicConsumeOkArgs) -> MaybeFrame;
-    async fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame;
+    async fn basic_deliver(&mut self, channel: Channel, args: frame::BasicDeliverArgs) -> MaybeFrame;
     async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
 
     async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame;
@@ -169,6 +173,14 @@ impl Client for ClientState {
         Ok(Some(frame::channel_close(channel, args.code, &args.text, args.class_id, args.method_id)))
     }
 
+    async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
+        if let Some(sink) = self.consumers.remove(&channel) {
+            drop(sink);
+        }
+
+        Ok(None)
+    }
+
     async fn handle_channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
         // TODO handle that the server closed the channel
         //Ok(Some(frame::channel_close_ok(channel)))
@@ -208,7 +220,7 @@ impl Client for ClientState {
     }
 
     async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame {
-        self.consumers.insert((channel, args.queue.clone()), sink);
+        self.consumers.insert(channel, sink);
 
         Ok(Some(frame::basic_consume(channel, args.queue, args.consumer_tag)))
     }
@@ -217,9 +229,9 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    async fn basic_deliver(&mut self, args: frame::BasicDeliverArgs) -> MaybeFrame {
+    async fn basic_deliver(&mut self, channel: Channel, args: frame::BasicDeliverArgs) -> MaybeFrame {
         let dc = DeliveredContent {
-            channel: 0,
+            channel: channel,
             consumer_tag: args.consumer_tag,
             delivery_tag: args.delivery_tag,
             exchange_name: args.exchange_name,
@@ -228,7 +240,7 @@ impl Client for ClientState {
             body: None
         };
 
-        self.in_delivery.insert(0, dc);
+        self.in_delivery.insert(channel, dc);
 
         Ok(None)
     }
@@ -240,7 +252,7 @@ impl Client for ClientState {
     async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> MaybeFrame {
         info!("Content header arrived {:?}", ch);
 
-        if let Some(dc) = self.in_delivery.get_mut(&0) {
+        if let Some(dc) = self.in_delivery.get_mut(&ch.channel) {
             dc.body_size = Some(ch.body_size);
         }
 
@@ -252,10 +264,16 @@ impl Client for ClientState {
     async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> MaybeFrame {
         info!("Content body arrived {:?}", cb);
 
-        if let Some(dc) = self.in_delivery.get(&0) {
-            if let Some(sink) = self.consumers.get(&(0, dc.exchange_name.clone())) {
+        if let Some(dc) = self.in_delivery.get(&cb.channel) {
+            debug!("Delivered content is {:?} so far", dc);
+
+            debug!("Consumers {:?}", self.consumers);
+
+            if let Some(sink) = self.consumers.get(&dc.channel) {
+                debug!("We have a sink");
+
                 let msg = Message {
-                    channel: 0,
+                    channel: dc.channel,
                     body: cb.body,
                     length: dc.body_size.unwrap() as usize
                 };

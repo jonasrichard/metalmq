@@ -174,6 +174,8 @@ fn channel(f: &AMQPFrame) -> Option<u16> {
 }
 
 async fn handle_in_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+    debug!("Incoming {:?}", f);
+
     match f {
         AMQPFrame::Header => Ok(None),
         AMQPFrame::Method(ch, _, args) => {
@@ -198,15 +200,15 @@ async fn handle_in_method_frame(
         MethodFrameArgs::ConnectionOpenOk => cs.connection_open_ok().await,
         MethodFrameArgs::ConnectionClose(args) => cs.handle_connection_close(args).await,
         MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel).await,
+        MethodFrameArgs::ChannelCloseOk => cs.channel_close_ok(channel).await,
         MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok().await,
         MethodFrameArgs::ExchangeBindOk => cs.exchange_bind_ok().await,
         MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
         MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
-        MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(args).await,
+        MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(channel, args).await,
         MethodFrameArgs::ChannelClose(args) => cs.handle_channel_close(channel, args).await,
-        MethodFrameArgs::ChannelCloseOk => cs.channel_open_ok(channel).await,
         //    // TODO check if client is consuming messages from that channel + consumer tag
         _ => unimplemented!("{:?}", ma),
     }
