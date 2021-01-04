@@ -270,8 +270,6 @@ impl Client for ClientState {
             debug!("Consumers {:?}", self.consumers);
 
             if let Some(sink) = self.consumers.get(&dc.channel) {
-                debug!("We have a sink");
-
                 let msg = Message {
                     channel: dc.channel,
                     body: cb.body,

@@ -46,11 +46,9 @@ pub(crate) async fn queue_manager_loop(control: &mut mpsc::Receiver<ManagerComma
             },
             ManagerCommand::Consume{ queue_name, sink } => {
                 if let Some(queue) = queues.get(&queue_name) {
-                    queue.send(QueueCommand::Consume{ sink: sink });
+                    queue.send(QueueCommand::Consume{ sink: sink }).await?;
                 }
-            },
-            _ =>
-                ()
+            }
         }
     }
 

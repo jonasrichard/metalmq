@@ -10,6 +10,34 @@
 
 ## Build and run
 
+`ironmq` is under development, it is not feature complete but you can try and run with cargo run.
+
+```bash
+cargo run --bin ironmq
+## or to enable logs
+RUST_LOG=debug cargo run --bin ironmq
+```
+
+There are some examples in the `examples` directory, they implement simple scenarios of the
+`ironmq-client` library. To run execute
+
+```bash
+cargo run --example publish-consume
+```
+
+for example.
+
+### Checklist
+
+* Connection
+  * Login
+    - [x] guest password
+    - [ ] user management
+* Channel
+* Exchange
+* Queue
+* Basic
+
 ## AMQP 0.9 client library
 
 We need a client to test the server, so for that in the `client091` folder I put the client implementation.
