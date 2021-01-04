@@ -119,7 +119,7 @@ impl Connection for ConnectionState {
 
     async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
-        ctx.queues.declare(args.name.clone());
+        ctx.queues.declare(args.name.clone()).await?;
 
         Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
     }
@@ -128,7 +128,7 @@ impl Connection for ConnectionState {
         let mut ctx = self.context.lock().await;
 
         if let Ok(ch) = ctx.queues.get_channel(args.queue_name).await {
-            ctx.exchanges.bind_queue(args.exchange_name, ch).await;
+            ctx.exchanges.bind_queue(args.exchange_name, ch).await?;
         } else {
         }
 
@@ -179,7 +179,7 @@ impl Connection for ConnectionState {
 
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
-                    ch.send(ExchangeCommand::Message(msg)).await;
+                    ch.send(ExchangeCommand::Message(msg)).await?;
                     Ok(None)
                 },
                 None =>

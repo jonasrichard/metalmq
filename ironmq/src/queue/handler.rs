@@ -1,7 +1,7 @@
 use crate::Result;
-use crate::message::{Message, MessageChannel};
+use crate::message::Message;
 use ironmq_codec::frame;
-use log::debug;
+use log::{debug, error};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -12,7 +12,7 @@ pub(crate) type FrameChannel = mpsc::Sender<frame::AMQPFrame>;
 #[derive(Debug)]
 pub(crate) enum ManagerCommand {
     QueueClone { name: String, clone: oneshot::Sender<QueueChannel> },
-    Consume { queue_name: String, sink: FrameChannel }
+    Consume { queue_name: String, sink: FrameChannel, success: oneshot::Sender<()> }
 }
 
 #[derive(Debug)]
@@ -30,7 +30,11 @@ pub(crate) async fn queue_manager_loop(control: &mut mpsc::Receiver<ManagerComma
         match command {
             ManagerCommand::QueueClone{ name, clone } => {
                 if let Some(queue) = queues.get(&name) {
-                    clone.send(queue.clone());
+                    if let Err(e) = clone.send(queue.clone()) {
+                        error!("Send error {:?}", e);
+
+                        return Ok(());
+                    }
                 } else {
                     let (tx, mut rx) = mpsc::channel(1);
 
@@ -39,13 +43,24 @@ pub(crate) async fn queue_manager_loop(control: &mut mpsc::Receiver<ManagerComma
                     });
 
                     let result = tx.clone();
-                    clone.send(tx);
+                    if let Err(e) = clone.send(tx) {
+                        error!("Send error {:?}", e);
+
+                        return Ok(());
+                    }
 
                     queues.insert(name, result);
                 }
             },
-            ManagerCommand::Consume{ queue_name, sink } => {
+            ManagerCommand::Consume{ queue_name, sink, success } => {
                 if let Some(queue) = queues.get(&queue_name) {
+                    // TODO we need to send proper error in case of unsuccessful consume subscribe
+                    if let Err(e) = success.send(()) {
+                        error!("Send error {:?}", e);
+
+                        return Ok(());
+                    }
+
                     queue.send(QueueCommand::Consume{ sink: sink }).await?;
                 }
             }
@@ -71,7 +86,9 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
 
                 if let Some(c) = consumers.get(0) {
                     for f in frames {
-                        c.send(f).await;
+                        if let Err(e) = c.send(f).await {
+                            error!("Message send error {:?}", e);
+                        }
                     }
                 }
                 //for ch in &consumers {

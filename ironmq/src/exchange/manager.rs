@@ -10,14 +10,14 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 
 pub(crate) struct Exchanges {
     mutex : Arc<Mutex<()>>,
-    control: mpsc::Sender<ManagerCommand>,
+    control: handler::ControlChannel,
     exchanges: HashMap<String, Exchange>,
 }
 
 #[async_trait]
 pub(crate) trait ExchangeManager: Sync + Send {
     async fn declare(&mut self, exchange: Exchange, passive: bool) -> Result<ExchangeChannel>;
-    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueChannel);
+    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueChannel) -> Result<()>;
 }
 
 
@@ -25,7 +25,9 @@ pub(crate) fn start() -> Exchanges {
     let (sink, mut source) = mpsc::channel(1);
 
     tokio::spawn(async move {
-        handler::exchange_manager_loop(&mut source).await;
+        if let Err(e) = handler::exchange_manager_loop(&mut source).await {
+            error!("Exchange manager loop finish with error {:?}", e);
+        }
     });
 
     Exchanges {
@@ -79,12 +81,14 @@ impl ExchangeManager for Exchanges {
         }
     }
 
-    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueChannel) {
+    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueChannel) -> Result<()> {
         let _ = self.mutex.lock();
 
         debug!("Queue bind: {}", exchange_name);
 
-        self.control.send(ManagerCommand::QueueBind{ exchange_name: exchange_name, sink: queue_channel }).await;
+        self.control.send(ManagerCommand::QueueBind{ exchange_name: exchange_name, sink: queue_channel }).await?;
+
+        Ok(())
     }
 }
 

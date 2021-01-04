@@ -31,6 +31,26 @@ async fn can_connect() -> Result<()> {
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
+async fn double_open_the_same_channel() -> Result<()> {
+    let c = connect(URL.into()).await?;
+    c.open("/".into()).await?;
+
+    c.channel_open(1).await?;
+
+    let result = c.channel_open(1).await;
+
+    assert!(result.is_err());
+
+    let err = result.unwrap_err().downcast::<ClientError>().unwrap();
+    assert_eq!(err.channel, Some(1));
+    assert_eq!(err.code, 504);
+    assert_eq!(err.class_method, ironmq_codec::frame::CONNECTION_OPEN);
+
+    Ok(())
+}
+
+#[cfg(feature = "integration-tests")]
+#[tokio::test]
 async fn can_publish() -> Result<()> {
     helper("test2", "queue2").await?;
 

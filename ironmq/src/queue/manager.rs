@@ -1,13 +1,12 @@
 use crate::Result;
-use crate::message::Message;
 use crate::queue::Queue;
 use crate::queue::handler::{self, FrameChannel, QueueChannel, ManagerCommand};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use log::error;
+use tokio::sync::{mpsc, oneshot};
 
 pub(crate) struct Queues {
-    control: mpsc::Sender<handler::ManagerCommand>,
+    control: handler::ControlChannel,
     queues: HashMap<String, Queue>
 }
 
@@ -23,7 +22,9 @@ pub(crate) fn start() -> Queues {
     let (sink, mut source) = mpsc::channel(1);
 
     tokio::spawn(async move {
-        handler::queue_manager_loop(&mut source).await;
+        if let Err(e) = handler::queue_manager_loop(&mut source).await {
+            error!("Queue manager loop finish with {:?}", e);
+        }
     });
 
     Queues {
@@ -52,7 +53,7 @@ impl QueueManager for Queues {
 
     async fn consume(&mut self, name: String, out: FrameChannel) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.control.send(ManagerCommand::Consume { queue_name: name, sink: out}).await?;
+        self.control.send(ManagerCommand::Consume { queue_name: name, sink: out, success: tx }).await?;
 
         Ok(rx.await?)
     }

@@ -2,7 +2,7 @@ use crate::Result;
 use crate::message::Message;
 use crate::queue::handler::{QueueChannel, QueueCommand};
 use std::collections::HashMap;
-use log::debug;
+use log::{debug, error};
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type ControlChannel = mpsc::Sender<ManagerCommand>;
@@ -29,27 +29,37 @@ pub(crate) async fn exchange_manager_loop(control: &mut mpsc::Receiver<ManagerCo
         match command {
             ManagerCommand::ExchangeClone{ name, clone } => {
                 if let Some(ex) = exchanges.get(&name) {
-                    clone.send(ex.clone());
+                    if let Err(e) = clone.send(ex.clone()) {
+                        error!("Send error {:?}", e);
+
+                        return Ok(());
+                    }
                 } else {
                     let (tx, mut rx) = mpsc::channel(1);
 
                     tokio::spawn(async move {
-                        exchange_loop(&mut rx).await;
+                        if let Err(e) = exchange_loop(&mut rx).await {
+                            error!("Exchange loop finish in {:?}", e);
+                        }
                     });
 
                     let result = tx.clone();    // TODO maintain count
-                    clone.send(tx);
+                    if let Err(e) = clone.send(tx) {
+                        error!("Send error {:?}", e);
+
+                        return Ok(());
+                    }
 
                     exchanges.insert(name, result);
                 }
             },
             ManagerCommand::QueueBind{ exchange_name, sink } => {
                 if let Some(ex) = exchanges.get(&exchange_name) {
-                    ex.send(ExchangeCommand::QueueBind{ sink: sink }).await;
+                    if let Err(e) = ex.send(ExchangeCommand::QueueBind{ sink: sink }).await {
+                        error!("Send error {:?}", e);
+                    }
                 }
-            },
-            _ =>
-                ()
+            }
         }
     }
 
@@ -65,7 +75,9 @@ pub(crate) async fn exchange_loop(commands: &mut mpsc::Receiver<ExchangeCommand>
         match command {
             ExchangeCommand::Message(message) =>
                 for ch in &queues {
-                    ch.send(QueueCommand::Message(message.clone())).await;
+                    if let Err(e) = ch.send(QueueCommand::Message(message.clone())).await {
+                        error!("Send error {:?}", e);
+                    }
                 },
             ExchangeCommand::QueueBind{ sink } =>
                 queues.push(sink)

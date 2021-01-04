@@ -43,8 +43,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A sendable, syncable boxed error, usable between async threads.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// Interface for consuming messages.
 pub type MessageSink = mpsc::Sender<Message>;
 
+/// Message type for consuming messages.
 #[derive(Debug)]
 pub struct Message {
     pub channel: Channel,
@@ -52,6 +54,8 @@ pub struct Message {
     pub length: usize
 }
 
+/// Represents a connection or channel error. If `channel` is `None` it is a
+/// connection error.
 #[derive(Clone, Debug)]
 pub struct ClientError {
     pub channel: Option<Channel>,
@@ -69,6 +73,7 @@ impl std::fmt::Display for ClientError {
 impl std::error::Error for ClientError {
 }
 
+/// Shorthand for creating errors in async functions.
 #[macro_export]
 macro_rules! client_error {
     ($channel:expr, $code:expr, $message:expr, $cm:expr) => {
@@ -89,7 +94,7 @@ pub struct Connection {
 
 /// Connect to an AMQP server.
 ///
-/// This is async code and wait for the Connection.Tune-Ok message.
+/// This is async code and wait for the [`ironmq_codec::frame::ConnectionTuneOkArgs`] message.
 ///
 /// ```no_run
 /// async fn connect() -> ironmq_client::Result<()> {
