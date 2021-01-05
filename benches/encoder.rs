@@ -15,12 +15,12 @@ fn generate_frame() -> AMQPFrame {
 
 fn method_frame(bench: &mut Bencher) {
     let mut codec = ironmq_codec::codec::AMQPCodec {};
+    let frame = generate_frame();
 
     bench.iter(move || {
         let mut buf = BytesMut::with_capacity(1024);
-        let frame = generate_frame();
 
-        codec.encode(frame, &mut buf)
+        codec.encode(&frame, &mut buf)
     });
 }
 

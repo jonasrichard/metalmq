@@ -44,13 +44,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Interface for consuming messages.
-pub type MessageSink = mpsc::Sender<Message>;
+pub type MessageSink = mpsc::Sender<Message<'static>>;
 
 /// Message type for consuming messages.
 #[derive(Debug)]
-pub struct Message {
+pub struct Message<'a> {
     pub channel: Channel,
-    pub body: Vec<u8>,
+    pub body: &'a [u8],
     pub length: usize
 }
 

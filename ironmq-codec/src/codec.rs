@@ -14,14 +14,14 @@ pub struct AMQPCodec {}
 
 // TODO change type of encoder, decoder, they should deal with Vec<AMQPFrame>
 
-impl Encoder<AMQPFrame> for AMQPCodec {
+impl Encoder<&AMQPFrame> for AMQPCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, event: AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, event: &AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
         match event {
             AMQPFrame::Header => buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
 
-            AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, args),
+            AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, *ch, *cm, args),
 
             AMQPFrame::ContentHeader(header_frame) => {
                 encode_content_header_frame(&mut buf, header_frame)
@@ -29,7 +29,7 @@ impl Encoder<AMQPFrame> for AMQPCodec {
 
             AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, body_frame),
 
-            AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, channel),
+            AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, *channel),
         }
 
         Ok(())
@@ -401,7 +401,7 @@ fn encode_method_frame(
     buf: &mut BytesMut,
     channel: Channel,
     cm: ClassMethod,
-    args: MethodFrameArgs,
+    args: &MethodFrameArgs,
 ) {
     buf.put_u8(1u8);
     buf.put_u16(channel);
@@ -441,36 +441,36 @@ fn encode_method_frame(
     buf.put_u8(0xCE);
 }
 
-fn encode_connection_start(mut buf: &mut BytesMut, args: ConnectionStartArgs) {
+fn encode_connection_start(mut buf: &mut BytesMut, args: &ConnectionStartArgs) {
     buf.put_u8(args.version_major);
     buf.put_u8(args.version_minor);
-    encode_field_table(&mut buf, args.properties);
-    encode_long_string(&mut buf, args.mechanisms);
-    encode_long_string(&mut buf, args.locales);
+    encode_field_table(&mut buf, args.properties.as_ref());
+    encode_long_string(&mut buf, &args.mechanisms);
+    encode_long_string(&mut buf, &args.locales);
 }
 
-fn encode_connection_start_ok(mut buf: &mut BytesMut, args: ConnectionStartOkArgs) {
-    encode_field_table(&mut buf, args.properties);
-    encode_short_string(&mut buf, args.mechanism);
-    encode_long_string(&mut buf, args.response);
-    encode_short_string(&mut buf, args.locale);
+fn encode_connection_start_ok(mut buf: &mut BytesMut, args: &ConnectionStartOkArgs) {
+    encode_field_table(&mut buf, args.properties.as_ref());
+    encode_short_string(&mut buf, &args.mechanism);
+    encode_long_string(&mut buf, &args.response);
+    encode_short_string(&mut buf, &args.locale);
 }
 
-fn encode_connection_tune(buf: &mut BytesMut, args: ConnectionTuneArgs) {
+fn encode_connection_tune(buf: &mut BytesMut, args: &ConnectionTuneArgs) {
     buf.put_u16(args.channel_max);
     buf.put_u32(args.frame_max);
     buf.put_u16(args.heartbeat);
 }
 
-fn encode_connection_tune_ok(buf: &mut BytesMut, args: ConnectionTuneOkArgs) {
+fn encode_connection_tune_ok(buf: &mut BytesMut, args: &ConnectionTuneOkArgs) {
     buf.put_u16(args.channel_max);
     buf.put_u32(args.frame_max);
     buf.put_u16(args.heartbeat);
 }
 
-fn encode_connection_open(buf: &mut BytesMut, args: ConnectionOpenArgs) {
-    encode_short_string(buf, args.virtual_host);
-    encode_short_string(buf, "".into());
+fn encode_connection_open(buf: &mut BytesMut, args: &ConnectionOpenArgs) {
+    encode_short_string(buf, &args.virtual_host);
+    encode_short_string(buf, "");
     let mut flags = 0x00;
 
     if args.insist {
@@ -485,9 +485,9 @@ fn encode_connection_open_ok(buf: &mut BytesMut) {
     buf.put_u8(0);
 }
 
-fn encode_connection_close(mut buf: &mut BytesMut, args: ConnectionCloseArgs) {
+fn encode_connection_close(mut buf: &mut BytesMut, args: &ConnectionCloseArgs) {
     buf.put_u16(args.code);
-    encode_short_string(&mut buf, args.text);
+    encode_short_string(&mut buf, &args.text);
     buf.put_u16(args.class_id);
     buf.put_u16(args.method_id);
 }
@@ -502,81 +502,81 @@ fn encode_channel_open_ok(buf: &mut BytesMut) {
     buf.put_u32(0);
 }
 
-fn encode_channel_close(mut buf: &mut BytesMut, args: ChannelCloseArgs) {
+fn encode_channel_close(mut buf: &mut BytesMut, args: &ChannelCloseArgs) {
     buf.put_u16(args.code);
-    encode_short_string(&mut buf, args.text);
+    encode_short_string(&mut buf, &args.text);
     buf.put_u16(args.class_id);
     buf.put_u16(args.method_id);
 }
 
-fn encode_exchange_declare(mut buf: &mut BytesMut, args: ExchangeDeclareArgs) {
+fn encode_exchange_declare(mut buf: &mut BytesMut, args: &ExchangeDeclareArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, args.exchange_name);
-    encode_short_string(&mut buf, args.exchange_type);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.exchange_type);
     buf.put_u8(args.flags.bits());
     encode_empty_field_table(&mut buf);
 }
 
-fn encode_exchange_bind(mut buf: &mut BytesMut, args: ExchangeBindArgs) {
+fn encode_exchange_bind(mut buf: &mut BytesMut, args: &ExchangeBindArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, args.destination);
-    encode_short_string(&mut buf, args.source);
-    encode_short_string(&mut buf, args.routing_key);
+    encode_short_string(&mut buf, &args.destination);
+    encode_short_string(&mut buf, &args.source);
+    encode_short_string(&mut buf, &args.routing_key);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
     encode_empty_field_table(&mut buf);
 }
 
-fn encode_queue_declare(mut buf: &mut BytesMut, args: QueueDeclareArgs) {
+fn encode_queue_declare(mut buf: &mut BytesMut, args: &QueueDeclareArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, args.name);
+    encode_short_string(&mut buf, &args.name);
     buf.put_u8(args.flags.bits());
     encode_empty_field_table(&mut buf);
 }
 
-fn encode_queue_declare_ok(mut buf: &mut BytesMut, args: QueueDeclareOkArgs) {
-    encode_short_string(&mut buf, args.name);
+fn encode_queue_declare_ok(mut buf: &mut BytesMut, args: &QueueDeclareOkArgs) {
+    encode_short_string(&mut buf, &args.name);
     buf.put_u32(args.message_count);
     buf.put_u32(args.consumer_count);
 }
 
-fn encode_queue_bind(mut buf: &mut BytesMut, args: QueueBindArgs) {
+fn encode_queue_bind(mut buf: &mut BytesMut, args: &QueueBindArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, args.queue_name);
-    encode_short_string(&mut buf, args.exchange_name);
-    encode_short_string(&mut buf, args.routing_key);
+    encode_short_string(&mut buf, &args.queue_name);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.routing_key);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
     encode_empty_field_table(&mut buf);
 }
 
-fn encode_basic_consume(mut buf: &mut BytesMut, args: BasicConsumeArgs) {
+fn encode_basic_consume(mut buf: &mut BytesMut, args: &BasicConsumeArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, args.queue);
-    encode_short_string(&mut buf, args.consumer_tag);
+    encode_short_string(&mut buf, &args.queue);
+    encode_short_string(&mut buf, &args.consumer_tag);
     buf.put_u8(args.flags.bits());
     encode_empty_field_table(&mut buf);
 }
 
-fn encode_basic_consume_ok(mut buf: &mut BytesMut, args: BasicConsumeOkArgs) {
-    encode_short_string(&mut buf, args.consumer_tag);
+fn encode_basic_consume_ok(mut buf: &mut BytesMut, args: &BasicConsumeOkArgs) {
+    encode_short_string(&mut buf, &args.consumer_tag);
 }
 
-fn encode_basic_deliver(mut buf: &mut BytesMut, args: BasicDeliverArgs) {
-    encode_short_string(&mut buf, args.consumer_tag);
+fn encode_basic_deliver(mut buf: &mut BytesMut, args: &BasicDeliverArgs) {
+    encode_short_string(&mut buf, &args.consumer_tag);
     buf.put_u64(args.delivery_tag);
     buf.put_u8(if args.redelivered { 1 } else { 0 });
-    encode_short_string(&mut buf, args.exchange_name);
-    encode_short_string(&mut buf, args.routing_key);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.routing_key);
 }
 
         //BASIC_DELIVER => vec![t_ss!(), t_u64!(), t_u8!(), t_ss!(), t_ss!()],
-fn encode_basic_publish(mut buf: &mut BytesMut, args: BasicPublishArgs) {
+fn encode_basic_publish(mut buf: &mut BytesMut, args: &BasicPublishArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, args.exchange_name);
-    encode_short_string(&mut buf, args.routing_key);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.routing_key);
     buf.put_u8(args.flags.bits());
 }
 
-fn encode_content_header_frame(buf: &mut BytesMut, hf: ContentHeaderFrame) {
+fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
     buf.put_u8(2u8);
     buf.put_u16(hf.channel);
 
@@ -593,7 +593,7 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: ContentHeaderFrame) {
     buf.put_u8(0xCE);
 }
 
-fn encode_content_body_frame(buf: &mut BytesMut, bf: ContentBodyFrame) {
+fn encode_content_body_frame(buf: &mut BytesMut, bf: &ContentBodyFrame) {
     buf.put_u8(3u8);
     buf.put_u16(bf.channel);
 
@@ -611,13 +611,13 @@ fn encode_heartbeat_frame(buf: &mut BytesMut, channel: Channel) {
     buf.put_u8(0xCE);
 }
 
-fn encode_short_string(buf: &mut BytesMut, s: String) {
+fn encode_short_string(buf: &mut BytesMut, s: &str) {
     // TODO assert! that size is below 256
     buf.put_u8(s.len() as u8);
     buf.put(s.as_bytes());
 }
 
-fn encode_long_string(buf: &mut BytesMut, s: String) {
+fn encode_long_string(buf: &mut BytesMut, s: &str) {
     buf.put_u32(s.len() as u32);
     buf.put(s.as_bytes());
 }
@@ -626,23 +626,23 @@ fn encode_empty_field_table(buf: &mut BytesMut) {
     buf.put_u32(0);
 }
 
-fn encode_field_table(mut buf: &mut BytesMut, ft: Option<HashMap<String, AMQPFieldValue>>) {
+fn encode_field_table(mut buf: &mut BytesMut, ft: Option<&HashMap<String, AMQPFieldValue>>) {
     match ft {
         None => buf.put_u32(0),
         Some(t) => encode_field_table2(&mut buf, t),
     }
 }
 
-fn encode_field_table2(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) {
+fn encode_field_table2(buf: &mut BytesMut, ft: &HashMap<String, AMQPFieldValue>) {
     let mut ft_buf = BytesMut::with_capacity(4096);
 
     for (name, value) in ft {
-        encode_short_string(&mut ft_buf, name);
+        encode_short_string(&mut ft_buf, &name);
 
         match value {
             AMQPFieldValue::Bool(v) => {
                 ft_buf.put_u8(b't');
-                ft_buf.put_u8(if v { 1 } else { 0 });
+                ft_buf.put_u8(if *v { 1 } else { 0 });
             }
             AMQPFieldValue::LongString(v) => {
                 ft_buf.put_u8(b'S');
@@ -654,7 +654,7 @@ fn encode_field_table2(buf: &mut BytesMut, ft: HashMap<String, AMQPFieldValue>) 
                 ft_buf.put_u8(b'F');
 
                 // TODO we are copying here
-                encode_field_table2(&mut ft_buf, *v);
+                encode_field_table2(&mut ft_buf, v);
             }
         }
     }

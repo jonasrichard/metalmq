@@ -1,6 +1,6 @@
 [package]
 name = "ironmq-client"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -14,13 +14,14 @@ integration-tests = []
 
 [dependencies]
 async-trait = "0.1"
-bytes = "0.6"
+bytes = "1"
 env_logger = "0.7"
 futures = "0.3"
-ironmq-codec = { version = "0.1", path = "../ironmq-codec" }
+ironmq-codec = { version = "0.2", path = "../ironmq-codec" }
 log = "0.4"
-tokio = { version = "0.3", features = ["macros", "net", "rt", "rt-multi-thread", "stream", "sync"] }
-tokio-util = { version = "0.5", features = ["codec"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.6", features = ["codec"] }
 
 [dev-dependencies]
 lazy_static = "1.4"

@@ -425,12 +425,12 @@ pub fn connection_tune_ok(channel: u16) -> AMQPFrame {
         }))
 }
 
-pub fn connection_open(channel: u16, virtual_host: String) -> AMQPFrame {
+pub fn connection_open(channel: u16, virtual_host: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_OPEN,
         MethodFrameArgs::ConnectionOpen(ConnectionOpenArgs {
-            virtual_host: virtual_host,
+            virtual_host: virtual_host.to_string(),
             insist: true
         }))
 }
@@ -495,14 +495,14 @@ pub fn channel_close_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CHANNEL_CLOSE_OK, MethodFrameArgs::ChannelCloseOk)
 }
 
-pub fn exchange_declare(channel: u16, exchange_name: String, exchange_type: String,
+pub fn exchange_declare(channel: u16, exchange_name: &str, exchange_type: &str,
                         flags: Option<ExchangeDeclareFlags>) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         EXCHANGE_DECLARE,
         MethodFrameArgs::ExchangeDeclare(ExchangeDeclareArgs {
-            exchange_name: exchange_name,
-            exchange_type: exchange_type,
+            exchange_name: exchange_name.to_string(),
+            exchange_type: exchange_type.to_string(),
             flags: flags.unwrap_or_default(),
             args: None
         }))
@@ -516,14 +516,14 @@ pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
     )
 }
 
-pub fn queue_bind(channel: u16, queue_name: String, exchange_name: String, routing_key: String) -> AMQPFrame {
+pub fn queue_bind(channel: u16, queue_name: &str, exchange_name: &str, routing_key: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_BIND,
         MethodFrameArgs::QueueBind(QueueBindArgs {
-            queue_name: queue_name,
-            exchange_name: exchange_name,
-            routing_key: routing_key,
+            queue_name: queue_name.to_string(),
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string(),
             no_wait: false,
             args: None
         }))
@@ -537,12 +537,12 @@ pub fn queue_bind_ok(channel: u16) -> AMQPFrame {
     )
 }
 
-pub fn queue_declare(channel: u16, queue_name: String) -> AMQPFrame {
+pub fn queue_declare(channel: u16, queue_name: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE,
         MethodFrameArgs::QueueDeclare(QueueDeclareArgs {
-            name: queue_name,
+            name: queue_name.to_string(),
             flags: QueueDeclareFlags::empty(),
             args: None
         }))
@@ -559,13 +559,13 @@ pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, co
         }))
 }
 
-pub fn basic_consume(channel: u16, queue_name: String, consumer_tag: String) -> AMQPFrame {
+pub fn basic_consume(channel: u16, queue_name: &str, consumer_tag: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CONSUME,
         MethodFrameArgs::BasicConsume(BasicConsumeArgs {
-            queue: queue_name,
-            consumer_tag: consumer_tag,
+            queue: queue_name.to_string(),
+            consumer_tag: consumer_tag.to_string(),
             flags: BasicConsumeFlags::default(),
             args: None
         }))
@@ -580,28 +580,28 @@ pub fn basic_consume_ok(channel: u16, consumer_tag: String) -> AMQPFrame {
         }))
 }
 
-pub fn basic_deliver(channel: u16, consumer_tag: String, delivery_tag: u64, redelivered: bool,
-                     exchange_name: String, routing_key: String) -> AMQPFrame {
+pub fn basic_deliver(channel: u16, consumer_tag: &str, delivery_tag: u64, redelivered: bool,
+                     exchange_name: &str, routing_key: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_DELIVER,
         MethodFrameArgs::BasicDeliver(BasicDeliverArgs {
-            consumer_tag: consumer_tag,
+            consumer_tag: consumer_tag.to_string(),
             delivery_tag: delivery_tag,
             redelivered: redelivered,
-            exchange_name: exchange_name,
-            routing_key: routing_key
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string()
         })
     )
 }
 
-pub fn basic_publish(channel: u16, exchange_name: String, routing_key: String) -> AMQPFrame {
+pub fn basic_publish(channel: u16, exchange_name: &str, routing_key: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_PUBLISH,
         MethodFrameArgs::BasicPublish(BasicPublishArgs {
-            exchange_name: exchange_name,
-            routing_key: routing_key,
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string(),
             flags: BasicPublishFlags::empty()
         })
     )
