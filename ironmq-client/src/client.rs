@@ -111,9 +111,9 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
 }
 
 async fn respond_in_frame(
-    sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, &AMQPFrame>,
+    mut sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, &AMQPFrame>,
     frame: &AMQPFrame,
-    client: &mut ClientState
+    mut client: &mut ClientState
 ) -> Result<()> {
     if let Ok(Some(response)) = handle_in_frame(frame, &mut client).await {
         sink.send(&response).await?;
