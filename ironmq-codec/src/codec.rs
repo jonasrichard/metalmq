@@ -14,22 +14,22 @@ pub struct AMQPCodec {}
 
 // TODO change type of encoder, decoder, they should deal with Vec<AMQPFrame>
 
-impl Encoder<&AMQPFrame> for AMQPCodec {
+impl Encoder<AMQPFrame> for AMQPCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, event: &AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, event: AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
         match event {
             AMQPFrame::Header => buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
 
-            AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, *ch, *cm, args),
+            AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, &args),
 
             AMQPFrame::ContentHeader(header_frame) => {
-                encode_content_header_frame(&mut buf, header_frame)
+                encode_content_header_frame(&mut buf, &header_frame)
             }
 
-            AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, body_frame),
+            AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, &body_frame),
 
-            AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, *channel),
+            AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, channel),
         }
 
         Ok(())

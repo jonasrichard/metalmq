@@ -1,6 +1,6 @@
 use crate::client_sm::{self, Client, ClientState};
 use crate::{client_error, Connection, MessageSink, Result};
-use futures::stream::{SplitSink, StreamExt};
+use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
 use ironmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
@@ -70,10 +70,9 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     Some(Ok(frame)) => {
                         notify_waiter(&frame, &mut feedback)?;
 
-                        respond_in_frame(&mut sink, &frame, &mut client).await?;
-                        //if let Ok(Some(response)) = handle_in_frame(frame, &mut client).await {
-                        //    sink.send(&response).await?
-                        //}
+                        if let Ok(Some(response)) = handle_in_frame(&frame, &mut client).await {
+                            sink.send(response).await?
+                        }
                     },
                     Some(Err(e)) =>
                         error!("Handle errors {:?}", e),
@@ -85,22 +84,24 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
             Some(request) = receiver.recv() => {
                 match request.param {
                     Param::Frame(AMQPFrame::Header) => {
-                        register_waiter(&mut feedback, &AMQPFrame::Header, request.response);
-                        sink.send(&AMQPFrame::Header).await?;
+                        register_waiter(&mut feedback, Some(0), request.response);
+                        sink.send(AMQPFrame::Header).await?;
                     },
                     Param::Frame(AMQPFrame::Method(ch, _, ma)) =>
                         if let Some(response) = handle_out_frame(ch, ma, &mut client).await? {
-                            sink.send(&response).await?;
-                            register_waiter(&mut feedback, &response, request.response);
+                            let resp_channel = channel(&response);
+                            sink.send(response).await?;
+                            register_waiter(&mut feedback, resp_channel, request.response);
                         },
                     Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) =>
                         if let Some(response) = client.basic_consume(ch, &args, msg_sink).await? {
-                            sink.send(&response).await?;
-                            register_waiter(&mut feedback, &response, request.response);
+                            let resp_channel = channel(&response);
+                            sink.send(response).await?;
+                            register_waiter(&mut feedback, resp_channel, request.response);
                         },
                     Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) =>
                         for response in handle_publish(ch, args, content, &mut client).await? {
-                            sink.send(&response).await?;
+                            sink.send(response).await?;
                         },
                     _ =>
                         unreachable!("{:?}", request)
@@ -108,18 +109,6 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
             }
         }
     }
-}
-
-async fn respond_in_frame(
-    mut sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, &AMQPFrame>,
-    frame: &AMQPFrame,
-    mut client: &mut ClientState
-) -> Result<()> {
-    if let Ok(Some(response)) = handle_in_frame(frame, &mut client).await {
-        sink.send(&response).await?;
-    }
-
-    Ok(())
 }
 
 /// Unblock the client by sending a `Response`. If there is no error on the channel or
@@ -169,9 +158,9 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Re
     }
 }
 
-fn register_waiter(feedback: &mut HashMap<u16, Response>, frame: &AMQPFrame, response_channel: Option<Response>) {
-    if let Some(chan) = response_channel {
-        if let Some(ch) = channel(&frame) {
+fn register_waiter(feedback: &mut HashMap<u16, Response>, channel: Option<frame::Channel>, response_channel: Option<Response>) {
+    if let Some(ch) = channel {
+        if let Some(chan) = response_channel {
             feedback.insert(ch, chan);
         }
     }

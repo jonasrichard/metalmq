@@ -104,6 +104,9 @@ pub struct ContentHeaderFrame {
 #[derive(Debug)]
 pub struct ContentBodyFrame {
     pub channel: Channel,
+    // TODO here we need something which can be cloned cheap like Box or Rc. Sometimes we can move
+    // out this from the struct and we can build a new struct. But we need to avoid the
+    // byte-to-byte copy.
     pub body: Vec<u8>,
 }
 

@@ -1,8 +1,9 @@
 use crate::{ErrorScope, Result, RuntimeError};
 use crate::client::state;
-use crate::exchange::Exchange;
+use crate::exchange::{error, Exchange};
 use crate::exchange::handler::{self, ExchangeChannel, ManagerCommand};
 use crate::queue::handler::QueueChannel;
+use ironmq_codec::frame;
 use log::{debug, error};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -47,12 +48,7 @@ impl ExchangeManager for Exchanges {
         match self.exchanges.get(&exchange.name) {
             None =>
                 if passive {
-                    Err(Box::new(RuntimeError {
-                        scope: ErrorScope::Channel,
-                        code: 404,
-                        text: "Exchange not found".into(),
-                        ..Default::default()
-                    }))
+                    error(0, frame::EXCHANGE_DECLARE, 404, "Exchange not found")
                 } else {
                     let channel = create_exchange(&self.control, &exchange.name).await?;
                     self.exchanges.insert(exchange.name.clone(), exchange);
@@ -62,20 +58,22 @@ impl ExchangeManager for Exchanges {
             Some(current) => {
                 debug!("Current instance {:?}", current);
 
-                if passive && *current == exchange {
+                if passive && current.name == exchange.name {
                     let channel = create_exchange(&self.control, &exchange.name).await?;
                     self.exchanges.insert(exchange.name.clone(), exchange);
 
                     Ok(channel)
                 } else {
-                    error!("Current exchange: {:?} to be declared. {:?}", current, exchange);
+                    if *current == exchange {
+                        let channel = create_exchange(&self.control, &exchange.name).await?;
 
-                    Err(Box::new(RuntimeError {
-                        scope: ErrorScope::Channel,
-                        code: state::PRECONDITION_FAILED,
-                        text: "Exchange exists but properties are different".into(),
-                        ..Default::default()
-                    }))
+                        Ok(channel)
+                    } else {
+                        error!("Current exchange: {:?} to be declared. {:?}", current, exchange);
+
+                        error(0, frame::EXCHANGE_DECLARE, state::PRECONDITION_FAILED,
+                              "Exchange exists but properties are different")
+                    }
                 }
             }
         }

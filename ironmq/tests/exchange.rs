@@ -16,3 +16,19 @@ async fn channel_close_on_not_existing_exchange() -> client::Result<()> {
 
     Ok(())
 }
+
+#[cfg(feature = "integration-tests")]
+#[tokio::test]
+async fn passive_exchange_declare_check_if_exchange_exist() -> client::Result<()> {
+    let c = client::connect("127.0.0.1:5672").await?;
+
+    let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
+    c.exchange_declare(1, "new channel", "fanout", Some(flags)).await?;
+
+    flags |= ironmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
+    let result = c.exchange_declare(1, "new channel", "fanout", Some(flags)).await;
+
+    assert!(result.is_ok());
+
+    Ok(())
+}

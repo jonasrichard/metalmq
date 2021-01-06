@@ -15,10 +15,16 @@ async fn consume() -> client::Result<()> {
     let queue = "queue-del";
     let c = default_connection(exchange, queue).await?;
 
-    let (tx, rx) = mpsc::channel(1);
+    let (tx, mut rx) = mpsc::channel(1);
     c.basic_consume(1, queue, "ctag", tx).await?;
 
     c.basic_publish(1, exchange, "", "Hello".into()).await?;
+
+    let result = rx.recv().await;
+    assert!(result.is_some());
+
+    let msg = result.unwrap();
+    assert_eq!(b"Hello", msg.body.as_slice());
 
     c.close().await?;
 

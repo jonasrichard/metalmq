@@ -272,7 +272,7 @@ impl Client for ClientState {
             if let Some(sink) = self.consumers.get(&dc.channel) {
                 let msg = Message {
                     channel: dc.channel,
-                    body: &cb.body,
+                    body: cb.body.clone(),
                     length: dc.body_size.unwrap() as usize
                 };
 

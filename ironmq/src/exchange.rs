@@ -6,7 +6,9 @@
 pub(crate) mod handler;
 pub(crate) mod manager;
 
-use ironmq_codec::frame::{ExchangeDeclareArgs, ExchangeDeclareFlags};
+use crate::{ErrorScope, Result, RuntimeError};
+
+use ironmq_codec::frame::{self, ExchangeDeclareArgs, ExchangeDeclareFlags};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Exchange {
@@ -27,4 +29,17 @@ impl From<ExchangeDeclareArgs> for Exchange {
             internal: ExchangeDeclareFlags::contains(&f.flags, ExchangeDeclareFlags::INTERNAL)
         }
     }
+}
+
+pub(crate) fn error<T>(channel: frame::Channel, cm: u32, code: u16, text: &str) -> Result<T> {
+    let (class_id, method_id) = frame::split_class_method(cm);
+
+    Err(Box::new(RuntimeError {
+        scope: ErrorScope::Channel,
+        channel: channel,
+        code: code,
+        text: text.to_string(),
+        class_id: class_id,
+        method_id: method_id
+    }))
 }

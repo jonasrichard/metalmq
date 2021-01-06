@@ -31,8 +31,6 @@ pub(crate) async fn exchange_manager_loop(control: &mut mpsc::Receiver<ManagerCo
                 if let Some(ex) = exchanges.get(&name) {
                     if let Err(e) = clone.send(ex.clone()) {
                         error!("Send error {:?}", e);
-
-                        return Ok(());
                     }
                 } else {
                     let (tx, mut rx) = mpsc::channel(1);
@@ -46,8 +44,6 @@ pub(crate) async fn exchange_manager_loop(control: &mut mpsc::Receiver<ManagerCo
                     let result = tx.clone();    // TODO maintain count
                     if let Err(e) = clone.send(tx) {
                         error!("Send error {:?}", e);
-
-                        return Ok(());
                     }
 
                     exchanges.insert(name, result);
