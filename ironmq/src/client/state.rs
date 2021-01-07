@@ -7,6 +7,7 @@ use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
+use uuid::Uuid;
 
 pub(crate) type MaybeFrame = Result<Option<AMQPFrame>>;
 
@@ -17,9 +18,14 @@ pub(crate) const NOT_ALLOWED: u16 = 530;
 
 /// All the transient data of a connection are stored here.
 pub(crate) struct ConnectionState {
+    id: String,
+    /// Context servers as a dependency holder, it keeps the references of the services.
     context: Arc<Mutex<Context>>,
+    /// Opened channels by this connection.
     open_channels: HashMap<Channel, ()>,
+    /// Declared exchanges by this connection.
     exchanges: HashMap<String, ExchangeChannel>,
+    /// Declared queues by this connection.
     queues: HashMap<String, message::MessageChannel>,
     in_flight_contents: HashMap<Channel, PublishedContent>,
     outgoing: mpsc::Sender<AMQPFrame>
@@ -50,6 +56,7 @@ pub(crate) trait Connection: Sync + Send {
 
 pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Box<dyn Connection> {
     Box::new(ConnectionState {
+        id: Uuid::new_v4().to_hyphenated().to_string(),
         context: context,
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
@@ -84,7 +91,11 @@ impl Connection for ConnectionState {
     }
 
     async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+        let mut ctx = self.context.lock().await;
+        ctx.exchanges.clone_connection("", "").await?;
+
         self.open_channels.remove(&channel);
+
         Ok(Some(frame::channel_close_ok(channel)))
     }
 
@@ -94,7 +105,7 @@ impl Connection for ConnectionState {
         let exchange_name = args.exchange_name.clone();
 
         let mut ctx = self.context.lock().await;
-        let result = ctx.exchanges.declare(args.into(), passive).await;
+        let result = ctx.exchanges.declare(args.into(), passive, &self.id).await;
 
         match result {
             Ok(ch) => {
