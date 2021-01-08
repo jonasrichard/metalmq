@@ -83,6 +83,7 @@ fn setup_logger() {
             writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(), record.file().unwrap_or_default(),
                 record.line().unwrap_or_default(), record.args())
         })
+        .write_style(env_logger::WriteStyle::Always)
         .init();
 }
 

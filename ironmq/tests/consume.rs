@@ -6,7 +6,7 @@ mod helper {
 
 use crate::ironmq_client as client;
 use helper::conn::default_connection;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
@@ -15,17 +15,27 @@ async fn consume() -> client::Result<()> {
     let queue = "queue-del";
     let c = default_connection(exchange, queue).await?;
 
-    let (tx, mut rx) = mpsc::channel(1);
-    c.basic_consume(1, queue, "ctag", tx).await?;
+    let (otx, orx) = oneshot::channel();
 
+    let (tx, mut rx) = mpsc::channel(1);
+    tokio::spawn(async move {
+        let mut count = 0;
+
+        while let Some(msg) = rx.recv().await {
+            count += 1;
+            if count == 1 {
+                break
+            }
+        }
+        otx.send(()).unwrap();
+    });
+
+    c.basic_consume(1, queue, "ctag", tx).await?;
     c.basic_publish(1, exchange, "", "Hello".into()).await?;
 
-    let result = rx.recv().await;
-    assert!(result.is_some());
+    orx.await.unwrap();
 
-    let msg = result.unwrap();
-    assert_eq!(b"Hello", msg.body.as_slice());
-
+    c.channel_close(1).await?;
     c.close().await?;
 
     Ok(())

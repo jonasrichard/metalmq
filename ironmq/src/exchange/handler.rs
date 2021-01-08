@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::message::Message;
-use crate::queue::handler::{QueueChannel, QueueCommand};
+use crate::queue::handler::{QueueCommandSink, QueueCommand};
 use std::collections::HashMap;
 use log::{debug, error};
 use tokio::sync::{mpsc, oneshot};
@@ -11,13 +11,13 @@ pub(crate) type ExchangeChannel = mpsc::Sender<ExchangeCommand>;
 #[derive(Debug)]
 pub(crate) enum ManagerCommand {
     ExchangeClone { name: String, connection_id: String, response: oneshot::Sender<ExchangeChannel> },
-    QueueBind { exchange_name: String, sink: QueueChannel }
+    QueueBind { exchange_name: String, sink: QueueCommandSink }
 }
 
 #[derive(Debug)]
 pub(crate) enum ExchangeCommand {
     Message(Message),
-    QueueBind { sink: QueueChannel }
+    QueueBind { sink: QueueCommandSink }
 }
 
 struct Exchanges {
@@ -76,7 +76,7 @@ pub(crate) async fn exchange_manager_loop(control: &mut mpsc::Receiver<ManagerCo
 }
 
 pub(crate) async fn exchange_loop(commands: &mut mpsc::Receiver<ExchangeCommand>) -> Result<()> {
-    let mut queues = Vec::<QueueChannel>::new();
+    let mut queues = Vec::<QueueCommandSink>::new();
 
     while let Some(command) = commands.recv().await {
         debug!("{:?}", command);

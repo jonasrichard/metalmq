@@ -18,6 +18,7 @@ pub(crate) const NOT_ALLOWED: u16 = 530;
 
 /// All the transient data of a connection are stored here.
 pub(crate) struct ConnectionState {
+    /// Unique ID of the connection.
     id: String,
     /// Context servers as a dependency holder, it keeps the references of the services.
     context: Arc<Mutex<Context>>,
@@ -166,7 +167,7 @@ impl Connection for ConnectionState {
         let mut ctx = self.context.lock().await;
         ctx.queues.consume(args.queue, self.outgoing.clone()).await?;
 
-        Ok(None)
+        Ok(Some(frame::basic_consume_ok(channel, args.consumer_tag)))
     }
 
     async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {

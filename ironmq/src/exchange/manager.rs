@@ -1,8 +1,8 @@
 use crate::Result;
-use crate::client::state;
-use crate::exchange::{error, Exchange};
+use crate::client::{error, state};
+use crate::exchange::Exchange;
 use crate::exchange::handler::{self, ExchangeChannel, ManagerCommand};
-use crate::queue::handler::QueueChannel;
+use crate::queue::handler::QueueCommandSink;
 use ironmq_codec::frame;
 use log::{debug, error};
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ pub(crate) struct Exchanges {
 #[async_trait]
 pub(crate) trait ExchangeManager: Sync + Send {
     async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeChannel>;
-    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueChannel) -> Result<()>;
+    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()>;
     async fn clone_connection(&mut self, exchange_name: &str, conn: &str) -> Result<()>;
 }
 
@@ -69,7 +69,7 @@ impl ExchangeManager for Exchanges {
         Ok(channel)
     }
 
-    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueChannel) -> Result<()> {
+    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()> {
         let _ = self.mutex.lock();
 
         debug!("Queue bind: {}", exchange_name);

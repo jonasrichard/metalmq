@@ -23,6 +23,8 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         let mut count = 0;
 
+        info!("Waiting for incoming messages...");
+
         while let Some(msg) = rx.recv().await {
             info!("{:?}", msg);
             count += 1;

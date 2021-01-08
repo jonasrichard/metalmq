@@ -10,9 +10,12 @@ async fn channel_close_on_not_existing_exchange() -> client::Result<()> {
     let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
     flags |= ironmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
 
-    c.exchange_declare(1, "sure do not exist", "fanout", Some(flags)).await?;
+    let result = c.exchange_declare(1, "sure do not exist", "fanout", Some(flags)).await;
 
-    c.close().await?;
+    assert!(result.is_err());
+
+    let err = result.unwrap_err().downcast::<client::ClientError>().unwrap();
+    assert_eq!(err.code, 404);
 
     Ok(())
 }

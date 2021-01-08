@@ -33,6 +33,7 @@ pub type ClassId = u16;
 pub type Weight = u16;
 
 /// Represents an AMQP frame.
+#[derive(Clone)]
 pub enum AMQPFrame {
     /// Header is to be sent to the server at first, announcing the AMQP version we support
     Header,
@@ -63,7 +64,7 @@ impl std::fmt::Debug for AMQPFrame {
 }
 
 /// Represents all types of method frame arguments.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum MethodFrameArgs {
     ConnectionStart(ConnectionStartArgs),
     ConnectionStartOk(ConnectionStartOkArgs),
@@ -91,7 +92,7 @@ pub enum MethodFrameArgs {
     BasicPublish(BasicPublishArgs)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContentHeaderFrame {
     pub channel: Channel,
     pub class_id: ClassId,
@@ -101,7 +102,7 @@ pub struct ContentHeaderFrame {
     pub args: Vec<AMQPValue>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContentBodyFrame {
     pub channel: Channel,
     // TODO here we need something which can be cloned cheap like Box or Rc. Sometimes we can move
@@ -113,7 +114,7 @@ pub struct ContentBodyFrame {
 /// Type alias for inner type of field value.
 pub type FieldTable = HashMap<String, AMQPFieldValue>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum AMQPValue {
     //    Bool(bool),
     U8(u8),
@@ -126,7 +127,7 @@ pub enum AMQPValue {
     FieldTable(Box<FieldTable>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum AMQPFieldValue {
     Bool(bool),
     //    SimpleString(String),
@@ -135,7 +136,7 @@ pub enum AMQPFieldValue {
     FieldTable(Box<FieldTable>),
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionStartArgs {
     pub version_major: u8,
     pub version_minor: u8,
@@ -145,7 +146,7 @@ pub struct ConnectionStartArgs {
     pub locales: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionStartOkArgs {
     pub capabilities: Option<FieldTable>,
     pub properties: Option<FieldTable>,
@@ -154,27 +155,27 @@ pub struct ConnectionStartOkArgs {
     pub locale: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionTuneArgs {
     pub channel_max: u16,
     pub frame_max: u32,
     pub heartbeat: u16,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionTuneOkArgs {
     pub channel_max: u16,
     pub frame_max: u32,
     pub heartbeat: u16,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionOpenArgs {
     pub virtual_host: String,
     pub insist: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionCloseArgs {
     pub code: u16,
     pub text: String,
@@ -182,7 +183,7 @@ pub struct ConnectionCloseArgs {
     pub method_id: u16,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ChannelCloseArgs {
     pub code: u16,
     pub text: String,
@@ -206,7 +207,7 @@ impl Default for ExchangeDeclareFlags {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ExchangeDeclareArgs {
     pub exchange_name: String,
     pub exchange_type: String,
@@ -214,7 +215,7 @@ pub struct ExchangeDeclareArgs {
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ExchangeBindArgs {
     pub source: String,
     pub destination: String,
@@ -239,21 +240,21 @@ impl Default for QueueDeclareFlags {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct QueueDeclareArgs {
     pub name: String,
     pub flags: QueueDeclareFlags,
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct QueueDeclareOkArgs {
     pub name: String,
     pub message_count: u32,
     pub consumer_count: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct QueueBindArgs {
     pub queue_name: String,
     pub exchange_name: String,
@@ -277,7 +278,7 @@ impl Default for BasicConsumeFlags {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BasicConsumeArgs {
     pub queue: String,
     pub consumer_tag: String,
@@ -285,12 +286,12 @@ pub struct BasicConsumeArgs {
     pub args: Option<FieldTable>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BasicConsumeOkArgs {
     pub consumer_tag: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BasicDeliverArgs {
     pub consumer_tag: String,
     pub delivery_tag: u64,
@@ -312,7 +313,7 @@ impl Default for BasicPublishFlags {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BasicPublishArgs {
     pub exchange_name: String,
     pub routing_key: String,

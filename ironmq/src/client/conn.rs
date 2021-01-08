@@ -39,8 +39,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
                             },
                             Err(e) => return Err(Box::new(e)),
                         },
-                    None =>
-                        break Ok(())
+                    None => break Ok(())
                 }
             }
             push = consume_stream.recv() => {
