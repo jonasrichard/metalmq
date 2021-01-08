@@ -1,5 +1,5 @@
 use crate::{Context, Result, RuntimeError};
-use crate::exchange::{handler::ExchangeChannel, handler::ExchangeCommand, manager::ExchangeManager};
+use crate::exchange::{handler::ExchangeCommandSink, handler::ExchangeCommand, manager::ExchangeManager};
 use crate::message;
 use crate::queue::{manager::QueueManager};
 use ironmq_codec::frame::{self, AMQPFrame, Channel};
@@ -25,7 +25,7 @@ pub(crate) struct ConnectionState {
     /// Opened channels by this connection.
     open_channels: HashMap<Channel, ()>,
     /// Declared exchanges by this connection.
-    exchanges: HashMap<String, ExchangeChannel>,
+    exchanges: HashMap<String, ExchangeCommandSink>,
     /// Declared queues by this connection.
     queues: HashMap<String, message::MessageChannel>,
     in_flight_contents: HashMap<Channel, PublishedContent>,

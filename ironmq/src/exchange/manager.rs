@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::client::{error, state};
 use crate::exchange::Exchange;
-use crate::exchange::handler::{self, ExchangeChannel, ManagerCommand};
+use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::queue::handler::QueueCommandSink;
 use ironmq_codec::frame;
 use log::{debug, error};
@@ -10,52 +10,43 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 pub(crate) struct Exchanges {
-    mutex : Arc<Mutex<()>>,
-    control: handler::ControlChannel,
-    exchanges: HashMap<String, Exchange>,
+    exchanges : Arc<Mutex<HashMap<String, ExchangeState>>>
+}
+
+struct ExchangeState {
+    exchange: Exchange,
+    command_sink: ExchangeCommandSink
 }
 
 #[async_trait]
 pub(crate) trait ExchangeManager: Sync + Send {
-    async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeChannel>;
+    async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeCommandSink>;
     async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()>;
     async fn clone_connection(&mut self, exchange_name: &str, conn: &str) -> Result<()>;
 }
 
 
 pub(crate) fn start() -> Exchanges {
-    let (sink, mut source) = mpsc::channel(1);
-
-    tokio::spawn(async move {
-        if let Err(e) = handler::exchange_manager_loop(&mut source).await {
-            error!("Exchange manager loop finish with error {:?}", e);
-        }
-    });
-
     Exchanges {
-        mutex: Arc::new(Mutex::new(())),
-        control: sink,
-        exchanges: HashMap::new(), // TODO add default exchanges from a config or db
+        exchanges: Arc::new(Mutex::new(HashMap::new())) // TODO add default exchanges from a config or db
     }
 }
 
 #[async_trait]
 impl ExchangeManager for Exchanges {
-    async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeChannel> {
-        let _ = self.mutex.lock();
+    async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeCommandSink> {
+        let mut ex = self.exchanges.lock().await;
 
-        debug!("{:?}", self.exchanges);
-
-        match self.exchanges.get(&exchange.name) {
+        match ex.get(&exchange.name) {
             None =>
                 if passive {
                     return error(0, frame::EXCHANGE_DECLARE, 404, "Exchange not found")
                 },
             Some(current) => {
-                debug!("Current instance {:?}", current);
+                debug!("Current instance {:?}", current.exchange);
 
-                if *current != exchange {
-                    error!("Current exchange: {:?} to be declared. {:?}", current, exchange);
+                if current.exchange != exchange {
+                    error!("Current exchange: {:?} to be declared. {:?}", current.exchange, exchange);
 
                     return error(0, frame::EXCHANGE_DECLARE, state::PRECONDITION_FAILED,
                                  "Exchange exists but properties are different")
@@ -63,37 +54,42 @@ impl ExchangeManager for Exchanges {
             }
         }
 
-        let channel = create_exchange(&self.control, &exchange.name, conn).await?;
-        self.exchanges.insert(exchange.name.clone(), exchange);
+        let (command_sink, mut command_stream) = mpsc::channel(1);
 
-        Ok(channel)
+        tokio::spawn(async move {
+            handler::exchange_loop(&mut command_stream).await;
+        });
+
+        let exchange_name = exchange.name.clone();
+
+        let exchange_state = ExchangeState {
+            exchange: exchange,
+            command_sink: command_sink.clone()
+        };
+
+        ex.insert(exchange_name, exchange_state);
+
+        Ok(command_sink)
     }
 
     async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()> {
-        let _ = self.mutex.lock();
+        let ex = self.exchanges.lock().await;
 
-        debug!("Queue bind: {}", exchange_name);
+        match ex.get(&exchange_name) {
+            Some(exchange_state) => {
+                // TODO we need to have a oneshot channel here to wait for the result
+                exchange_state.command_sink.send(ExchangeCommand::QueueBind { sink: queue_channel }).await;
 
-        self.control.send(ManagerCommand::QueueBind{ exchange_name: exchange_name, sink: queue_channel }).await?;
-
-        Ok(())
+                Ok(())
+            },
+            None =>
+                error(0, frame::QUEUE_BIND, 404, "Not found")
+        }
     }
 
     async fn clone_connection(&mut self, exchange_name: &str, conn: &str) -> Result<()> {
         Ok(())
     }
-}
-
-async fn create_exchange(control: &mpsc::Sender<ManagerCommand>, name: &str, conn: &str) -> Result<ExchangeChannel> {
-    let (tx, rx) = oneshot::channel();
-    control.send(ManagerCommand::ExchangeClone {
-        name: name.to_string(),
-        connection_id: conn.to_string(),
-        response: tx
-    }).await?;
-    let ch = rx.await?;
-
-    Ok(ch)
 }
 
 #[cfg(test)]
@@ -157,10 +153,11 @@ mod tests {
 
         assert!(result.is_ok());
 
-        let exchange = exchanges.exchanges.get(&exchange_name).unwrap();
-        assert_eq!(exchange.name, exchange_name);
-        assert_eq!(exchange.durable, true);
-        assert_eq!(exchange.auto_delete, true);
-        assert_eq!(exchange.internal, false);
+        let ex = exchanges.exchanges.lock().await;
+        let state = ex.get(&exchange_name).unwrap();
+        assert_eq!(state.exchange.name, exchange_name);
+        assert_eq!(state.exchange.durable, true);
+        assert_eq!(state.exchange.auto_delete, true);
+        assert_eq!(state.exchange.internal, false);
     }
 }
