@@ -6,6 +6,8 @@ pub(crate) type MessageId = String;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
+    /// Id of the connection sent this message.
+    pub(crate) source_connection: String,
     pub(crate) content: Vec<u8>,
 }
 

@@ -186,6 +186,7 @@ impl Connection for ConnectionState {
 
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
             let msg = message::Message {
+                source_connection: self.id.clone(),
                 content: body.body
             };
 

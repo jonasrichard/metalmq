@@ -7,7 +7,7 @@ use ironmq_codec::frame;
 use log::{debug, error};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, Mutex};
 
 pub(crate) struct Exchanges {
     exchanges : Arc<Mutex<HashMap<String, ExchangeState>>>
@@ -18,8 +18,14 @@ struct ExchangeState {
     command_sink: ExchangeCommandSink
 }
 
+/// Managing exchanges in the server. Connections can create, delete exchanges, bind them to
+/// queues and so on.
 #[async_trait]
 pub(crate) trait ExchangeManager: Sync + Send {
+    /// Make it sure that exchange exists, so if it hasn't existed it creates that. If `passive` is
+    /// true it doesn't create channel if it doesn't exist. So with passive declare one can check
+    /// if channel exists or doesn't. Otherwise if channel already exists all the parameters need
+    /// to be the same as in the exchange given as a parameter.
     async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeCommandSink>;
     async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()>;
     async fn clone_connection(&mut self, exchange_name: &str, conn: &str) -> Result<()>;

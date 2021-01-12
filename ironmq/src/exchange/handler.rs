@@ -2,7 +2,7 @@ use crate::Result;
 use crate::message::Message;
 use crate::queue::handler::{QueueCommandSink, QueueCommand};
 use log::{debug, error};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 pub(crate) type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
 

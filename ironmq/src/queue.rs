@@ -5,6 +5,6 @@ pub(crate) mod manager;
 pub(crate) struct Queue {
     /// The name aka the identifier of the queue.
     name: String,
-    /// The channel one can send commands/messages to the queue.
+    /// The channel via one can send commands/messages to the queue.
     command_sink: handler::QueueCommandSink
 }
