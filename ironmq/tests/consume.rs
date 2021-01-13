@@ -16,24 +16,12 @@ async fn consume() -> client::Result<()> {
     let c = default_connection(exchange, queue).await?;
 
     let (otx, orx) = oneshot::channel();
+    helper::conn::consume_messages(&c, 1, queue, "ctag", otx, 1).await?;
 
-    let (tx, mut rx) = mpsc::channel(1);
-    tokio::spawn(async move {
-        let mut count = 0;
-
-        while let Some(msg) = rx.recv().await {
-            count += 1;
-            if count == 1 {
-                break
-            }
-        }
-        otx.send(()).unwrap();
-    });
-
-    c.basic_consume(1, queue, "ctag", tx).await?;
     c.basic_publish(1, exchange, "", "Hello".into()).await?;
 
-    orx.await.unwrap();
+    let msgs = orx.await.unwrap();
+    assert_eq!(msgs.len(), 1);
 
     c.channel_close(1).await?;
     c.close().await?;

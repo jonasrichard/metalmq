@@ -1,5 +1,9 @@
 extern crate ironmq_client;
 
+mod helper {
+    pub mod conn;
+}
+
 use crate::ironmq_client as client;
 
 #[cfg(feature = "integration-tests")]
@@ -14,7 +18,7 @@ async fn channel_close_on_not_existing_exchange() -> client::Result<()> {
 
     assert!(result.is_err());
 
-    let err = result.unwrap_err().downcast::<client::ClientError>().unwrap();
+    let err = helper::conn::to_client_error(result);
     assert_eq!(err.code, 404);
 
     Ok(())

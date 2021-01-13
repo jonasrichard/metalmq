@@ -1,5 +1,6 @@
 use ironmq_client::*;
 use ironmq_codec::frame::ExchangeDeclareFlags;
+use tokio::sync::{oneshot, mpsc};
 
 pub(crate) async fn default_connection(exchange: &str, queue: &str) -> Result<Box<dyn Client>> {
     let c = connect("127.0.0.1:5672").await?;
@@ -14,4 +15,31 @@ pub(crate) async fn default_connection(exchange: &str, queue: &str) -> Result<Bo
     c.queue_bind(1, queue, exchange, "").await?;
 
     Ok(c)
+}
+
+pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
+    *(result.unwrap_err().downcast::<ClientError>().unwrap())
+}
+
+pub(crate) async fn consume_messages<'a>(client: &'a Box<dyn Client>, channel: Channel, queue: &'a str,
+                                         ctag: &'a str, tx: oneshot::Sender<Vec<Message>>, n: usize) -> Result<()> {
+    let (sink, mut source) = mpsc::channel(1);
+
+    tokio::spawn(async move {
+        let mut messages = vec![];
+
+        while let Some(msg) = source.recv().await {
+            messages.push(msg);
+
+            if messages.len() == n {
+                break
+            }
+        }
+
+        tx.send(messages).unwrap();
+    });
+
+    client.basic_consume(channel, queue, ctag, sink).await?;
+
+    Ok(())
 }

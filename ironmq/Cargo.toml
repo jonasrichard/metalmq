@@ -24,5 +24,10 @@ tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "
 tokio-util = { version = "0.6", features = ["codec"] }
 uuid = { version = "0.8", features = ["v4"] }
 
+#[[test]]
+#name = "acceptance"
+#harness = false
+
 [dev-dependencies]
+#cucumber = { package = "cucumber_rust", version = "0.7" }
 ironmq-client = { version = "0.2", path = "../ironmq-client" }
