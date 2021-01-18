@@ -1,56 +1,24 @@
-extern crate ironmq_client;
+use ironmq_client as client;
+use ironmq_test::{step, Steps};
 
-mod helper {
-    pub mod conn;
-}
-
-use crate::ironmq_client as client;
-use std::io::Write;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-
-fn write(color: Color, text: &str) {
-    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-    stdout.set_color(ColorSpec::new().set_fg(Some(color)));
-
-    writeln!(&mut stdout, "{}", text).unwrap();
-
-    stdout.reset();
-}
-
+#[derive(Default)]
 struct World {
-    client: Box<dyn client::Client>
-}
-
-impl World {
-    async fn given_a_connection() -> Self {
-        write(Color::Green, "Given a connection");
-
-        let client = client::connect("127.0.0.1:5672").await.unwrap();
-
-        World {
-            client: client
-        }
-    }
-
-    async fn when_it_opens_the_virtual_host(&self) -> &Self {
-        write(Color::Yellow, "When it opens the virtual host");
-
-        self.client.open("/").await.unwrap();
-
-        self
-    }
-
-    async fn then_it_succeeds(&self) {
-        println!("Then is succeeds");
-    }
+    conn: Option<Box<dyn client::Client>>
 }
 
 #[tokio::test]
 async fn first() {
-    World
-        ::given_a_connection().await
-        .when_it_opens_the_virtual_host().await
-        .then_it_succeeds().await;
+    Steps
+        ::new()
+        .given("a connection", step!(|w: World| {
+            let c = client::connect("127.0.0.1:5672").await.unwrap();
+            w.conn = Some(c);
+        }))
+        .given("another", step!(|w: World| {
+            w.conn.as_ref().unwrap().open("/").await.unwrap();
+            println!("test");
+        }))
+        .check().await;
 }
 
 #[cfg(feature = "integration-tests")]

@@ -26,4 +26,4 @@ uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
 ironmq-client = { version = "0.2", path = "../ironmq-client" }
-termcolor = "1.1"
+ironmq-test = { version = "0.1", path = "../ironmq-test" }

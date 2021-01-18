@@ -1,0 +1,11 @@
+[package]
+name = "ironmq-test"
+version = "0.1.0"
+authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ironmq-client = { version = "0.2", path = "../ironmq-client" }
+termcolor = "1.1"

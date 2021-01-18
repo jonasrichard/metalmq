@@ -5,6 +5,7 @@ members = [
     "ironmq-codec",
     "ironmq-client",
 
+    "ironmq-test",
     "benches",
     "examples"
 ]
