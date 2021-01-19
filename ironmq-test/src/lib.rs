@@ -1,16 +1,16 @@
 use std::future::Future;
 use std::io::Write;
 use std::pin::Pin;
+use ironmq_client::Result;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-// TODO future should return with Result<(), Box<dyn std::error::Error>>
-// TODO check should check if the return value is Err or Ok
-type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output=()> + 'r>>;
+// TODO group the scenarios to features, how?
+type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output=Result<()>> + 'r>>;
 
 #[macro_export]
 macro_rules! step {
     (|$wname:ident: $wtype:ty| $($body:tt)*) => {
-        |$wname: &'_ mut $wtype| -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=()> + '_>> {
+        |$wname: &'_ mut $wtype| -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=ironmq_client::Result<()>> + '_>> {
             ::std::boxed::Box::pin(async move { $($body)* })
         }
     }
@@ -29,10 +29,10 @@ pub struct Steps<W> {
 }
 
 impl<W: Default> Steps<W> {
-    pub fn new() -> Self {
+    pub fn feature(text: &str) -> Self {
         Steps {
             world: W::default(),
-            steps: vec![]
+            steps: vec![Step::Feature(text.to_string())]
         }
     }
 
@@ -46,6 +46,11 @@ impl<W: Default> Steps<W> {
         self
     }
 
+    pub fn then(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
+        self.steps.push(Step::Then(text.to_string(), f));
+        self
+    }
+
     pub async fn check(&mut self) {
         use Step::*;
 
@@ -53,11 +58,31 @@ impl<W: Default> Steps<W> {
             write(&step);
 
             match step {
-                Given(_, f) => f(&mut self.world).await,
+                Given(_, f) =>
+                    if let Err(e) = f(&mut self.world).await {
+                        fail(e);
+                    },
+                When(_, f) =>
+                    if let Err(e) = f(&mut self.world).await {
+                        fail(e);
+                    },
+                Then(_, f) =>
+                    if let Err(e) = f(&mut self.world).await {
+                        fail(e);
+                    },
                 _ => ()
             }
         }
     }
+}
+
+fn fail(error: Box<dyn std::error::Error>) {
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+    writeln!(&mut stdout, "Step failed with {:?}", error).unwrap();
+    stdout.reset().unwrap();
+
+    assert!(false);
 }
 
 fn write<W>(step: &Step<W>) {

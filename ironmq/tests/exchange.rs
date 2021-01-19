@@ -9,14 +9,18 @@ struct World {
 #[tokio::test]
 async fn first() {
     Steps
-        ::new()
+        ::feature("Connect to the virtual host /")
         .given("a connection", step!(|w: World| {
-            let c = client::connect("127.0.0.1:5672").await.unwrap();
+            let c = client::connect("127.0.0.1:5672").await?;
             w.conn = Some(c);
+            Ok(())
         }))
-        .given("another", step!(|w: World| {
-            w.conn.as_ref().unwrap().open("/").await.unwrap();
-            println!("test");
+        .when("open to virtual host /", step!(|w: World| {
+            w.conn.as_ref().unwrap().open("/").await?;
+            Ok(())
+        }))
+        .then("we are connected", step!(|w: World| {
+            Ok(())
         }))
         .check().await;
 }
