@@ -1,22 +1,23 @@
 use ironmq_client as client;
-use ironmq_test::{step, Steps};
+use ironmq_test::{init, step, Steps};
 
-#[derive(Default)]
 struct World {
-    conn: Option<Box<dyn client::Client>>
+    conn: Box<dyn client::Client>
 }
 
 #[tokio::test]
 async fn first() {
     Steps
-        ::feature("Connect to the virtual host /")
+        ::feature("Connect to the virtual host /", init!(World, {
+            Ok(World {
+                conn: client::connect("127.0.0.1:5672").await.unwrap()
+            })
+        })).await
         .given("a connection", step!(|w: World| {
-            let c = client::connect("127.0.0.1:5672").await?;
-            w.conn = Some(c);
             Ok(())
         }))
         .when("open to virtual host /", step!(|w: World| {
-            w.conn.as_ref().unwrap().open("/").await?;
+            w.conn.open("/").await?;
             Ok(())
         }))
         .then("we are connected", step!(|w: World| {
@@ -37,7 +38,7 @@ async fn channel_close_on_not_existing_exchange() -> client::Result<()> {
 
     assert!(result.is_err());
 
-    let err = helper::conn::to_client_error(result);
+    let err = ironmq_test::to_client_error(result);
     assert_eq!(err.code, 404);
 
     Ok(())

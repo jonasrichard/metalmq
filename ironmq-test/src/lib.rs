@@ -5,7 +5,17 @@ use ironmq_client::Result;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 // TODO group the scenarios to features, how?
+type InitFn<W> = fn() -> Pin<Box<dyn Future<Output=Result<W>>>>;
 type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output=Result<()>> + 'r>>;
+
+#[macro_export]
+macro_rules! init {
+    ($wtype:ty, { $($body:tt)* }) => {
+        || -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=ironmq_client::Result<$wtype>>>> {
+            ::std::boxed::Box::pin(async move { $($body)* })
+        }
+    }
+}
 
 #[macro_export]
 macro_rules! step {
@@ -28,10 +38,10 @@ pub struct Steps<W> {
     steps: Vec<Step<W>>
 }
 
-impl<W: Default> Steps<W> {
-    pub fn feature(text: &str) -> Self {
+impl<W> Steps<W> {
+    pub async fn feature(text: &str, f: InitFn<W>) -> Self {
         Steps {
-            world: W::default(),
+            world: f().await.unwrap(),
             steps: vec![Step::Feature(text.to_string())]
         }
     }
@@ -102,4 +112,8 @@ fn write<W>(step: &Step<W>) {
 
     stdout.reset().unwrap();
     writeln!(&mut stdout, "{}", text).unwrap();
+}
+
+pub fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ironmq_client::ClientError {
+    *(result.unwrap_err().downcast::<ironmq_client::ClientError>().unwrap())
 }
