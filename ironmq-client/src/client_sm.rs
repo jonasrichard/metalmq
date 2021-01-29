@@ -51,6 +51,10 @@ impl fmt::Debug for ClientState {
     }
 }
 
+/// Return type of client operations.
+///
+/// Operations can result in a response frame or not depending of the request. Also if the nowait
+/// option is set of a request, we don't wait for the response.
 type MaybeFrame = Result<Option<frame::AMQPFrame>>;
 
 #[async_trait]
@@ -156,7 +160,7 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    async fn handle_connection_close(&mut self, args: &frame::ConnectionCloseArgs) -> MaybeFrame {
+    async fn handle_connection_close(&mut self, _args: &frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO close resources, server is about to close connection
         Ok(None)
     }
@@ -181,7 +185,7 @@ impl Client for ClientState {
         Ok(None)
     }
 
-    async fn handle_channel_close(&mut self, channel: Channel, args: &frame::ChannelCloseArgs) -> MaybeFrame {
+    async fn handle_channel_close(&mut self, _channel: Channel, _args: &frame::ChannelCloseArgs) -> MaybeFrame {
         // TODO handle that the server closed the channel
         //Ok(Some(frame::channel_close_ok(channel)))
         Ok(None)

@@ -23,6 +23,9 @@ There are some examples in the `examples` directory, they implement simple scena
 
 ```bash
 cargo run --example publish-consume
+cargo test
+cd ironmq
+cargo test --features integration-tests
 ```
 
 for example.

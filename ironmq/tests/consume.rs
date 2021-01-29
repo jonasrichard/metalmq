@@ -6,7 +6,7 @@ mod helper {
 
 use crate::ironmq_client as client;
 use helper::conn::default_connection;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{oneshot};
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]

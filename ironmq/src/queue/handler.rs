@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type QueueCommandSink = mpsc::Sender<QueueCommand>;
 pub(crate) type FrameSink = mpsc::Sender<frame::AMQPFrame>;
-pub(crate) type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
+//pub(crate) type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
 
 #[derive(Debug)]
 pub(crate) enum QueueCommand {

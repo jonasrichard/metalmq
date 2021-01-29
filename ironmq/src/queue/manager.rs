@@ -4,7 +4,6 @@ use crate::queue::Queue;
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use std::collections::HashMap;
 use ironmq_codec::frame::{self, AMQPFrame};
-use log::error;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 

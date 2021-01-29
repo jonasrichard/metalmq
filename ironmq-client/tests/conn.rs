@@ -57,6 +57,7 @@ async fn can_publish() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "integration-tests")]
 async fn helper(exchange: &str, queue: &str) -> Result<Box<dyn Client>> {
     let c = connect(URL.into()).await?;
     c.open("/".into()).await?;

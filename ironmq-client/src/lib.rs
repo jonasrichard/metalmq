@@ -112,6 +112,7 @@ pub async fn connect(url: &str) -> Result<Box<dyn Client>> {
     Ok(connection)
 }
 
+/// Represents the connected AMQP client.
 #[async_trait]
 pub trait Client {
     async fn open(&self, virtual_host: &str) -> Result<()>;
@@ -144,55 +145,41 @@ impl Client for Connection {
     /// }
     /// ```
     async fn open(&self, virtual_host: &str) -> Result<()> {
-        client::sync_call(&self, frame::connection_open(0, virtual_host.into())).await?;
-
-        Ok(())
+        client::sync_call(&self, frame::connection_open(0, virtual_host.into())).await
     }
 
     async fn close(&self) -> Result<()> {
-        client::sync_call(&self, frame::connection_close(0, 200, "Normal close", 0, 0)).await?;
-
-        Ok(())
+        client::sync_call(&self, frame::connection_close(0, 200, "Normal close", 0, 0)).await
     }
 
     async fn channel_open(&self, channel: u16) -> Result<()> {
-        client::sync_call(&self, frame::channel_open(channel)).await?;
-
-        Ok(())
+        client::sync_call(&self, frame::channel_open(channel)).await
     }
 
     async fn channel_close(&self, channel: Channel) -> Result<()> {
         let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
 
-        client::sync_call(&self, frame::channel_close(channel, 200, "Normal close", cid, mid)).await?;
-
-        Ok(())
+        client::sync_call(&self, frame::channel_close(channel, 200, "Normal close", cid, mid)).await
     }
 
     async fn exchange_declare(&self, channel: Channel, exchange_name: &str,
                               exchange_type: &str, flags: Option<frame::ExchangeDeclareFlags>) -> Result<()> {
         let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into(), flags);
 
-        client::sync_call(&self, frame).await?;
-
-        Ok(())
+        client::sync_call(&self, frame).await
     }
 
     async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
                         routing_key: &str) -> Result<()> {
         let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
 
-        client::sync_call(&self, frame).await?;
-
-        Ok(())
+        client::sync_call(&self, frame).await
     }
 
     async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()> {
         let frame = frame::queue_declare(channel, queue_name.into());
 
-        client::sync_call(&self, frame).await?;
-
-        Ok(())
+        client::sync_call(&self, frame).await
     }
 
     async fn basic_consume(&self, channel: Channel, queue_name: &str, consumer_tag: &str,

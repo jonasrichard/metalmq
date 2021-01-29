@@ -40,7 +40,7 @@ pub(crate) fn start() -> Exchanges {
 
 #[async_trait]
 impl ExchangeManager for Exchanges {
-    async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeCommandSink> {
+    async fn declare(&mut self, exchange: Exchange, passive: bool, _conn: &str) -> Result<ExchangeCommandSink> {
         let mut ex = self.exchanges.lock().await;
 
         match ex.get(&exchange.name) {
@@ -63,7 +63,7 @@ impl ExchangeManager for Exchanges {
         let (command_sink, mut command_stream) = mpsc::channel(1);
 
         tokio::spawn(async move {
-            handler::exchange_loop(&mut command_stream).await;
+            handler::exchange_loop(&mut command_stream).await.unwrap();
         });
 
         let exchange_name = exchange.name.clone();
@@ -84,7 +84,7 @@ impl ExchangeManager for Exchanges {
         match ex.get(&exchange_name) {
             Some(exchange_state) => {
                 // TODO we need to have a oneshot channel here to wait for the result
-                exchange_state.command_sink.send(ExchangeCommand::QueueBind { sink: queue_channel }).await;
+                exchange_state.command_sink.send(ExchangeCommand::QueueBind { sink: queue_channel }).await.unwrap();
 
                 Ok(())
             },
@@ -93,7 +93,7 @@ impl ExchangeManager for Exchanges {
         }
     }
 
-    async fn clone_connection(&mut self, exchange_name: &str, conn: &str) -> Result<()> {
+    async fn clone_connection(&mut self, _exchange_name: &str, _conn: &str) -> Result<()> {
         Ok(())
     }
 }

@@ -100,13 +100,16 @@ fn write<W>(step: &Step<W>) {
 
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
-    let (color, pre, indent, text) = match step {
-        Feature(text) => (Color::Cyan, "Feature", 0, text),
-        Given(text, _) => (Color::Yellow, "Given", 1, text),
-        When(text, _) => (Color::Blue, "When", 1, text),
-        Then(text, _) => (Color::Green, "Then", 1, text)
+    let (color, pre, new_line, indent, text) = match step {
+        Feature(text) => (Color::Cyan, "Feature", true, 1, text),
+        Given(text, _) => (Color::Yellow, "Given", false, 2, text),
+        When(text, _) => (Color::Blue, "When", false, 2, text),
+        Then(text, _) => (Color::Green, "Then", false, 2, text)
     };
 
+    if new_line {
+        write!(&mut stdout, "\n").unwrap();
+    }
     stdout.set_color(ColorSpec::new().set_fg(Some(color))).unwrap();
     write!(&mut stdout, "{}{} ", "  ".repeat(indent), pre).unwrap();
 

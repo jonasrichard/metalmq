@@ -2,7 +2,7 @@
 //! possibility to state that a message is processed via an oneshot channel.
 use tokio::sync::{mpsc};
 
-pub(crate) type MessageId = String;
+//pub(crate) type MessageId = String;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Message {

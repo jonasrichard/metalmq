@@ -1,24 +1,27 @@
 use ironmq_client as client;
 use ironmq_test::{init, step, Steps};
 
+#[cfg(feature = "integration-tests")]
 struct World {
-    conn: Box<dyn client::Client>
+    conn: Box<dyn client::Client>,
+    result: client::Result<()>
 }
 
+#[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn first() {
     Steps
         ::feature("Connect to the virtual host /", init!(World, {
             Ok(World {
-                conn: client::connect("127.0.0.1:5672").await.unwrap()
+                conn: client::connect("127.0.0.1:5672").await?,
+                result: Ok(())
             })
         })).await
         .given("a connection", step!(|w: World| {
             Ok(())
         }))
         .when("open to virtual host /", step!(|w: World| {
-            w.conn.open("/").await?;
-            Ok(())
+            w.conn.open("/").await
         }))
         .then("we are connected", step!(|w: World| {
             Ok(())
@@ -28,34 +31,67 @@ async fn first() {
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
-async fn channel_close_on_not_existing_exchange() -> client::Result<()> {
-    let c = client::connect("127.0.0.1:5672").await?;
+async fn channel_close_on_not_existing_exchange() {
+    Steps
+        ::feature("Channel closes on passive declare of non-existing exchange", init!(World, {
+            Ok(World {
+                conn: client::connect("127.0.0.1:5672").await?,
+                result: Ok(())
+            })
+        })).await
+        .given("a connection", step!(|w: World| {
+            w.conn.open("/").await?;
+            w.conn.channel_open(1).await
+        }))
+        .when("passive declare a non-existing exchange", step!(|w: World| {
+            let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
+            flags |= ironmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
 
-    let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
-    flags |= ironmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
+            w.result = w.conn.exchange_declare(1, "sure does not exist", "fanout", Some(flags)).await;
 
-    let result = c.exchange_declare(1, "sure do not exist", "fanout", Some(flags)).await;
+            Ok(())
+        }))
+        .then("we get a channel error", step!(|w: World| {
+            let mut r = Ok(());
+            std::mem::swap(&mut w.result, &mut r);
 
-    assert!(result.is_err());
+            assert!(r.is_err());
 
-    let err = ironmq_test::to_client_error(result);
-    assert_eq!(err.code, 404);
+            let err = ironmq_test::to_client_error(r);
+            assert_eq!(err.code, 404);
 
-    Ok(())
+            Ok(())
+        }))
+        .check().await;
 }
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
-async fn passive_exchange_declare_check_if_exchange_exist() -> client::Result<()> {
-    let c = client::connect("127.0.0.1:5672").await?;
+async fn passive_exchange_declare_check_if_exchange_exist() {
+    Steps
+        ::feature("Passive exchange declare check if exchange exists", init!(World, {
+            Ok(World {
+                conn: client::connect("127.0.0.1:5672").await?,
+                result: Ok(())
+            })
+        })).await
+        .given("an exchange declared", step!(|w: World| {
+            let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
+            w.conn.exchange_declare(1, "new channel", "fanout", Some(flags)).await
+        }))
+        .when("declare the same exchange passively", step!(|w: World| {
+            let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
+            flags |= ironmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
 
-    let mut flags = ironmq_codec::frame::ExchangeDeclareFlags::empty();
-    c.exchange_declare(1, "new channel", "fanout", Some(flags)).await?;
+            w.result = w.conn.exchange_declare(1, "new channel", "fanout", Some(flags)).await;
+            Ok(())
+        }))
+        .then("it will succeed", step!(|w: World| {
+            let mut r = Ok(());
+            std::mem::swap(&mut w.result, &mut r);
 
-    flags |= ironmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
-    let result = c.exchange_declare(1, "new channel", "fanout", Some(flags)).await;
-
-    assert!(result.is_ok());
-
-    Ok(())
+            assert!(r.is_ok());
+            Ok(())
+        }))
+        .check().await;
 }

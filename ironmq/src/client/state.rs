@@ -77,7 +77,7 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn connection_close(&self, args: frame::ConnectionCloseArgs) -> MaybeFrame {
+    async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO cleanup
         Ok(Some(frame::connection_close_ok(0)))
     }
@@ -91,7 +91,7 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame {
+    async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.exchanges.clone_connection("", "").await?;
 
