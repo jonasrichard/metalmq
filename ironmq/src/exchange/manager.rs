@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
-pub(crate) struct Exchanges {
+pub(crate) struct ExchangeManager {
     exchanges : Arc<Mutex<HashMap<String, ExchangeState>>>
 }
 
@@ -18,29 +18,20 @@ struct ExchangeState {
     command_sink: ExchangeCommandSink
 }
 
-/// Managing exchanges in the server. Connections can create, delete exchanges, bind them to
-/// queues and so on.
-#[async_trait]
-pub(crate) trait ExchangeManager: Sync + Send {
-    /// Make it sure that exchange exists, so if it hasn't existed it creates that. If `passive` is
-    /// true it doesn't create channel if it doesn't exist. So with passive declare one can check
-    /// if channel exists or doesn't. Otherwise if channel already exists all the parameters need
-    /// to be the same as in the exchange given as a parameter.
-    async fn declare(&mut self, exchange: Exchange, passive: bool, conn: &str) -> Result<ExchangeCommandSink>;
-    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()>;
-    async fn clone_connection(&mut self, exchange_name: &str, conn: &str) -> Result<()>;
-}
-
-
-pub(crate) fn start() -> Exchanges {
-    Exchanges {
+pub(crate) fn start() -> ExchangeManager {
+    ExchangeManager {
         exchanges: Arc::new(Mutex::new(HashMap::new())) // TODO add default exchanges from a config or db
     }
 }
 
-#[async_trait]
-impl ExchangeManager for Exchanges {
-    async fn declare(&mut self, exchange: Exchange, passive: bool, _conn: &str) -> Result<ExchangeCommandSink> {
+/// Managing exchanges in the server. Connections can create, delete exchanges, bind them to
+/// queues and so on.
+impl ExchangeManager {
+    /// Make it sure that exchange exists, so if it hasn't existed it creates that. If `passive` is
+    /// true it doesn't create channel if it doesn't exist. So with passive declare one can check
+    /// if channel exists or doesn't. Otherwise if channel already exists all the parameters need
+    /// to be the same as in the exchange given as a parameter.
+    pub(crate) async fn declare(&mut self, exchange: Exchange, passive: bool, _conn: &str) -> Result<ExchangeCommandSink> {
         let mut ex = self.exchanges.lock().await;
 
         match ex.get(&exchange.name) {
@@ -78,7 +69,7 @@ impl ExchangeManager for Exchanges {
         Ok(command_sink)
     }
 
-    async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()> {
+    pub(crate) async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()> {
         let ex = self.exchanges.lock().await;
 
         match ex.get(&exchange_name) {
@@ -93,7 +84,7 @@ impl ExchangeManager for Exchanges {
         }
     }
 
-    async fn clone_connection(&mut self, _exchange_name: &str, _conn: &str) -> Result<()> {
+    pub(crate) async fn clone_connection(&mut self, _exchange_name: &str, _conn: &str) -> Result<()> {
         Ok(())
     }
 }

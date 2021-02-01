@@ -3,9 +3,6 @@ mod exchange;
 mod message;
 mod queue;
 
-#[macro_use]
-extern crate async_trait;
-
 use env_logger::Builder;
 use log::{error, info};
 use std::fmt;
@@ -19,8 +16,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub(crate) struct Context {
-    pub(crate) exchanges: exchange::manager::Exchanges,
-    pub(crate) queues: queue::manager::Queues,
+    pub(crate) exchanges: exchange::manager::ExchangeManager,
+    pub(crate) queues: queue::manager::QueueManager,
 }
 
 #[derive(Debug, PartialEq)]

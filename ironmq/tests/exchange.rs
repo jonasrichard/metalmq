@@ -3,7 +3,7 @@ use ironmq_test::{init, step, Steps};
 
 #[cfg(feature = "integration-tests")]
 struct World {
-    conn: Box<dyn client::Client>,
+    conn: client::Client,
     result: client::Result<()>
 }
 

@@ -1,5 +1,5 @@
-use crate::client_sm::{self, Client, ClientState};
-use crate::{client_error, Connection, MessageSink, Result};
+use crate::client_sm::{self, ClientState};
+use crate::{client_error, Client, MessageSink, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use ironmq_codec::codec::AMQPCodec;
@@ -36,7 +36,7 @@ impl fmt::Debug for Request {
     }
 }
 
-pub(crate) async fn create_connection(url: String) -> Result<Box<Connection>> {
+pub(crate) async fn create_connection(url: String) -> Result<Client> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
             let (sender, receiver) = mpsc::channel(16);
@@ -47,9 +47,9 @@ pub(crate) async fn create_connection(url: String) -> Result<Box<Connection>> {
                 }
             });
 
-            Ok(Box::new(Connection {
+            Ok(Client {
                 server_channel: sender,
-            }))
+            })
         }
         Err(e) => {
             error!("Error {:?}", e);
@@ -251,7 +251,7 @@ async fn handle_publish(
     }
 }
 
-pub(crate) async fn call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
+pub(crate) async fn call(conn: &Client, frame: AMQPFrame) -> Result<()> {
     conn.server_channel
         .send(Request {
             param: Param::Frame(frame),
@@ -262,7 +262,7 @@ pub(crate) async fn call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn sync_call(conn: &Connection, frame: AMQPFrame) -> Result<()> {
+pub(crate) async fn sync_call(conn: &Client, frame: AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     conn.server_channel

@@ -17,9 +17,6 @@
 pub mod client;
 mod client_sm;
 
-#[macro_use]
-extern crate async_trait;
-
 use env_logger::Builder;
 use ironmq_codec::frame;
 use std::collections::HashMap;
@@ -88,7 +85,7 @@ macro_rules! client_error {
 
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
 /// are not yet supported.
-pub struct Connection {
+pub struct Client {
     server_channel: mpsc::Sender<client::Request>,
 }
 
@@ -102,7 +99,7 @@ pub struct Connection {
 ///     Ok(())
 /// }
 /// ```
-pub async fn connect(url: &str) -> Result<Box<dyn Client>> {
+pub async fn connect(url: &str) -> Result<Client> {
     let connection = client::create_connection(url.into()).await?;
 
     client::sync_call(&connection, frame::AMQPFrame::Header).await?;
@@ -112,77 +109,58 @@ pub async fn connect(url: &str) -> Result<Box<dyn Client>> {
     Ok(connection)
 }
 
-/// Represents the connected AMQP client.
-#[async_trait]
-pub trait Client {
-    async fn open(&self, virtual_host: &str) -> Result<()>;
-    async fn close(&self) -> Result<()>;
-    async fn channel_open(&self, channel: Channel) -> Result<()>;
-    async fn channel_close(&self, channel: Channel) -> Result<()>;
-    async fn exchange_declare(&self, channel: Channel, exchange_name: &str, exchange_type: &str,
-                              flags: Option<frame::ExchangeDeclareFlags>) -> Result<()>;
-    async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
-                        routing_key: &str) -> Result<()>;
-    async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()>;
-    async fn basic_consume(&self, channel: Channel, queue_name: &str,
-                           consumer_tag: &str, sink: MessageSink) -> Result<()>;
-    async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
-                           payload: String) -> Result<()>;
-}
-
-#[async_trait]
-impl Client for Connection {
+impl Client {
     /// Client "connects" to a virtual host. The virtual host may or may not exist,
     /// in case of an error we got a `ClientError` and the connection closes.
     ///
     /// ```no_run
     /// use ironmq_client::*;
     ///
-    /// async fn vhost(c: &dyn Client) {
+    /// async fn vhost(c: &Client) {
     ///     if let Err(ce) = c.open("/invalid").await {
     ///         eprintln!("Virtual host does not exist");
     ///     }
     /// }
     /// ```
-    async fn open(&self, virtual_host: &str) -> Result<()> {
+    pub async fn open(&self, virtual_host: &str) -> Result<()> {
         client::sync_call(&self, frame::connection_open(0, virtual_host.into())).await
     }
 
-    async fn close(&self) -> Result<()> {
+    pub async fn close(&self) -> Result<()> {
         client::sync_call(&self, frame::connection_close(0, 200, "Normal close", 0, 0)).await
     }
 
-    async fn channel_open(&self, channel: u16) -> Result<()> {
+    pub async fn channel_open(&self, channel: u16) -> Result<()> {
         client::sync_call(&self, frame::channel_open(channel)).await
     }
 
-    async fn channel_close(&self, channel: Channel) -> Result<()> {
+    pub async fn channel_close(&self, channel: Channel) -> Result<()> {
         let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
 
         client::sync_call(&self, frame::channel_close(channel, 200, "Normal close", cid, mid)).await
     }
 
-    async fn exchange_declare(&self, channel: Channel, exchange_name: &str,
+    pub async fn exchange_declare(&self, channel: Channel, exchange_name: &str,
                               exchange_type: &str, flags: Option<frame::ExchangeDeclareFlags>) -> Result<()> {
         let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into(), flags);
 
         client::sync_call(&self, frame).await
     }
 
-    async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
+    pub async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
                         routing_key: &str) -> Result<()> {
         let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
 
         client::sync_call(&self, frame).await
     }
 
-    async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()> {
+    pub async fn queue_declare(&self, channel: Channel, queue_name: &str) -> Result<()> {
         let frame = frame::queue_declare(channel, queue_name.into());
 
         client::sync_call(&self, frame).await
     }
 
-    async fn basic_consume(&self, channel: Channel, queue_name: &str, consumer_tag: &str,
+    pub async fn basic_consume(&self, channel: Channel, queue_name: &str, consumer_tag: &str,
                            sink: MessageSink) -> Result<()> {
         let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
         let (tx, rx) = oneshot::channel();
@@ -201,7 +179,7 @@ impl Client for Connection {
         }
     }
 
-    async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
+    pub async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
                            payload: String) -> Result<()> {
         let frame = frame::basic_publish(channel, exchange_name.into(), routing_key.into());
 
@@ -228,7 +206,7 @@ pub fn setup_logger() {
 }
 
 #[allow(dead_code)]
-async fn publish_bench(client: &dyn Client) -> Result<()> {
+async fn publish_bench(client: &Client) -> Result<()> {
     let now = Instant::now();
     let mut total = 0u32;
 

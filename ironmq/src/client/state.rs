@@ -17,7 +17,7 @@ pub(crate) const CHANNEL_ERROR: u16 = 504;
 pub(crate) const NOT_ALLOWED: u16 = 530;
 
 /// All the transient data of a connection are stored here.
-pub(crate) struct ConnectionState {
+pub(crate) struct Connection {
     /// Unique ID of the connection.
     id: String,
     /// Context servers as a dependency holder, it keeps the references of the services.
@@ -42,23 +42,8 @@ struct PublishedContent {
     content: Option<Vec<u8>>
 }
 
-#[async_trait]
-pub(crate) trait Connection: Sync + Send {
-    async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame;
-    async fn connection_close(&self, args: frame::ConnectionCloseArgs) -> MaybeFrame;
-    async fn channel_open(&mut self, channel: Channel) -> MaybeFrame;
-    async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> MaybeFrame;
-    async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame;
-    async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs,) -> MaybeFrame;
-    async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs,) -> MaybeFrame;
-    async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame;
-    async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame;
-    async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame;
-    async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame;
-}
-
-pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Box<dyn Connection> {
-    Box::new(ConnectionState {
+pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
+    Connection {
         id: Uuid::new_v4().to_hyphenated().to_string(),
         context: context,
         open_channels: HashMap::new(),
@@ -67,12 +52,11 @@ pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame
         consumed_queues: HashMap::new(),
         in_flight_contents: HashMap::new(),
         outgoing: outgoing
-    })
+    }
 }
 
-#[async_trait]
-impl Connection for ConnectionState {
-    async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
+impl Connection {
+    pub(crate) async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
         if args.virtual_host != "/" {
             connection_error(NOT_ALLOWED, "Cannot connect to virtualhost", frame::CONNECTION_OPEN)
         } else {
@@ -80,7 +64,7 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
+    pub(crate) async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO cleanup
         let mut ctx = self.context.lock().await;
         for (consumer_tag, queue_name) in &self.consumed_queues {
@@ -90,7 +74,7 @@ impl Connection for ConnectionState {
         Ok(Some(frame::connection_close_ok(0)))
     }
 
-    async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
+    pub(crate) async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
         if self.open_channels.contains_key(&channel) {
             channel_error(channel, CHANNEL_ERROR, "Channel already opened", frame::CHANNEL_OPEN)
         } else {
@@ -99,7 +83,7 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> MaybeFrame {
+    pub(crate) async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.exchanges.clone_connection("", "").await?;
 
@@ -108,7 +92,7 @@ impl Connection for ConnectionState {
         Ok(Some(frame::channel_close_ok(channel)))
     }
 
-    async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
+    pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
         let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
@@ -137,14 +121,14 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
+    pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.queues.declare(args.name.clone()).await?;
 
         Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
     }
 
-    async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs,) -> MaybeFrame {
+    pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs,) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
 
         if let Ok(ch) = ctx.queues.get_channel(args.queue_name).await {
@@ -155,7 +139,7 @@ impl Connection for ConnectionState {
         Ok(Some(frame::queue_bind_ok(channel)))
     }
 
-    async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
+    pub(crate) async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
         if !self.exchanges.contains_key(&args.exchange_name) {
             channel_error(channel, NOT_FOUND, "Exchange not found", frame::BASIC_PUBLISH)
         } else {
@@ -171,7 +155,7 @@ impl Connection for ConnectionState {
         }
     }
 
-    async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
+    pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.queues.consume(args.queue.clone(), args.consumer_tag.clone(), self.outgoing.clone()).await?;
         self.consumed_queues.insert(args.consumer_tag.clone(), args.queue);
@@ -179,7 +163,7 @@ impl Connection for ConnectionState {
         Ok(Some(frame::basic_consume_ok(channel, args.consumer_tag)))
     }
 
-    async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
+    pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
         // TODO collect info into a data struct
         info!("Receive content with length {}", header.body_size);
 
@@ -190,7 +174,7 @@ impl Connection for ConnectionState {
         Ok(None)
     }
 
-    async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
+    pub(crate) async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
         info!("Receive content with length {}", body.body.len());
 
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {

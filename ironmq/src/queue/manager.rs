@@ -7,30 +7,21 @@ use ironmq_codec::frame::{self, AMQPFrame};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-pub(crate) struct Queues {
+pub(crate) struct QueueManager {
     queues: Arc<Mutex<HashMap<String, Queue>>>
 }
 
-// TODO in exchange manager we need to introduce a bind_queue fn
-#[async_trait]
-pub(crate) trait QueueManager {
-    /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
-    /// creates that.
-    async fn declare(&mut self, name: String) -> Result<QueueCommandSink>;
-    async fn get_channel(&mut self, name: String) -> Result<QueueCommandSink>;
-    async fn consume(&mut self, name: String, consumer_tag: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()>;
-    async fn cancel(&mut self, name: String, consumer_tag: String) -> Result<()>;
-}
-
-pub(crate) fn start() -> Queues {
-    Queues {
+pub(crate) fn start() -> QueueManager {
+    QueueManager {
         queues: Arc::new(Mutex::new(HashMap::new()))
     }
 }
 
-#[async_trait]
-impl QueueManager for Queues {
-    async fn declare(&mut self, name: String) -> Result<QueueCommandSink> {
+// TODO in exchange manager we need to introduce a bind_queue fn
+impl QueueManager {
+    /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
+    /// creates that.
+    pub(crate) async fn declare(&mut self, name: String) -> Result<QueueCommandSink> {
         let mut q = self.queues.lock().await;
 
         match q.get(&name) {
@@ -55,7 +46,7 @@ impl QueueManager for Queues {
         }
     }
 
-    async fn get_channel(&mut self, name: String) -> Result<QueueCommandSink> {
+    pub(crate) async fn get_channel(&mut self, name: String) -> Result<QueueCommandSink> {
         let q = self.queues.lock().await;
 
         match q.get(&name) {
@@ -67,7 +58,7 @@ impl QueueManager for Queues {
         }
     }
 
-    async fn consume(&mut self, name: String, consumer_tag: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()> {
+    pub(crate) async fn consume(&mut self, name: String, consumer_tag: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()> {
         let q = self.queues.lock().await;
 
         match q.get(&name) {
@@ -88,7 +79,7 @@ impl QueueManager for Queues {
         }
     }
 
-    async fn cancel(&mut self, name: String, consumer_tag: String) -> Result<()> {
+    pub(crate) async fn cancel(&mut self, name: String, consumer_tag: String) -> Result<()> {
         let q = self.queues.lock().await;
 
         match q.get(&name) {

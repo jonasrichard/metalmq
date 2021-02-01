@@ -2,7 +2,7 @@ use ironmq_client as client;
 use ironmq_test::{init, step, Steps};
 
 struct World {
-    conn: Box<dyn client::Client>,
+    conn: client::Client,
     result: client::Result<()>
 }
 
@@ -98,4 +98,4 @@ async fn publish_to_intenal_exchange() {
         .check().await;
 }
 
-// TODO test if exchange refuses basic content (how and why it does?)
+// TODO test if exchangerefuses basic content (how and why it does?)

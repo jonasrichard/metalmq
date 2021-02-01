@@ -23,7 +23,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
                 match data {
                     Some(payload) =>
                         match payload {
-                            Ok(frame) => match handle_client_frame(&mut *conn, frame).await? {
+                            Ok(frame) => match handle_client_frame(&mut conn, frame).await? {
                                 Some(response_frame) => {
                                     if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
                                         trace!("Outgoing {:?}", response_frame);
@@ -56,7 +56,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
 
 //type SinkType = SplitSink<Framed<TcpStream, AMQPCodec>, AMQPFrame>;
 
-async fn handle_client_frame(conn: &mut dyn Connection, f: AMQPFrame) -> Result<Option<AMQPFrame>> {
+async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<Option<AMQPFrame>> {
     use AMQPFrame::*;
 
     match f {
@@ -71,7 +71,7 @@ async fn handle_client_frame(conn: &mut dyn Connection, f: AMQPFrame) -> Result<
     }
 }
 
-async fn handle_method_frame(conn: &mut dyn Connection, channel: frame::Channel,
+async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel,
                              ma: frame::MethodFrameArgs) -> Result<Option<AMQPFrame>> {
     use MethodFrameArgs::*;
 
