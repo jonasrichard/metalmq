@@ -28,6 +28,8 @@ pub(crate) struct ConnectionState {
     exchanges: HashMap<String, ExchangeCommandSink>,
     /// Declared queues by this connection.
     queues: HashMap<String, message::MessageChannel>,
+    /// Consumed queues by this connection, consumer_tag -> queue_name
+    consumed_queues: HashMap<String, String>,
     in_flight_contents: HashMap<Channel, PublishedContent>,
     outgoing: mpsc::Sender<AMQPFrame>
 }
@@ -62,6 +64,7 @@ pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         queues: HashMap::new(),
+        consumed_queues: HashMap::new(),
         in_flight_contents: HashMap::new(),
         outgoing: outgoing
     })
@@ -79,6 +82,11 @@ impl Connection for ConnectionState {
 
     async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO cleanup
+        let mut ctx = self.context.lock().await;
+        for (consumer_tag, queue_name) in &self.consumed_queues {
+            ctx.queues.cancel(queue_name.to_string(), consumer_tag.to_string()).await?;
+        }
+
         Ok(Some(frame::connection_close_ok(0)))
     }
 
@@ -165,7 +173,8 @@ impl Connection for ConnectionState {
 
     async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
-        ctx.queues.consume(args.queue, self.outgoing.clone()).await?;
+        ctx.queues.consume(args.queue.clone(), args.consumer_tag.clone(), self.outgoing.clone()).await?;
+        self.consumed_queues.insert(args.consumer_tag.clone(), args.queue);
 
         Ok(Some(frame::basic_consume_ok(channel, args.consumer_tag)))
     }

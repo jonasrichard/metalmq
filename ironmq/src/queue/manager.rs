@@ -18,7 +18,8 @@ pub(crate) trait QueueManager {
     /// creates that.
     async fn declare(&mut self, name: String) -> Result<QueueCommandSink>;
     async fn get_channel(&mut self, name: String) -> Result<QueueCommandSink>;
-    async fn consume(&mut self, name: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()>;
+    async fn consume(&mut self, name: String, consumer_tag: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()>;
+    async fn cancel(&mut self, name: String, consumer_tag: String) -> Result<()>;
 }
 
 pub(crate) fn start() -> Queues {
@@ -66,13 +67,17 @@ impl QueueManager for Queues {
         }
     }
 
-    async fn consume(&mut self, name: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()> {
+    async fn consume(&mut self, name: String, consumer_tag: String, outgoing: mpsc::Sender<AMQPFrame>) -> Result<()> {
         let q = self.queues.lock().await;
 
         match q.get(&name) {
             Some(queue) => {
                 let (tx, rx) = oneshot::channel();
-                queue.command_sink.send(QueueCommand::Consume { frame_sink: outgoing, response: tx }).await?;
+                queue.command_sink.send(QueueCommand::Consume {
+                    consumer_tag: consumer_tag,
+                    frame_sink: outgoing,
+                    response: tx
+                }).await?;
 
                 rx.await?;
 
@@ -80,6 +85,24 @@ impl QueueManager for Queues {
             },
             None =>
                 error(0, frame::BASIC_CONSUME, 404, "Not found")
+        }
+    }
+
+    async fn cancel(&mut self, name: String, consumer_tag: String) -> Result<()> {
+        let q = self.queues.lock().await;
+
+        match q.get(&name) {
+            Some(queue) => {
+                let (tx, rx) = oneshot::channel();
+                queue.command_sink.send(QueueCommand::Cancel { consumer_tag: consumer_tag, response: tx }).await?;
+
+                rx.await?;
+
+                Ok(())
+            },
+            None => {
+                Ok(())
+            }
         }
     }
 }

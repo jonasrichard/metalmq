@@ -26,6 +26,7 @@ async fn publish_to_non_existing_exchange() {
             Ok(())
         }))
         .then("it returns 404 error", step!(|w: World| {
+            println!("{:?}", w.result);
             let mut res = Ok(());
             std::mem::swap(&mut w.result, &mut res);
 
