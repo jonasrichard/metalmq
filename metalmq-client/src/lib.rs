@@ -14,6 +14,7 @@
 //!     Ok(())
 //! }
 //! ```
+pub mod bdd;
 pub mod client;
 mod client_sm;
 

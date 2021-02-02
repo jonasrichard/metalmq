@@ -1,5 +1,5 @@
 use metalmq_client as client;
-use metalmq::bdd::{init, step, Steps};
+use metalmq_client::{init, step, bdd::Steps};
 
 struct World {
     conn: client::Client,
@@ -90,7 +90,7 @@ async fn publish_to_intenal_exchange() {
             std::mem::swap(&mut w.result, &mut res);
             assert!(res.is_err());
 
-            let err = metalmq_test::to_client_error(res);
+            let err = metalmq_client::bdd::to_client_error(res);
             assert_eq!(err.code, 403);
 
             Ok(())

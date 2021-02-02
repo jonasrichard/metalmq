@@ -1,17 +1,19 @@
 use std::future::Future;
 use std::io::Write;
 use std::pin::Pin;
-use metalmq_client::Result;
+use crate::{ClientError, Result};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 // TODO group the scenarios to features, how?
+#[allow(dead_code)]
 type InitFn<W> = fn() -> Pin<Box<dyn Future<Output=Result<W>>>>;
+#[allow(dead_code)]
 type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output=Result<()>> + 'r>>;
 
 #[macro_export]
 macro_rules! init {
     ($wtype:ty, { $($body:tt)* }) => {
-        || -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=metalmq_client::Result<$wtype>>>> {
+        || -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=$crate::Result<$wtype>>>> {
             ::std::boxed::Box::pin(async move { $($body)* })
         }
     }
@@ -20,12 +22,13 @@ macro_rules! init {
 #[macro_export]
 macro_rules! step {
     (|$wname:ident: $wtype:ty| $($body:tt)*) => {
-        |$wname: &'_ mut $wtype| -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=metalmq_client::Result<()>> + '_>> {
+        |$wname: &'_ mut $wtype| -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output=$crate::Result<()>> + '_>> {
             ::std::boxed::Box::pin(async move { $($body)* })
         }
     }
 }
 
+#[allow(dead_code)]
 pub enum Step<W> {
     Feature(String),
     Given(String, StepFn<W>),
@@ -33,12 +36,14 @@ pub enum Step<W> {
     Then(String, StepFn<W>)
 }
 
+#[allow(dead_code)]
 pub struct Steps<W> {
     world: W,
     steps: Vec<Step<W>>
 }
 
 impl<W> Steps<W> {
+    #[allow(dead_code)]
     pub async fn feature(text: &str, f: InitFn<W>) -> Self {
         Steps {
             world: f().await.unwrap(),
@@ -46,21 +51,25 @@ impl<W> Steps<W> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn given(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
         self.steps.push(Step::Given(text.to_string(), f));
         self
     }
 
+    #[allow(dead_code)]
     pub fn when(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
         self.steps.push(Step::When(text.to_string(), f));
         self
     }
 
+    #[allow(dead_code)]
     pub fn then(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
         self.steps.push(Step::Then(text.to_string(), f));
         self
     }
 
+    #[allow(dead_code)]
     pub async fn check(&mut self) {
         use Step::*;
 
@@ -117,6 +126,7 @@ fn write<W>(step: &Step<W>) {
     writeln!(&mut stdout, "{}", text).unwrap();
 }
 
-pub fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> metalmq_client::ClientError {
-    *(result.unwrap_err().downcast::<metalmq_client::ClientError>().unwrap())
+#[allow(dead_code)]
+pub fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
+    *(result.unwrap_err().downcast::<ClientError>().unwrap())
 }

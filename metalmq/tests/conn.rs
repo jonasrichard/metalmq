@@ -26,7 +26,7 @@ async fn open_already_opened_channel() -> client::Result<()> {
 
     assert!(result.is_err());
 
-    let err = metalmq_test::to_client_error(result);
+    let err = metalmq_client::bdd::to_client_error(result);
 
     assert_eq!(err.code, 504);
 

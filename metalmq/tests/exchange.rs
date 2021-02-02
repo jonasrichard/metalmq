@@ -1,5 +1,5 @@
 use metalmq_client as client;
-use metalmq::bdd::{init, step, Steps};
+use metalmq_client::{init, step, bdd::Steps};
 
 #[cfg(feature = "integration-tests")]
 struct World {
@@ -57,7 +57,7 @@ async fn channel_close_on_not_existing_exchange() {
 
             assert!(r.is_err());
 
-            let err = metalmq_test::to_client_error(r);
+            let err = metalmq_client::bdd::to_client_error(r);
             assert_eq!(err.code, 404);
 
             Ok(())
