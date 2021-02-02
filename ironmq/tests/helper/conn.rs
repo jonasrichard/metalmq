@@ -17,7 +17,7 @@ pub(crate) async fn default_connection(exchange: &str, queue: &str) -> Result<Cl
     Ok(c)
 }
 
-pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
+fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
     *(result.unwrap_err().downcast::<ClientError>().unwrap())
 }
 
