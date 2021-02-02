@@ -5,9 +5,7 @@ use crate::{ClientError, Result};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 // TODO group the scenarios to features, how?
-#[allow(dead_code)]
 type InitFn<W> = fn() -> Pin<Box<dyn Future<Output=Result<W>>>>;
-#[allow(dead_code)]
 type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output=Result<()>> + 'r>>;
 
 #[macro_export]
@@ -28,7 +26,6 @@ macro_rules! step {
     }
 }
 
-#[allow(dead_code)]
 pub enum Step<W> {
     Feature(String),
     Given(String, StepFn<W>),
@@ -36,14 +33,12 @@ pub enum Step<W> {
     Then(String, StepFn<W>)
 }
 
-#[allow(dead_code)]
 pub struct Steps<W> {
     world: W,
     steps: Vec<Step<W>>
 }
 
 impl<W> Steps<W> {
-    #[allow(dead_code)]
     pub async fn feature(text: &str, f: InitFn<W>) -> Self {
         Steps {
             world: f().await.unwrap(),
@@ -51,25 +46,21 @@ impl<W> Steps<W> {
         }
     }
 
-    #[allow(dead_code)]
     pub fn given(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
         self.steps.push(Step::Given(text.to_string(), f));
         self
     }
 
-    #[allow(dead_code)]
     pub fn when(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
         self.steps.push(Step::When(text.to_string(), f));
         self
     }
 
-    #[allow(dead_code)]
     pub fn then(&mut self, text: &str, f: StepFn<W>) -> &mut Self {
         self.steps.push(Step::Then(text.to_string(), f));
         self
     }
 
-    #[allow(dead_code)]
     pub async fn check(&mut self) {
         use Step::*;
 
@@ -126,7 +117,6 @@ fn write<W>(step: &Step<W>) {
     writeln!(&mut stdout, "{}", text).unwrap();
 }
 
-#[allow(dead_code)]
 pub fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
     *(result.unwrap_err().downcast::<ClientError>().unwrap())
 }
