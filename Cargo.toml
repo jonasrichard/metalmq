@@ -1,11 +1,11 @@
 [workspace]
 
 members = [
-    "ironmq",
-    "ironmq-codec",
-    "ironmq-client",
+    "metalmq",
+    "metalmq-codec",
+    "metalmq-client",
 
-    "ironmq-test",
+    "metalmq-test",
     "benches",
     "examples"
 ]

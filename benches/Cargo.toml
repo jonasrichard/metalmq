@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 bencher = "0.1"
 bytes = "1"
-ironmq-codec = { version = "0.2", path = "../ironmq-codec" }
+metalmq-codec = { version = "0.2", path = "../metalmq-codec" }
 tokio-util = { version = "0.6", features = ["codec"] }
 
 [[bench]]

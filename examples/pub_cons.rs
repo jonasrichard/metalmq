@@ -1,4 +1,4 @@
-use ironmq_client::{self, Result};
+use metalmq_client::{self, Result};
 use log::info;
 use tokio::sync::{mpsc, oneshot};
 
@@ -7,9 +7,9 @@ async fn main() -> Result<()> {
     let exchange = "x_pubsub";
     let queue = "q_pubsub";
 
-    ironmq_client::setup_logger();
+    metalmq_client::setup_logger();
 
-    let client = ironmq_client::connect("127.0.0.1:5672").await?;
+    let client = metalmq_client::connect("127.0.0.1:5672").await?;
     client.open("/").await?;
     client.channel_open(1).await?;
 

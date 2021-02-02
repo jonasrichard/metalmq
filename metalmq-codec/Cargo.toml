@@ -1,0 +1,15 @@
+[package]
+name = "metalmq-codec"
+version = "0.2.0"
+authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+keywords = ["amqp", "messaging"]
+repository = "https://github.com/jonasrichard/metalmq"
+description = "MetalMQ codec library"
+
+[dependencies]
+bitflags = "1.2"
+bytes = "1"
+futures = "0.3"
+tokio-util = { version = "0.6", features = ["codec"] }

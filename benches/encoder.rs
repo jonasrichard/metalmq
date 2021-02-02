@@ -1,7 +1,7 @@
 use bencher::Bencher;
 use bytes::BytesMut;
-use ironmq_codec::frame;
-use ironmq_codec::frame::{AMQPFrame, MethodFrameArgs};
+use metalmq_codec::frame;
+use metalmq_codec::frame::{AMQPFrame, MethodFrameArgs};
 use tokio_util::codec::Encoder;
 
 fn generate_frame() -> AMQPFrame {
@@ -14,7 +14,7 @@ fn generate_frame() -> AMQPFrame {
 }
 
 fn method_frame(bench: &mut Bencher) {
-    let mut codec = ironmq_codec::codec::AMQPCodec {};
+    let mut codec = metalmq_codec::codec::AMQPCodec {};
     let frame = generate_frame();
 
     bench.iter(move || {

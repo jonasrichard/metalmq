@@ -7,7 +7,7 @@ edition = "2018"
 [dev-dependencies]
 env_logger = "0.7"
 log = "0.4"
-ironmq-client = { version = "0.2", path = "../ironmq-client" }
+metalmq-client = { version = "0.2", path = "../metalmq-client" }
 tokio = { version = "1", features = ["full"] }
 
 [[example]]

@@ -1,0 +1,28 @@
+[package]
+name = "metalmq"
+version = "0.1.0"
+authors = ["Richard Jonas <richard.jonas@erlang-solutions.com>"]
+edition = "2018"
+license = "Apache-2.0"
+keywords = ["amqp", "messaging"]
+readme = "README.md"
+repository = "https://github.com/jonasrichard/metalmq"
+description = "IromMQ server"
+
+[features]
+default = []
+integration-tests = []
+
+[dependencies]
+bytes = "1"
+env_logger = "0.8"
+futures = "0.3"
+metalmq-codec = { version = "0.2", path = "../metalmq-codec" }
+log = "0.4"
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync"] }
+tokio-util = { version = "0.6", features = ["codec"] }
+uuid = { version = "0.8", features = ["v4"] }
+
+[dev-dependencies]
+metalmq-client = { version = "0.2", path = "../metalmq-client" }
+metalmq-test = { version = "0.1", path = "../metalmq-test" }
