@@ -1,30 +1,30 @@
-# IronMQ
+# MetalMQ
 
 [![Crates.io][crates-badge]][crates-url]
 [![Build Status][actions-badge]][actions-url]
 
-[crates-badge]: https://img.shields.io/crates/v/ironmq.svg
-[crates-url]: https://crates.io/crates/ironmq
-[actions-badge]: https://github.com/jonasrichard/ironmq/workflows/CI/badge.svg
-[actions-url]: https://github.com/jonasrichard/ironmq/actions?query=workflow%3ACI
+[crates-badge]: https://img.shields.io/crates/v/metalmq.svg
+[crates-url]: https://crates.io/crates/metalmq
+[actions-badge]: https://github.com/jonasrichard/metalmq/workflows/CI/badge.svg
+[actions-url]: https://github.com/jonasrichard/metalmq/actions?query=workflow%3ACI
 
 ## Build and run
 
-`ironmq` is under development, it is not feature complete but you can try and run with cargo run.
+`metalmq` is under development, it is not feature complete but you can try and run with cargo run.
 
 ```bash
-cargo run --bin ironmq
+cargo run --bin metalmq
 ## or to enable logs
-RUST_LOG=debug cargo run --bin ironmq
+RUST_LOG=debug cargo run --bin metalmq
 ```
 
 There are some examples in the `examples` directory, they implement simple scenarios of the
-`ironmq-client` library. To run execute
+`metalmq-client` library. To run execute
 
 ```bash
 cargo run --example publish-consume
 cargo test
-cd ironmq
+cd metalmq
 cargo test --features integration-tests
 ```
 
@@ -54,7 +54,7 @@ RUST_LOG=info cargo run
 In order to validate AMQP packages we also need a stable AMQP client implementation which is the `pika`. It uses Python, so one need to install `pipenv` to run that.
 
 ```
-cd ironmq-client
+cd metalmq-client
 pipenv run bin/basic_publish.sh
 ```
 
