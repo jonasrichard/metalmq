@@ -1,5 +1,5 @@
 use metalmq_client as client;
-use metalmq_test::{init, step, Steps};
+use metalmq::bdd::{init, step, Steps};
 
 struct World {
     conn: client::Client,

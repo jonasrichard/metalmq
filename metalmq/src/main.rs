@@ -1,3 +1,4 @@
+mod bdd;
 mod client;
 mod exchange;
 mod message;
