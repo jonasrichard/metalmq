@@ -87,6 +87,12 @@ impl ExchangeManager {
     pub(crate) async fn clone_connection(&mut self, _exchange_name: &str, _conn: &str) -> Result<()> {
         Ok(())
     }
+
+    pub(crate) async fn exchange_list(&self) -> Vec<Exchange> {
+        let ex = self.exchanges.lock().await;
+
+        ex.values().map(|e| e.exchange.clone()).collect()
+    }
 }
 
 #[cfg(test)]

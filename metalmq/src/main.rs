@@ -4,6 +4,9 @@ mod message;
 mod queue;
 mod restapi;
 
+#[macro_use]
+extern crate lazy_static;
+
 use env_logger::Builder;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
@@ -23,6 +26,18 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub(crate) struct Context {
     pub(crate) exchanges: exchange::manager::ExchangeManager,
     pub(crate) queues: queue::manager::QueueManager,
+}
+
+lazy_static! {
+    pub(crate) static ref CONTEXT: Arc<Mutex<Context>> = {
+        let exchanges = exchange::manager::start();
+        let queues = queue::manager::start();
+
+        Arc::new(Mutex::new(Context {
+            exchanges: exchanges,
+            queues: queues
+        }))
+    };
 }
 
 #[derive(Debug, PartialEq)]
@@ -93,18 +108,10 @@ fn setup_logger() {
 pub async fn main() -> Result<()> {
     setup_logger();
 
-    let exchanges = exchange::manager::start();
-    let queues = queue::manager::start();
-
-    let context = Arc::new(Mutex::new(Context {
-        exchanges: exchanges,
-        queues: queues
-    }));
-
     let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
     let make_svc = make_service_fn(|_conn| async {
-        Ok::<_, Infallible>(service_fn(restapi::exchange_list))
+        Ok::<_, Infallible>(service_fn(restapi::route))
     });
 
     let server = Server::bind(&http_addr).serve(make_svc);
@@ -121,7 +128,7 @@ pub async fn main() -> Result<()> {
 
     loop {
         let (socket, _) = listener.accept().await?;
-        let ctx = context.clone();
+        let ctx = CONTEXT.clone();
 
         tokio::spawn(async move {
             if let Err(e) = client::conn::handle_client(socket, ctx).await {
