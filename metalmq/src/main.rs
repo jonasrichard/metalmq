@@ -2,11 +2,16 @@ mod client;
 mod exchange;
 mod message;
 mod queue;
+mod restapi;
 
 use env_logger::Builder;
+use hyper::service::{make_service_fn, service_fn};
+use hyper::Server;
 use log::{error, info};
+use std::convert::Infallible;
 use std::fmt;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -95,6 +100,20 @@ pub async fn main() -> Result<()> {
         exchanges: exchanges,
         queues: queues
     }));
+
+    let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+
+    let make_svc = make_service_fn(|_conn| async {
+        Ok::<_, Infallible>(service_fn(restapi::exchange_list))
+    });
+
+    let server = Server::bind(&http_addr).serve(make_svc);
+
+    tokio::spawn(async move {
+        if let Err(e) = server.await {
+            eprintln!("HTTP error {}", e);
+        }
+    });
 
     info!("Listening on port 5672");
 

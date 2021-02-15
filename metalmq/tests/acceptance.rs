@@ -7,6 +7,23 @@ pub struct MyWorld {
 }
 
 impl MyWorld {
+    fn take_err(&mut self) -> Option<metalmq_client::ClientError> {
+        let mut result = Ok(());
+
+        std::mem::swap(&mut self.last_result, &mut result);
+
+        match result {
+            Ok(()) =>
+                None,
+            Err(e) =>
+                match e.downcast::<metalmq_client::ClientError>() {
+                    Ok(ce) =>
+                        Some(*ce),
+                    Err(_) =>
+                        None
+                }
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -49,12 +66,11 @@ mod steps {
                 world
             }))
             .then_regex_async("it closes the channel with error code (.*)", t!(|mut world, matches, step| {
-                let mut res = Ok(());
-                std::mem::swap(&mut world.last_result, &mut res);
+                let res = world.take_err();
 
-                assert!(res.is_err());
+                assert!(res.is_some());
 
-                let err = res.unwrap_err().downcast::<metalmq_client::ClientError>().unwrap();
+                let err = res.unwrap();
                 assert_eq!(err.channel, Some(1));
                 assert_eq!(err.code, matches[1].parse::<u16>().unwrap());
 
@@ -73,8 +89,6 @@ mod steps {
 
                 world
             }));
-
-
 
         builder
     }
