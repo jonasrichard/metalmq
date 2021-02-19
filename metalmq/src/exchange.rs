@@ -7,8 +7,9 @@ pub(crate) mod handler;
 pub(crate) mod manager;
 
 use metalmq_codec::frame::{ExchangeDeclareArgs, ExchangeDeclareFlags};
+use serde::Serialize;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct Exchange {
     name: String,
     exchange_type: String,
