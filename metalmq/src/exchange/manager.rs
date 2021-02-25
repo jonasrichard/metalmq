@@ -34,6 +34,8 @@ impl ExchangeManager {
     pub(crate) async fn declare(&mut self, exchange: Exchange, passive: bool, _conn: &str) -> Result<ExchangeCommandSink> {
         let mut ex = self.exchanges.lock().await;
 
+        debug!("Declare exchange {} passive? {}", exchange.name, passive);
+
         match ex.get(&exchange.name) {
             None =>
                 if passive {

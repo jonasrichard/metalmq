@@ -23,5 +23,11 @@ tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "
 tokio-stream = "0.1"
 tokio-util = { version = "0.6", features = ["codec"] }
 
+[[test]]
+name = "acceptance"
+harness = false
+
 [dev-dependencies]
+async-trait = "0.1"
+cucumber = { package = "cucumber_rust", version = "0.8" }
 lazy_static = "1.4"

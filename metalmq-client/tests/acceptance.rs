@@ -1,0 +1,78 @@
+use cucumber::async_trait;
+use std::convert::Infallible;
+
+pub struct MyWorld {
+    client: Option<metalmq_client::Client>,
+    last_result: metalmq_client::Result<()>
+}
+
+impl MyWorld {
+    fn take_err(&mut self) -> Option<metalmq_client::ClientError> {
+        let mut result = Ok(());
+
+        std::mem::swap(&mut self.last_result, &mut result);
+
+        match result {
+            Ok(()) =>
+                None,
+            Err(e) =>
+                match e.downcast::<metalmq_client::ClientError>() {
+                    Ok(ce) =>
+                        Some(*ce),
+                    Err(_) =>
+                        None
+                }
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl cucumber::World for MyWorld {
+    type Error = Infallible;
+
+    async fn new() -> Result<Self, Infallible> {
+        Ok(Self {
+            client: None,
+            last_result: Ok(())
+        })
+    }
+}
+
+mod steps {
+    use cucumber::{Steps, t};
+
+    pub fn steps() -> Steps<super::MyWorld> {
+        let mut builder: Steps<super::MyWorld> = Steps::new();
+
+        builder
+            .given_async("a user", t!(|mut world, step| {
+                world
+            }))
+            .when_regex_async("connects as (.*)/(.*)", t!(|mut world, matches, step| {
+                match metalmq_client::connect("127.0.0.1:5672").await {
+                    Ok(c) =>
+                        world.client = Some(c),
+                    Err(e) =>
+                        world.last_result = Err(e)
+                }
+
+                world
+            }))
+            .then_async("it has been connected", t!(|mut world, step| {
+                assert!(world.client.is_some());
+                world
+            }));
+
+        builder
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    cucumber::Cucumber::<MyWorld>::new()
+        .features(&["./features"])
+        .steps(steps::steps())
+        .cli()
+        .run_and_exit()
+        .await
+}
