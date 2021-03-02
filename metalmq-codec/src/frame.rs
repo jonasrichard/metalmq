@@ -361,7 +361,7 @@ pub fn connection_start(channel: u16) -> AMQPFrame {
     let mut server_properties = FieldTable::new();
 
     server_properties.insert("capabilities".into(), AMQPFieldValue::FieldTable(Box::new(capabilities)));
-    server_properties.insert("product".into(), AMQPFieldValue::LongString("IronMQ server".into()));
+    server_properties.insert("product".into(), AMQPFieldValue::LongString("MetalMQ server".into()));
     server_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
     AMQPFrame::Method(

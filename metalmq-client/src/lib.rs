@@ -96,15 +96,25 @@ pub struct Client {
 ///
 /// ```no_run
 /// async fn connect() -> metalmq_client::Result<()> {
-///     let conn = metalmq_client::connect("127.0.0.1:5672").await?;
+///     let conn = metalmq_client::connect("127.0.0.1:5672", "guest", "guest").await?;
 ///     Ok(())
 /// }
 /// ```
-pub async fn connect(url: &str) -> Result<Client> {
+pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
     let connection = client::create_connection(url.into()).await?;
 
     client::sync_call(&connection, frame::AMQPFrame::Header).await?;
-    client::sync_call(&connection, frame::connection_start_ok("guest", "guest", HashMap::new())) .await?;
+
+    let mut caps = frame::FieldTable::new();
+    // TODO if it is set, in case of auth error we are waiting for the nothing
+    //caps.insert("authentication_failure_on_close".into(), frame::AMQPFieldValue::Bool(true));
+
+        //caps.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
+        //caps.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
+        //caps.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
+        //caps.insert("pub(crate)lisher_confirms".into(), AMQPFieldValue::Bool(true));
+
+    client::sync_call(&connection, frame::connection_start_ok(username, password, caps)) .await?;
     client::call(&connection, frame::connection_tune_ok(0)).await?;
 
     Ok(connection)

@@ -49,7 +49,7 @@ mod steps {
                 world
             }))
             .when_regex_async("connects as (.*)/(.*)", t!(|mut world, matches, step| {
-                match metalmq_client::connect("127.0.0.1:5672").await {
+                match metalmq_client::connect("127.0.0.1:5672", &matches[1], &matches[2]).await {
                     Ok(c) =>
                         world.client = Some(c),
                     Err(e) =>
@@ -60,6 +60,24 @@ mod steps {
             }))
             .then_async("it has been connected", t!(|mut world, step| {
                 assert!(world.client.is_some());
+                world
+            }))
+            .then_async("it gets error", t!(|mut world, step| {
+                let maybe_err = world.take_err();
+
+                assert!(maybe_err.is_some());
+
+                let err = maybe_err.unwrap();
+
+                assert_eq!(err.channel, None);
+                assert_eq!(err.code, 404);
+                assert_eq!(err.message, "".to_string());
+                assert_eq!(err.class_method, 0);
+
+                if let Some(ref c) = world.client {
+                    c.close().await.unwrap();
+                }
+
                 world
             }));
 

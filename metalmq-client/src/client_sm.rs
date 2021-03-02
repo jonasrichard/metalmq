@@ -60,8 +60,8 @@ type MaybeFrame = Result<Option<frame::AMQPFrame>>;
 pub(crate) fn new() -> ClientState {
     ClientState {
         state: Phase::Uninitialized,
-        username: "guest".into(),
-        password: "guest".into(),
+        username: "".into(),
+        password: "".into(),
         consumers: HashMap::new(),
         in_delivery: HashMap::new(),
     }
@@ -74,26 +74,10 @@ impl ClientState {
         Ok(None)
     }
 
-    pub(crate) async fn connection_start_ok(&mut self, _args: &frame::ConnectionStartOkArgs) -> MaybeFrame {
+    pub(crate) async fn connection_start_ok(&mut self, args: &frame::ConnectionStartOkArgs) -> MaybeFrame {
         self.state = Phase::Connected;
 
-        let mut caps = frame::FieldTable::new();
-
-        caps.insert(
-            "authentication_failure_on_close".into(),
-            frame::AMQPFieldValue::Bool(true),
-        );
-
-        //capabilities.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
-        //capabilities.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
-        //capabilities.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
-        //capabilities.insert("pub(crate)lisher_confirms".into(), AMQPFieldValue::Bool(true));
-
-        Ok(Some(frame::connection_start_ok(
-            &self.username,
-            &self.password,
-            caps,
-        )))
+        Ok(Some(frame::AMQPFrame::Method(0, frame::CONNECTION_START_OK, frame::MethodFrameArgs::ConnectionStartOk(args.clone()))))
     }
 
     pub(crate) async fn connection_tune(&mut self, _args: &frame::ConnectionTuneArgs) -> MaybeFrame {

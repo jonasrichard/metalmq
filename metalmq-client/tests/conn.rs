@@ -16,7 +16,7 @@ const URL: &str = "127.0.0.1:5672";
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn can_connect() -> Result<()> {
-    let c = connect(URL.into()).await?;
+    let c = connect(URL, "guest", "pwd").await?;
     let result = c.open("/invalid".into()).await;
 
     assert!(result.is_err());
@@ -32,7 +32,7 @@ async fn can_connect() -> Result<()> {
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn double_open_the_same_channel() -> Result<()> {
-    let c = connect(URL.into()).await?;
+    let c = connect(URL, "guest", "guest").await?;
     c.open("/".into()).await?;
 
     c.channel_open(1).await?;
@@ -58,8 +58,8 @@ async fn can_publish() -> Result<()> {
 }
 
 #[cfg(feature = "integration-tests")]
-async fn helper(exchange: &str, queue: &str) -> Result<Box<dyn Client>> {
-    let c = connect(URL.into()).await?;
+async fn helper(exchange: &str, queue: &str) -> Result<Client> {
+    let c = connect(URL, "guest", "guest").await?;
     c.open("/".into()).await?;
     c.channel_open(1).await?;
     c.exchange_declare(1, exchange, "fanout", None).await?;
