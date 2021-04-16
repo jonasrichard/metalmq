@@ -1,4 +1,5 @@
-use metalmq_client::{self, Result};
+use anyhow::Result;
+use metalmq_client::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {

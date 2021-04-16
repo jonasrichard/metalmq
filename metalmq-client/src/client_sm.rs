@@ -6,9 +6,10 @@
 //! AMQP frame or `MethodFrame`, content etc. Everything which talks to the client
 //! api it is a typed struct.
 
-use crate::{Message, MessageSink, Result};
-use metalmq_codec::frame::{self, Channel};
+use crate::{Message, MessageSink};
+use anyhow::Result;
 use log::{debug, info};
+use metalmq_codec::frame::{self, Channel};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -28,7 +29,7 @@ struct DeliveredContent {
     exchange_name: String,
     routing_key: String,
     body_size: Option<u64>,
-    body: Option<Vec<u8>>
+    body: Option<Vec<u8>>,
 }
 
 // TODO basic consume subscribe to a queue but when messages are delivered we get only the exchange
@@ -77,7 +78,11 @@ impl ClientState {
     pub(crate) async fn connection_start_ok(&mut self, args: &frame::ConnectionStartOkArgs) -> MaybeFrame {
         self.state = Phase::Connected;
 
-        Ok(Some(frame::AMQPFrame::Method(0, frame::CONNECTION_START_OK, frame::MethodFrameArgs::ConnectionStartOk(args.clone()))))
+        Ok(Some(frame::AMQPFrame::Method(
+            0,
+            frame::CONNECTION_START_OK,
+            frame::MethodFrameArgs::ConnectionStartOk(args.clone()),
+        )))
     }
 
     pub(crate) async fn connection_tune(&mut self, _args: &frame::ConnectionTuneArgs) -> MaybeFrame {
@@ -120,7 +125,13 @@ impl ClientState {
     }
 
     pub(crate) async fn channel_close(&mut self, channel: Channel, args: &frame::ChannelCloseArgs) -> MaybeFrame {
-        Ok(Some(frame::channel_close(channel, args.code, &args.text, args.class_id, args.method_id)))
+        Ok(Some(frame::channel_close(
+            channel,
+            args.code,
+            &args.text,
+            args.class_id,
+            args.method_id,
+        )))
     }
 
     pub(crate) async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
@@ -131,14 +142,23 @@ impl ClientState {
         Ok(None)
     }
 
-    pub(crate) async fn handle_channel_close(&mut self, _channel: Channel, _args: &frame::ChannelCloseArgs) -> MaybeFrame {
+    pub(crate) async fn handle_channel_close(
+        &mut self,
+        _channel: Channel,
+        _args: &frame::ChannelCloseArgs,
+    ) -> MaybeFrame {
         // TODO handle that the server closed the channel
         //Ok(Some(frame::channel_close_ok(channel)))
         Ok(None)
     }
 
     pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: &frame::ExchangeDeclareArgs) -> MaybeFrame {
-        Ok(Some(frame::exchange_declare(channel, &args.exchange_name, &args.exchange_type, Some(args.flags))))
+        Ok(Some(frame::exchange_declare(
+            channel,
+            &args.exchange_name,
+            &args.exchange_type,
+            Some(args.flags),
+        )))
     }
 
     pub(crate) async fn exchange_declare_ok(&mut self) -> MaybeFrame {
@@ -162,14 +182,24 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: &frame::QueueBindArgs) -> MaybeFrame {
-        Ok(Some(frame::queue_bind(channel, &args.queue_name, &args.exchange_name, &args.routing_key)))
+        Ok(Some(frame::queue_bind(
+            channel,
+            &args.queue_name,
+            &args.exchange_name,
+            &args.routing_key,
+        )))
     }
 
     pub(crate) async fn queue_bind_ok(&mut self) -> MaybeFrame {
         Ok(None)
     }
 
-    pub(crate) async fn basic_consume(&mut self, channel: Channel, args: &frame::BasicConsumeArgs, sink: MessageSink) -> MaybeFrame {
+    pub(crate) async fn basic_consume(
+        &mut self,
+        channel: Channel,
+        args: &frame::BasicConsumeArgs,
+        sink: MessageSink,
+    ) -> MaybeFrame {
         self.consumers.insert(channel, sink);
 
         Ok(Some(frame::basic_consume(channel, &args.queue, &args.consumer_tag)))
@@ -187,7 +217,7 @@ impl ClientState {
             exchange_name: args.exchange_name.clone(),
             routing_key: args.routing_key.clone(),
             body_size: None,
-            body: None
+            body: None,
         };
 
         self.in_delivery.insert(channel, dc);
@@ -196,7 +226,11 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_publish(&mut self, channel: Channel, args: &frame::BasicPublishArgs) -> MaybeFrame {
-        Ok(Some(frame::basic_publish(channel, &args.exchange_name, &args.routing_key)))
+        Ok(Some(frame::basic_publish(
+            channel,
+            &args.exchange_name,
+            &args.routing_key,
+        )))
     }
 
     pub(crate) async fn content_header(&mut self, ch: &frame::ContentHeaderFrame) -> MaybeFrame {
@@ -223,7 +257,7 @@ impl ClientState {
                 let msg = Message {
                     channel: dc.channel,
                     body: cb.body.clone(),
-                    length: dc.body_size.unwrap() as usize
+                    length: dc.body_size.unwrap() as usize,
                 };
 
                 sink.send(msg).await?

@@ -1,5 +1,6 @@
-use metalmq_client::{self, Result};
+use anyhow::Result;
 use log::info;
+use metalmq_client::*;
 use tokio::sync::{mpsc, oneshot};
 
 #[tokio::main]
@@ -29,7 +30,7 @@ async fn main() -> Result<()> {
             info!("{:?}", msg);
             count += 1;
             if count == 1 {
-                break
+                break;
             }
         }
         otx.send(()).unwrap();

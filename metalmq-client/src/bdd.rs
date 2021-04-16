@@ -1,12 +1,13 @@
+use crate::ClientError;
+use anyhow::Result;
 use std::future::Future;
 use std::io::Write;
 use std::pin::Pin;
-use crate::{ClientError, Result};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 // TODO group the scenarios to features, how?
-type InitFn<W> = fn() -> Pin<Box<dyn Future<Output=Result<W>>>>;
-type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output=Result<()>> + 'r>>;
+type InitFn<W> = fn() -> Pin<Box<dyn Future<Output = Result<W>>>>;
+type StepFn<W> = for<'r> fn(&'r mut W) -> Pin<Box<dyn Future<Output = Result<()>> + 'r>>;
 
 #[macro_export]
 macro_rules! init {
@@ -30,19 +31,19 @@ pub enum Step<W> {
     Feature(String),
     Given(String, StepFn<W>),
     When(String, StepFn<W>),
-    Then(String, StepFn<W>)
+    Then(String, StepFn<W>),
 }
 
 pub struct Steps<W> {
     world: W,
-    steps: Vec<Step<W>>
+    steps: Vec<Step<W>>,
 }
 
 impl<W> Steps<W> {
     pub async fn feature(text: &str, f: InitFn<W>) -> Self {
         Steps {
             world: f().await.unwrap(),
-            steps: vec![Step::Feature(text.to_string())]
+            steps: vec![Step::Feature(text.to_string())],
         }
     }
 
@@ -68,25 +69,28 @@ impl<W> Steps<W> {
             write(&step);
 
             match step {
-                Given(_, f) =>
+                Given(_, f) => {
                     if let Err(e) = f(&mut self.world).await {
                         fail(e);
-                    },
-                When(_, f) =>
+                    }
+                }
+                When(_, f) => {
                     if let Err(e) = f(&mut self.world).await {
                         fail(e);
-                    },
-                Then(_, f) =>
+                    }
+                }
+                Then(_, f) => {
                     if let Err(e) = f(&mut self.world).await {
                         fail(e);
-                    },
-                _ => ()
+                    }
+                }
+                _ => (),
             }
         }
     }
 }
 
-fn fail(error: Box<dyn std::error::Error>) {
+fn fail(error: anyhow::Error) {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
     writeln!(&mut stdout, "Step failed with {:?}", error).unwrap();
@@ -104,7 +108,7 @@ fn write<W>(step: &Step<W>) {
         Feature(text) => (Color::Cyan, "Feature", true, 1, text),
         Given(text, _) => (Color::Yellow, "Given", false, 2, text),
         When(text, _) => (Color::Blue, "When", false, 2, text),
-        Then(text, _) => (Color::Green, "Then", false, 2, text)
+        Then(text, _) => (Color::Green, "Then", false, 2, text),
     };
 
     if new_line {
@@ -118,5 +122,5 @@ fn write<W>(step: &Step<W>) {
 }
 
 pub fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
-    *(result.unwrap_err().downcast::<ClientError>().unwrap())
+    result.unwrap_err().downcast::<ClientError>().unwrap()
 }

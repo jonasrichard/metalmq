@@ -1,10 +1,11 @@
 use crate::client_sm::{self, ClientState};
-use crate::{client_error, Client, MessageSink, Result};
+use crate::{client_error, Client, MessageSink};
+use anyhow::{anyhow, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
+use log::{debug, error};
 use metalmq_codec::codec::AMQPCodec;
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
-use log::{debug, error};
 use std::collections::HashMap;
 use std::fmt;
 use tokio::net::TcpStream;
@@ -14,7 +15,7 @@ use tokio_util::codec::Framed;
 pub(crate) enum Param {
     Frame(AMQPFrame),
     Consume(AMQPFrame, MessageSink),
-    Publish(AMQPFrame, Vec<u8>)
+    Publish(AMQPFrame, Vec<u8>),
 }
 
 /// Response for passing errors to the client API.
@@ -31,7 +32,7 @@ impl fmt::Debug for Request {
         match &self.param {
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
-            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame)
+            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
         }
     }
 }
@@ -47,14 +48,9 @@ pub(crate) async fn create_connection(url: String) -> Result<Client> {
                 }
             });
 
-            Ok(Client {
-                server_channel: sender,
-            })
+            Ok(Client { server_channel: sender })
         }
-        Err(e) => {
-            error!("Error {:?}", e);
-            Err(Box::new(e))
-        }
+        Err(e) => Err(anyhow!("Connection error {:?}", e)),
     }
 }
 
@@ -124,48 +120,55 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Re
                 channel: None,
                 code: args.code,
                 message: args.text.clone(),
-                class_method: frame::unify_class_method(args.class_id, args.method_id)
+                class_method: frame::unify_class_method(args.class_id, args.method_id),
             };
 
             for (_, fb) in feedback.drain() {
-                if let Err(_) = fb.send(Err(Box::new(err.clone()))) {
+                if let Err(_) = fb.send(Err(anyhow::Error::new(err.clone()))) {
                     // TODO what to do here?
                 }
             }
 
             Ok(())
-        },
+        }
         AMQPFrame::Method(channel, frame::CHANNEL_CLOSE, MethodFrameArgs::ChannelClose(args)) => {
-            let err: Result<()> = client_error!(Some(*channel), args.code, args.text.clone(), frame::unify_class_method(args.class_id, args.method_id));
+            let err: Result<()> = client_error!(
+                Some(*channel),
+                args.code,
+                args.text.clone(),
+                frame::unify_class_method(args.class_id, args.method_id)
+            );
 
             if let Some(fb) = feedback.remove(&channel) {
                 if let Err(_) = fb.send(err) {
-                    return client_error!(None, 501, "Cannot unblock client", 0)
+                    return client_error!(None, 501, "Cannot unblock client", 0);
                 }
             }
             Ok(())
-        },
+        }
         AMQPFrame::Method(channel, _, _) => {
             if let Some(fb) = feedback.remove(&channel) {
                 if let Err(_) = fb.send(Ok(())) {
-                    return client_error!(None, 501, "Cannot unblock client", 0)
+                    return client_error!(None, 501, "Cannot unblock client", 0);
                 }
             }
             Ok(())
-        },
-        _ =>
-            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 
-fn register_waiter(feedback: &mut HashMap<u16, Response>, channel: Option<frame::Channel>, response_channel: Option<Response>) {
+fn register_waiter(
+    feedback: &mut HashMap<u16, Response>,
+    channel: Option<frame::Channel>,
+    response_channel: Option<Response>,
+) {
     if let Some(ch) = channel {
         if let Some(chan) = response_channel {
             feedback.insert(ch, chan);
         }
     }
 }
-
 
 fn channel(f: &AMQPFrame) -> Option<u16> {
     match f {
@@ -176,7 +179,7 @@ fn channel(f: &AMQPFrame) -> Option<u16> {
 }
 
 async fn handle_in_frame(f: &AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
-    debug!("Incoming {:?}", f);
+    debug!("Incoming frame {:?}", f);
 
     match f {
         AMQPFrame::Header => Ok(None),
@@ -194,7 +197,7 @@ async fn handle_in_frame(f: &AMQPFrame, cs: &mut ClientState) -> Result<Option<A
 async fn handle_in_method_frame(
     channel: frame::Channel,
     ma: &frame::MethodFrameArgs,
-    cs: &mut ClientState
+    cs: &mut ClientState,
 ) -> Result<Option<AMQPFrame>> {
     match ma {
         MethodFrameArgs::ConnectionStart(args) => cs.connection_start(args).await,
@@ -216,8 +219,12 @@ async fn handle_in_method_frame(
     }
 }
 
-async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
-    debug!("Outgoing frame is {:?}", ma);
+async fn handle_out_frame(
+    channel: frame::Channel,
+    ma: MethodFrameArgs,
+    cs: &mut ClientState,
+) -> Result<Option<AMQPFrame>> {
+    debug!("Outgoing frame {:?}", ma);
 
     match ma {
         MethodFrameArgs::ConnectionStartOk(args) => cs.connection_start_ok(&args).await,
@@ -230,24 +237,23 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, &args).await,
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, &args).await,
         MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, &args).await,
-        _ => unimplemented!()
+        _ => unimplemented!(),
     }
 }
 
 async fn handle_publish(
     channel: frame::Channel,
-    args: frame::BasicPublishArgs, content: Vec<u8>,
-    cs: &mut ClientState
+    args: frame::BasicPublishArgs,
+    content: Vec<u8>,
+    cs: &mut ClientState,
 ) -> Result<Vec<AMQPFrame>> {
     match cs.basic_publish(channel, &args).await? {
-        Some(publish_frame) =>
-            Ok(vec![
-                publish_frame,
-                AMQPFrame::ContentHeader(frame::content_header(channel, content.len() as u64)),
-                AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice()))
-            ]),
-        None =>
-            unreachable!()
+        Some(publish_frame) => Ok(vec![
+            publish_frame,
+            AMQPFrame::ContentHeader(frame::content_header(channel, content.len() as u64)),
+            AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice())),
+        ]),
+        None => unreachable!(),
     }
 }
 

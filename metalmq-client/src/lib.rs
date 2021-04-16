@@ -18,11 +18,14 @@ pub mod bdd;
 pub mod client;
 mod client_sm;
 
-use env_logger::Builder;
+use anyhow::Result;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Config, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
 use metalmq_codec::frame;
-use std::collections::HashMap;
 use std::fmt;
-use std::io::Write;
+//use std::io::Write;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
@@ -36,10 +39,10 @@ pub type ClassMethod = frame::ClassMethod;
 // TODO feature log should log in trace level
 
 /// Custom error type which uses `Error` as an error type.
-pub type Result<T> = std::result::Result<T, Error>;
+//pub type Result<T> = std::result::Result<T, Error>;
 
 /// A sendable, syncable boxed error, usable between async threads.
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
+//pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Interface for consuming messages.
 pub type MessageSink = mpsc::Sender<Message>;
@@ -49,7 +52,7 @@ pub type MessageSink = mpsc::Sender<Message>;
 pub struct Message {
     pub channel: Channel,
     pub body: Vec<u8>,
-    pub length: usize
+    pub length: usize,
 }
 
 /// Represents a connection or channel error. If `channel` is `None` it is a
@@ -59,7 +62,7 @@ pub struct ClientError {
     pub channel: Option<Channel>,
     pub code: u16,
     pub message: String,
-    pub class_method: u32
+    pub class_method: u32,
 }
 
 impl std::fmt::Display for ClientError {
@@ -68,20 +71,19 @@ impl std::fmt::Display for ClientError {
     }
 }
 
-impl std::error::Error for ClientError {
-}
+impl std::error::Error for ClientError {}
 
 /// Shorthand for creating errors in async functions.
 #[macro_export]
 macro_rules! client_error {
     ($channel:expr, $code:expr, $message:expr, $cm:expr) => {
-        ::std::result::Result::Err(::std::boxed::Box::new($crate::ClientError {
+        ::std::result::Result::Err(anyhow::Error::new($crate::ClientError {
             channel: $channel,
             code: $code,
             message: ::std::string::String::from($message),
-            class_method: $cm
+            class_method: $cm,
         }))
-    }
+    };
 }
 
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
@@ -105,16 +107,16 @@ pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client
 
     client::sync_call(&connection, frame::AMQPFrame::Header).await?;
 
-    let mut caps = frame::FieldTable::new();
+    let caps = frame::FieldTable::new();
     // TODO if it is set, in case of auth error we are waiting for the nothing
     //caps.insert("authentication_failure_on_close".into(), frame::AMQPFieldValue::Bool(true));
 
-        //caps.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
-        //caps.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
-        //caps.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
-        //caps.insert("pub(crate)lisher_confirms".into(), AMQPFieldValue::Bool(true));
+    //caps.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
+    //caps.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
+    //caps.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
+    //caps.insert("pub(crate)lisher_confirms".into(), AMQPFieldValue::Bool(true));
 
-    client::sync_call(&connection, frame::connection_start_ok(username, password, caps)) .await?;
+    client::sync_call(&connection, frame::connection_start_ok(username, password, caps)).await?;
     client::call(&connection, frame::connection_tune_ok(0)).await?;
 
     Ok(connection)
@@ -151,15 +153,25 @@ impl Client {
         client::sync_call(&self, frame::channel_close(channel, 200, "Normal close", cid, mid)).await
     }
 
-    pub async fn exchange_declare(&self, channel: Channel, exchange_name: &str,
-                              exchange_type: &str, flags: Option<frame::ExchangeDeclareFlags>) -> Result<()> {
+    pub async fn exchange_declare(
+        &self,
+        channel: Channel,
+        exchange_name: &str,
+        exchange_type: &str,
+        flags: Option<frame::ExchangeDeclareFlags>,
+    ) -> Result<()> {
         let frame = frame::exchange_declare(channel, exchange_name.into(), exchange_type.into(), flags);
 
         client::sync_call(&self, frame).await
     }
 
-    pub async fn queue_bind(&self, channel: u16, queue_name: &str, exchange_name: &str,
-                        routing_key: &str) -> Result<()> {
+    pub async fn queue_bind(
+        &self,
+        channel: u16,
+        queue_name: &str,
+        exchange_name: &str,
+        routing_key: &str,
+    ) -> Result<()> {
         let frame = frame::queue_bind(channel, queue_name.into(), exchange_name.into(), routing_key.into());
 
         client::sync_call(&self, frame).await
@@ -171,33 +183,47 @@ impl Client {
         client::sync_call(&self, frame).await
     }
 
-    pub async fn basic_consume(&self, channel: Channel, queue_name: &str, consumer_tag: &str,
-                           sink: MessageSink) -> Result<()> {
+    pub async fn basic_consume(
+        &self,
+        channel: Channel,
+        queue_name: &str,
+        consumer_tag: &str,
+        sink: MessageSink,
+    ) -> Result<()> {
         let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
         let (tx, rx) = oneshot::channel();
 
-        self.server_channel.send(client::Request {
-            param: client::Param::Consume(frame, sink),
-            response: Some(tx)
-        }).await?;
+        self.server_channel
+            .send(client::Request {
+                param: client::Param::Consume(frame, sink),
+                response: Some(tx),
+            })
+            .await?;
 
         match rx.await {
             Ok(response) => match response {
                 Ok(()) => Ok(()),
-                Err(e) => Err(e)
+                Err(e) => Err(e),
             },
-            Err(_) => client_error!(None, 501, "Channel recv error", 0)
+            Err(_) => client_error!(None, 501, "Channel recv error", 0),
         }
     }
 
-    pub async fn basic_publish(&self, channel: Channel, exchange_name: &str, routing_key: &str,
-                           payload: String) -> Result<()> {
+    pub async fn basic_publish(
+        &self,
+        channel: Channel,
+        exchange_name: &str,
+        routing_key: &str,
+        payload: String,
+    ) -> Result<()> {
         let frame = frame::basic_publish(channel, exchange_name.into(), routing_key.into());
 
-        self.server_channel.send(client::Request {
-            param: client::Param::Publish(frame, payload.as_bytes().to_vec()),
-            response: None
-        }).await?;
+        self.server_channel
+            .send(client::Request {
+                param: client::Param::Publish(frame, payload.as_bytes().to_vec()),
+                response: None,
+            })
+            .await?;
 
         Ok(())
     }
@@ -205,15 +231,43 @@ impl Client {
 
 /// Convenience function for setting up `env_logger` to see log messages.
 pub fn setup_logger() {
-    let mut builder = Builder::from_default_env();
+    let stdout = ConsoleAppender::builder().build();
 
-    builder
-        .format_timestamp_millis()
-        .format(|buf, record| {
-            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(),
-                record.file().unwrap_or_default(), record.line().unwrap_or_default(), record.args()
-            )
-        }).init();
+    let clientlog = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
+        .build("client.log")
+        .unwrap();
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .appender(Appender::builder().build("clientlog", Box::new(clientlog)))
+        .logger(
+            Logger::builder()
+                .appender("clientlog")
+                .additive(false)
+                .build("client", log::LevelFilter::Info),
+        )
+        .build(Root::builder().appender("clientlog").build(log::LevelFilter::Debug))
+        .unwrap();
+
+    log4rs::init_config(config).unwrap();
+
+    //let mut builder = Builder::from_default_env();
+
+    //builder
+    //    .format_timestamp_millis()
+    //    .format(|buf, record| {
+    //        writeln!(
+    //            buf,
+    //            "{} - [{}] {}:{} {}",
+    //            buf.timestamp_millis(),
+    //            record.level(),
+    //            record.file().unwrap_or_default(),
+    //            record.line().unwrap_or_default(),
+    //            record.args()
+    //        )
+    //    })
+    //    .init();
 }
 
 #[allow(dead_code)]
@@ -222,7 +276,9 @@ async fn publish_bench(client: &Client) -> Result<()> {
     let mut total = 0u32;
 
     for _ in 0..100_000u32 {
-        client.basic_publish(1, "test".into(), "no-key".into(), "Hello, world".into()).await?;
+        client
+            .basic_publish(1, "test".into(), "no-key".into(), "Hello, world".into())
+            .await?;
         total += 1;
     }
 

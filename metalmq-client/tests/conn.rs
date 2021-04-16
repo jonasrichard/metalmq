@@ -1,15 +1,4 @@
-#[macro_use]
-extern crate lazy_static;
-
 use metalmq_client::*;
-
-lazy_static! {
-    static ref LOG: () = env_logger::builder()
-        //.filter_module("::metalmq_client", log::LevelFilter::Trace)
-        .is_test(true)
-        .try_init()
-        .unwrap();
-}
 
 const URL: &str = "127.0.0.1:5672";
 
