@@ -1,6 +1,7 @@
 //! Client of metalmq.
 //!
-//! Usage
+//! # Examples
+//!
 //! ```no_run
 //! use metalmq_client::*;
 //!
@@ -15,7 +16,7 @@
 //! }
 //! ```
 pub mod bdd;
-pub mod client;
+mod client;
 mod client_sm;
 
 use anyhow::Result;
@@ -25,7 +26,6 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use metalmq_codec::frame;
 use std::fmt;
-//use std::io::Write;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
@@ -37,12 +37,6 @@ pub type ClassId = frame::ClassId;
 pub type ClassMethod = frame::ClassMethod;
 
 // TODO feature log should log in trace level
-
-/// Custom error type which uses `Error` as an error type.
-//pub type Result<T> = std::result::Result<T, Error>;
-
-/// A sendable, syncable boxed error, usable between async threads.
-//pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Interface for consuming messages.
 pub type MessageSink = mpsc::Sender<Message>;
@@ -62,7 +56,7 @@ pub struct ClientError {
     pub channel: Option<Channel>,
     pub code: u16,
     pub message: String,
-    pub class_method: u32,
+    pub class_method: ClassMethod,
 }
 
 impl std::fmt::Display for ClientError {

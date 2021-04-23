@@ -1,3 +1,7 @@
+//! Module for helping BDD tests.
+//!
+//! For sure this module shouldn't be there, but I wasn't able to find a good
+//! place for that.
 use crate::ClientError;
 use anyhow::Result;
 use std::future::Future;
@@ -27,6 +31,7 @@ macro_rules! step {
     }
 }
 
+/// A Gherkin step
 pub enum Step<W> {
     Feature(String),
     Given(String, StepFn<W>),

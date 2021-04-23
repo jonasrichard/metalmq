@@ -66,7 +66,7 @@ mod steps {
                 }),
             )
             .then_async(
-                "it gets error",
+                "it gets connection closed error",
                 t!(|mut world, step| {
                     let maybe_err = world.take_err();
 
