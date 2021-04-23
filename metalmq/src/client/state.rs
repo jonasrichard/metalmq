@@ -1,9 +1,8 @@
-use crate::{Context, Result, RuntimeError};
-use crate::exchange::{handler::ExchangeCommandSink, handler::ExchangeCommand, manager::ExchangeManager};
+use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink};
 use crate::message;
-use crate::queue::{manager::QueueManager};
-use metalmq_codec::frame::{self, AMQPFrame, Channel};
+use crate::{Context, Result, RuntimeError};
 use log::info;
+use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -31,7 +30,7 @@ pub(crate) struct Connection {
     /// Consumed queues by this connection, consumer_tag -> queue_name
     consumed_queues: HashMap<String, String>,
     in_flight_contents: HashMap<Channel, PublishedContent>,
-    outgoing: mpsc::Sender<AMQPFrame>
+    outgoing: mpsc::Sender<AMQPFrame>,
 }
 
 #[derive(Debug)]
@@ -39,7 +38,7 @@ struct PublishedContent {
     channel: Channel,
     exchange: String,
     length: Option<u64>,
-    content: Option<Vec<u8>>
+    content: Option<Vec<u8>>,
 }
 
 pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
@@ -51,7 +50,7 @@ pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame
         queues: HashMap::new(),
         consumed_queues: HashMap::new(),
         in_flight_contents: HashMap::new(),
-        outgoing: outgoing
+        outgoing: outgoing,
     }
 }
 
@@ -68,7 +67,9 @@ impl Connection {
         // TODO cleanup
         let mut ctx = self.context.lock().await;
         for (consumer_tag, queue_name) in &self.consumed_queues {
-            ctx.queues.cancel(queue_name.to_string(), consumer_tag.to_string()).await?;
+            ctx.queues
+                .cancel(queue_name.to_string(), consumer_tag.to_string())
+                .await?;
         }
 
         Ok(Some(frame::connection_close_ok(0)))
@@ -115,7 +116,7 @@ impl Connection {
                     rte.channel = channel;
 
                     Ok(Some(AMQPFrame::from(*rte)))
-                },
+                }
                 Err(e2) => Err(e2),
             },
         }
@@ -128,7 +129,7 @@ impl Connection {
         Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
     }
 
-    pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs,) -> MaybeFrame {
+    pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
 
         if let Ok(ch) = ctx.queues.get_channel(args.queue_name).await {
@@ -144,12 +145,15 @@ impl Connection {
             channel_error(channel, NOT_FOUND, "Exchange not found", frame::BASIC_PUBLISH)
         } else {
             // TODO check if there is in flight content in the channel -> error
-            self.in_flight_contents.insert(channel, PublishedContent {
-                channel: channel,
-                exchange: args.exchange_name,
-                length: None,
-                content: None
-            });
+            self.in_flight_contents.insert(
+                channel,
+                PublishedContent {
+                    channel: channel,
+                    exchange: args.exchange_name,
+                    length: None,
+                    content: None,
+                },
+            );
 
             Ok(None)
         }
@@ -157,7 +161,9 @@ impl Connection {
 
     pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
-        ctx.queues.consume(args.queue.clone(), args.consumer_tag.clone(), self.outgoing.clone()).await?;
+        ctx.queues
+            .consume(args.queue.clone(), args.consumer_tag.clone(), self.outgoing.clone())
+            .await?;
         self.consumed_queues.insert(args.consumer_tag.clone(), args.queue);
 
         Ok(Some(frame::basic_consume_ok(channel, args.consumer_tag)))
@@ -180,17 +186,19 @@ impl Connection {
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
             let msg = message::Message {
                 source_connection: self.id.clone(),
-                content: body.body
+                content: body.body,
             };
 
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
                     ch.send(ExchangeCommand::Message(msg)).await?;
                     Ok(None)
-                },
+                }
                 None =>
-                    // TODO error, exchange cannot be found
+                // TODO error, exchange cannot be found
+                {
                     Ok(None)
+                }
             }
         } else {
             Ok(None)
@@ -201,21 +209,11 @@ impl Connection {
 fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
     let (cid, mid) = frame::split_class_method(cm_id);
 
-    Ok(Some(frame::channel_close(
-                channel,
-                code,
-                text,
-                cid,
-                mid)))
+    Ok(Some(frame::channel_close(channel, code, text, cid, mid)))
 }
 
 fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
     let (cid, mid) = frame::split_class_method(cm_id);
 
-    Ok(Some(frame::connection_close(
-                0,
-                code,
-                text,
-                cid,
-                mid)))
+    Ok(Some(frame::connection_close(0, code, text, cid, mid)))
 }

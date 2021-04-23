@@ -2,13 +2,12 @@ use crate::Context;
 use log::info;
 use serde_json;
 use std::convert::Infallible;
-use std::future::Future;
-use std::sync::Arc;
+//use std::future::Future;
 use hyper::{Body, Request, Response};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
-
-pub(crate) async fn route(req: Request<Body>, ctx: Arc<Mutex<Context>>) -> Result<Response<Body>, Infallible> {
+pub(crate) async fn route(_req: Request<Body>, _ctx: Arc<Mutex<Context>>) -> Result<Response<Body>, Infallible> {
     let ctx = crate::CONTEXT.lock().await;
 
     let exchanges = ctx.exchanges.exchange_list().await;

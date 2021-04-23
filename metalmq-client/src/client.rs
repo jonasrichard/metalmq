@@ -59,6 +59,8 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
     let mut client = client_sm::new();
     let mut feedback: HashMap<u16, Response> = HashMap::new();
 
+    // TODO if server closes the stream, we need to notify all the async fns who are waiting
+    // check what is the related error
     loop {
         tokio::select! {
             result = stream.next() => {
@@ -281,6 +283,6 @@ pub(crate) async fn sync_call(conn: &Client, frame: AMQPFrame) -> Result<()> {
     match rx.await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e),
-        Err(_) => client_error!(None, 0, "Channel recv error", 0),
+        Err(_) => client_error!(None, 0, "Connection closed by peer", 0),
     }
 }

@@ -75,8 +75,8 @@ mod steps {
                     let err = maybe_err.unwrap();
 
                     assert_eq!(err.channel, None);
-                    assert_eq!(err.code, 404);
-                    assert_eq!(err.message, "".to_string());
+                    assert_eq!(err.code, 0);
+                    assert_eq!(err.message, "Connection closed by peer".to_string());
                     assert_eq!(err.class_method, 0);
 
                     if let Some(ref c) = world.client {
