@@ -101,9 +101,9 @@ pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client
 
     client::sync_call(&connection, frame::AMQPFrame::Header).await?;
 
-    let caps = frame::FieldTable::new();
-    // TODO if it is set, in case of auth error we are waiting for the nothing
-    //caps.insert("authentication_failure_on_close".into(), frame::AMQPFieldValue::Bool(true));
+    let mut caps = frame::FieldTable::new();
+
+    caps.insert("authentication_failure_close".into(), frame::AMQPFieldValue::Bool(true));
 
     //caps.insert("basic.nack".into(), AMQPFieldValue::Bool(true));
     //caps.insert("connection.blocked".into(), AMQPFieldValue::Bool(true));
@@ -241,7 +241,7 @@ pub fn setup_logger() {
                 .additive(false)
                 .build("client", log::LevelFilter::Info),
         )
-        .build(Root::builder().appender("clientlog").build(log::LevelFilter::Debug))
+        .build(Root::builder().appender("stdout").build(log::LevelFilter::Debug))
         .unwrap();
 
     log4rs::init_config(config).unwrap();

@@ -75,6 +75,8 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                     Some(Err(e)) =>
                         error!("Handle errors {:?}", e),
                     None => {
+                        debug!("Stream is closed normally");
+
                         return Ok(())
                     }
                 }
