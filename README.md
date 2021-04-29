@@ -28,7 +28,15 @@ cd metalmq
 cargo test --features integration-tests
 ```
 
-for example.
+## AMQP compliance
+
+For AMQP compliance we use `pika` Python library and `pytest` framework to be to validate
+the comformance of metalmq server.
+
+```
+cd amqp-compliance
+pytest
+```
 
 ### Checklist
 
