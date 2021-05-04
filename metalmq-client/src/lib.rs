@@ -110,7 +110,15 @@ pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client
     //caps.insert("consumer_cancel_notify".into(), AMQPFieldValue::Bool(true));
     //caps.insert("pub(crate)lisher_confirms".into(), AMQPFieldValue::Bool(true));
 
-    client::sync_call(&connection, frame::connection_start_ok(username, password, caps)).await?;
+    if let Err(_) = client::sync_call(&connection, frame::connection_start_ok(username, password, caps)).await {
+        return client_error!(
+            None,
+            503,
+            "Server closed connection during authentication",
+            frame::CONNECTION_START_OK
+        );
+    }
+
     client::call(&connection, frame::connection_tune_ok(0)).await?;
 
     Ok(connection)
