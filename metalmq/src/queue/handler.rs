@@ -1,6 +1,6 @@
 use crate::message::Message;
-use metalmq_codec::frame;
 use log::{debug, error};
+use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -11,8 +11,15 @@ pub(crate) type FrameSink = mpsc::Sender<frame::AMQPFrame>;
 #[derive(Debug)]
 pub(crate) enum QueueCommand {
     Message(Message),
-    Consume{ consumer_tag: String, frame_sink: FrameSink, response: oneshot::Sender<()> },
-    Cancel{ consumer_tag: String, response: oneshot::Sender<()> }
+    Consume {
+        consumer_tag: String,
+        frame_sink: FrameSink,
+        response: oneshot::Sender<()>,
+    },
+    Cancel {
+        consumer_tag: String,
+        response: oneshot::Sender<()>,
+    },
 }
 
 pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
@@ -27,6 +34,8 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                     frame::AMQPFrame::ContentBody(frame::content_body(1, message.content.as_slice())),
                 ];
 
+                debug!("Sending message to consumers {}", consumers.len());
+
                 'consumer: for (_, consumer) in &consumers {
                     for f in &frames {
                         debug!("Sending frame {:?}", f);
@@ -37,15 +46,21 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                         }
                     }
                 }
-            },
-            QueueCommand::Consume{ consumer_tag, frame_sink, response } => {
+            }
+            QueueCommand::Consume {
+                consumer_tag,
+                frame_sink,
+                response,
+            } => {
                 consumers.insert(consumer_tag, frame_sink);
+
+                debug!("Consumer subscribed to queue {}", consumers.len());
 
                 if let Err(e) = response.send(()) {
                     error!("Send error {:?}", e);
                 }
-            },
-            QueueCommand::Cancel{ consumer_tag, response } => {
+            }
+            QueueCommand::Cancel { consumer_tag, response } => {
                 consumers.remove(&consumer_tag);
 
                 if let Err(e) = response.send(()) {
