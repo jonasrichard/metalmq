@@ -5,15 +5,13 @@ import threading
 import time
 
 LOG = logging.getLogger()
-queue_bound = threading.Condition()
-message_published = threading.Condition()
+message_received = threading.Condition()
 
 def connect_as_guest():
     params = pika.URLParameters('amqp://guest:guest@localhost:5672/%2F')
     return pika.BlockingConnection(parameters=params)
 
-def send_message():
-    conn = connect_as_guest()
+def declare_exchange_and_queue(conn):
     channel = conn.channel(channel_number=1)
     channel.exchange_declare('my-exchange',
             exchange_type='topic',
@@ -25,28 +23,22 @@ def send_message():
     channel.queue_declare('my-queue')
     channel.queue_bind('my-queue', 'my-exchange')
 
-    with queue_bound:
-        queue_bound.notify()
+    return channel
 
+
+def publish_message(channel):
     LOG.info('Publishing message')
     channel.basic_publish('my-exchange',
             'my-queue',
             'Hey, receiver! How are you?',
             pika.BasicProperties(content_type='text/plain', delivery_mode=1))
 
-    with message_published:
-        message_published.wait()
-
+def cleanup(channel):
     channel.queue_unbind('my-queue', 'my-exchange')
     channel.queue_delete('my-queue')
     channel.exchange_delete('my-exchange')
 
-    conn.close()
-
-def consume_message():
-    with queue_bound:
-        queue_bound.wait()
-    conn = connect_as_guest()
+def consume_message(conn):
     channel = conn.channel(channel_number=1)
     channel.basic_consume('my-queue', on_message_callback=on_consumer_receive)
     channel.start_consuming()
@@ -55,8 +47,8 @@ def on_consumer_receive(channel, method, properties, body):
     LOG.info('Got message %s', body)
     channel.stop_consuming()
 
-    with message_published:
-        message_published.notify()
+    with message_received:
+        message_received.notify()
 
 def test_basic_publish(caplog):
     """
@@ -64,11 +56,18 @@ def test_basic_publish(caplog):
     """
     caplog.set_level(logging.INFO)
 
-    receiver = threading.Thread(target=consume_message)
-    receiver.start()
+    sender = connect_as_guest()
+    channel = declare_exchange_and_queue(sender)
 
-    sender = threading.Thread(target=send_message)
-    sender.start()
+    receiver = connect_as_guest()
+    threading.Thread(target=consume_message, args=(receiver,)).start()
 
-    sender.join()
-    receiver.join()
+    publish_message(channel)
+
+    with message_received:
+        message_received.wait()
+
+    cleanup(channel)
+
+    receiver.close()
+    sender.close()
