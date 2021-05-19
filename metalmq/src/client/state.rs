@@ -37,6 +37,9 @@ pub(crate) struct Connection {
 struct PublishedContent {
     channel: Channel,
     exchange: String,
+    routing_key: String,
+    mandatory: bool,
+    immediate: bool,
     length: Option<u64>,
     content: Option<Vec<u8>>,
 }
@@ -148,8 +151,11 @@ impl Connection {
             self.in_flight_contents.insert(
                 channel,
                 PublishedContent {
-                    channel: channel,
+                    channel,
                     exchange: args.exchange_name,
+                    routing_key: args.routing_key,
+                    mandatory: args.flags.contains(frame::BasicPublishFlags::MANDATORY),
+                    immediate: args.flags.contains(frame::BasicPublishFlags::IMMEDIATE),
                     length: None,
                     content: None,
                 },
@@ -186,7 +192,12 @@ impl Connection {
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
             let msg = message::Message {
                 source_connection: self.id.clone(),
+                channel: pc.channel,
                 content: body.body,
+                exchange: pc.exchange.clone(),
+                routing_key: pc.routing_key,
+                mandatory: pc.mandatory,
+                immediate: pc.immediate,
             };
 
             match self.exchanges.get(&pc.exchange) {

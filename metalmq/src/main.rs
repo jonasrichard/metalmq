@@ -17,6 +17,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::signal;
 use tokio::sync::Mutex;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -35,7 +36,7 @@ lazy_static! {
 
         Arc::new(Mutex::new(Context {
             exchanges: exchanges,
-            queues: queues
+            queues: queues,
         }))
     };
 }
@@ -65,20 +66,12 @@ pub(crate) struct RuntimeError {
 impl From<RuntimeError> for metalmq_codec::frame::AMQPFrame {
     fn from(err: RuntimeError) -> metalmq_codec::frame::AMQPFrame {
         match err.scope {
-            ErrorScope::Connection => metalmq_codec::frame::connection_close(
-                err.channel,
-                err.code,
-                &err.text,
-                err.class_id,
-                err.method_id,
-            ),
-            ErrorScope::Channel => metalmq_codec::frame::channel_close(
-                err.channel,
-                err.code,
-                &err.text,
-                err.class_id,
-                err.method_id,
-            ),
+            ErrorScope::Connection => {
+                metalmq_codec::frame::connection_close(err.channel, err.code, &err.text, err.class_id, err.method_id)
+            }
+            ErrorScope::Channel => {
+                metalmq_codec::frame::channel_close(err.channel, err.code, &err.text, err.class_id, err.method_id)
+            }
         }
     }
 }
@@ -97,17 +90,21 @@ fn setup_logger() {
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
-            writeln!(buf, "{} - [{}] {}:{} {}", buf.timestamp_millis(), record.level(), record.file().unwrap_or_default(),
-                record.line().unwrap_or_default(), record.args())
+            writeln!(
+                buf,
+                "{} - [{}] {}:{} {}",
+                buf.timestamp_millis(),
+                record.level(),
+                record.file().unwrap_or_default(),
+                record.line().unwrap_or_default(),
+                record.args()
+            )
         })
         .write_style(env_logger::WriteStyle::Always)
         .init();
 }
 
-#[tokio::main]
-pub async fn main() -> Result<()> {
-    setup_logger();
-
+async fn start_http() -> Result<()> {
     let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
     let make_svc = make_service_fn(|_conn| async {
@@ -122,9 +119,13 @@ pub async fn main() -> Result<()> {
         }
     });
 
+    Ok(())
+}
+
+async fn start_amqp(url: &str) -> Result<()> {
     info!("Listening on port 5672");
 
-    let listener = TcpListener::bind("127.0.0.1:5672").await?;
+    let listener = TcpListener::bind(url).await?;
 
     loop {
         let (socket, _) = listener.accept().await?;
@@ -138,4 +139,17 @@ pub async fn main() -> Result<()> {
             info!("Connection is closed");
         });
     }
+}
+
+#[tokio::main]
+pub async fn main() -> Result<()> {
+    setup_logger();
+
+    start_http().await?;
+
+    start_amqp("[::1]:5672").await?;
+
+    signal::ctrl_c().await?;
+
+    Ok(())
 }

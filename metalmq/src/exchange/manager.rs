@@ -1,26 +1,26 @@
-use crate::Result;
 use crate::client::{error, state};
-use crate::exchange::Exchange;
 use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
+use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
-use metalmq_codec::frame;
+use crate::Result;
 use log::{debug, error};
+use metalmq_codec::frame;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
 pub(crate) struct ExchangeManager {
-    exchanges : Arc<Mutex<HashMap<String, ExchangeState>>>
+    exchanges: Arc<Mutex<HashMap<String, ExchangeState>>>,
 }
 
 struct ExchangeState {
     exchange: Exchange,
-    command_sink: ExchangeCommandSink
+    command_sink: ExchangeCommandSink,
 }
 
 pub(crate) fn start() -> ExchangeManager {
     ExchangeManager {
-        exchanges: Arc::new(Mutex::new(HashMap::new())) // TODO add default exchanges from a config or db
+        exchanges: Arc::new(Mutex::new(HashMap::new())), // TODO add default exchanges from a config or db
     }
 }
 
@@ -31,24 +31,37 @@ impl ExchangeManager {
     /// true it doesn't create channel if it doesn't exist. So with passive declare one can check
     /// if channel exists or doesn't. Otherwise if channel already exists all the parameters need
     /// to be the same as in the exchange given as a parameter.
-    pub(crate) async fn declare(&mut self, exchange: Exchange, passive: bool, _conn: &str) -> Result<ExchangeCommandSink> {
+    pub(crate) async fn declare(
+        &mut self,
+        exchange: Exchange,
+        passive: bool,
+        _conn: &str,
+    ) -> Result<ExchangeCommandSink> {
         let mut ex = self.exchanges.lock().await;
 
-        debug!("Declare exchange {} passive? {}", exchange.name, passive);
+        debug!("Declare exchange: {:?}", exchange);
 
         match ex.get(&exchange.name) {
-            None =>
+            None => {
                 if passive {
-                    return error(0, frame::EXCHANGE_DECLARE, 404, "Exchange not found")
-                },
+                    return error(0, frame::EXCHANGE_DECLARE, 404, "Exchange not found");
+                }
+            }
             Some(current) => {
                 debug!("Current instance {:?}", current.exchange);
 
                 if current.exchange != exchange {
-                    error!("Current exchange: {:?} to be declared. {:?}", current.exchange, exchange);
+                    error!(
+                        "Current exchange: {:?} to be declared. {:?}",
+                        current.exchange, exchange
+                    );
 
-                    return error(0, frame::EXCHANGE_DECLARE, state::PRECONDITION_FAILED,
-                                 "Exchange exists but properties are different")
+                    return error(
+                        0,
+                        frame::EXCHANGE_DECLARE,
+                        state::PRECONDITION_FAILED,
+                        "Exchange exists but properties are different",
+                    );
                 }
             }
         }
@@ -63,7 +76,7 @@ impl ExchangeManager {
 
         let exchange_state = ExchangeState {
             exchange: exchange,
-            command_sink: command_sink.clone()
+            command_sink: command_sink.clone(),
         };
 
         ex.insert(exchange_name, exchange_state);
@@ -77,12 +90,15 @@ impl ExchangeManager {
         match ex.get(&exchange_name) {
             Some(exchange_state) => {
                 // TODO we need to have a oneshot channel here to wait for the result
-                exchange_state.command_sink.send(ExchangeCommand::QueueBind { sink: queue_channel }).await.unwrap();
+                exchange_state
+                    .command_sink
+                    .send(ExchangeCommand::QueueBind { sink: queue_channel })
+                    .await
+                    .unwrap();
 
                 Ok(())
-            },
-            None =>
-                error(0, frame::QUEUE_BIND, 404, "Not found")
+            }
+            None => error(0, frame::QUEUE_BIND, 404, "Not found"),
         }
     }
 

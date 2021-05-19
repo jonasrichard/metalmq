@@ -28,15 +28,22 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
     while let Some(command) = commands.recv().await {
         match command {
             QueueCommand::Message(message) => {
-                let frames = vec![
-                    frame::basic_deliver(1, "ctag".into(), 0, false, "exchange".into(), "rkey".into()),
-                    frame::AMQPFrame::ContentHeader(frame::content_header(1, message.content.len() as u64)),
-                    frame::AMQPFrame::ContentBody(frame::content_body(1, message.content.as_slice())),
-                ];
-
                 debug!("Sending message to consumers {}", consumers.len());
 
-                'consumer: for (_, consumer) in &consumers {
+                'consumer: for (consumer_tag, consumer) in &consumers {
+                    let frames = vec![
+                        frame::basic_deliver(
+                            message.channel,
+                            consumer_tag,
+                            0,
+                            false,
+                            &message.exchange,
+                            &message.routing_key,
+                        ),
+                        frame::AMQPFrame::ContentHeader(frame::content_header(1, message.content.len() as u64)),
+                        frame::AMQPFrame::ContentBody(frame::content_body(1, message.content.as_slice())),
+                    ];
+
                     for f in &frames {
                         debug!("Sending frame {:?}", f);
 
