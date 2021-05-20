@@ -105,6 +105,7 @@ fn setup_logger() {
                 log::Level::Error => lvl.set_color(env_logger::fmt::Color::Red),
                 log::Level::Warn => lvl.set_color(env_logger::fmt::Color::Yellow),
                 log::Level::Info => lvl.set_color(env_logger::fmt::Color::Green),
+                log::Level::Debug => lvl.set_color(env_logger::fmt::Color::Rgb(128, 128, 128)),
                 _ => &mut lvl,
             };
 

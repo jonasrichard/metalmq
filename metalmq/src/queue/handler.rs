@@ -1,6 +1,6 @@
 use crate::message::Message;
 use crate::ConsumerTag;
-use log::{debug, error};
+use log::{debug, error, info};
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -32,7 +32,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
             QueueCommand::Message(message) => {
                 debug!("Sending message to consumers {}", consumers.len());
 
-                'consumer: for (consumer_tag, consumer) in &consumers {
+                for (consumer_tag, consumer) in &consumers {
                     let frames = vec![
                         frame::basic_deliver(
                             message.channel,
@@ -50,6 +50,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                         debug!("Sending frame {:?}", f);
 
                         if let Err(e) = consumer.send(f.clone()).await {
+                            // TODO remove this channel from the consumers
                             error!("Message send error {:?}", e);
                             break 'frames;
                         }
@@ -61,7 +62,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                 frame_sink,
                 response,
             } => {
-                debug!("Basic Consume {}", consumer_tag);
+                info!("Basic Consume {}", consumer_tag);
 
                 consumers.insert(consumer_tag, frame_sink);
 
@@ -70,7 +71,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                 }
             }
             QueueCommand::Cancel { consumer_tag, response } => {
-                debug!("Basic Cancel {}", consumer_tag);
+                info!("Basic Cancel {}", consumer_tag);
 
                 consumers.remove(&consumer_tag);
 

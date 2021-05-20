@@ -185,8 +185,6 @@ impl Connection {
 
     pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
         // TODO collect info into a data struct
-        info!("Receive content with length {}", header.body_size);
-
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
             pc.length = Some(header.body_size);
         }
@@ -195,8 +193,6 @@ impl Connection {
     }
 
     pub(crate) async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
-        info!("Receive content with length {}", body.body.len());
-
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
             let msg = message::Message {
                 source_connection: self.id.clone(),
