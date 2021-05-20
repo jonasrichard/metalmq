@@ -1,4 +1,5 @@
 use crate::message::Message;
+use crate::ConsumerTag;
 use log::{debug, error};
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -23,7 +24,8 @@ pub(crate) enum QueueCommand {
 }
 
 pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
-    let mut consumers = HashMap::<String, FrameSink>::new();
+    // TODO we need to have a variable here to access the queue properties
+    let mut consumers = HashMap::<ConsumerTag, FrameSink>::new();
 
     while let Some(command) = commands.recv().await {
         match command {
@@ -44,12 +46,12 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                         frame::AMQPFrame::ContentBody(frame::content_body(1, message.content.as_slice())),
                     ];
 
-                    for f in &frames {
+                    'frames: for f in &frames {
                         debug!("Sending frame {:?}", f);
 
                         if let Err(e) = consumer.send(f.clone()).await {
                             error!("Message send error {:?}", e);
-                            break 'consumer;
+                            break 'frames;
                         }
                     }
                 }
@@ -59,15 +61,17 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                 frame_sink,
                 response,
             } => {
-                consumers.insert(consumer_tag, frame_sink);
+                debug!("Basic Consume {}", consumer_tag);
 
-                debug!("Consumer subscribed to queue {}", consumers.len());
+                consumers.insert(consumer_tag, frame_sink);
 
                 if let Err(e) = response.send(()) {
                     error!("Send error {:?}", e);
                 }
             }
             QueueCommand::Cancel { consumer_tag, response } => {
+                debug!("Basic Cancel {}", consumer_tag);
+
                 consumers.remove(&consumer_tag);
 
                 if let Err(e) = response.send(()) {

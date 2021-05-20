@@ -23,9 +23,7 @@ impl Encoder<AMQPFrame> for AMQPCodec {
 
             AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, &args),
 
-            AMQPFrame::ContentHeader(header_frame) => {
-                encode_content_header_frame(&mut buf, &header_frame)
-            }
+            AMQPFrame::ContentHeader(header_frame) => encode_content_header_frame(&mut buf, &header_frame),
 
             AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, &body_frame),
 
@@ -134,10 +132,11 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         QUEUE_BIND_OK => MethodFrameArgs::QueueBindOk,
         BASIC_CONSUME => decode_basic_consume(&mut src),
         BASIC_CONSUME_OK => decode_basic_consume_ok(&mut src),
+        BASIC_CANCEL => decode_basic_cancel(&mut src),
+        BASIC_CANCEL_OK => decode_basic_cancel_ok(&mut src),
         BASIC_DELIVER => decode_basic_deliver(&mut src),
         BASIC_PUBLISH => decode_basic_publish(&mut src),
-        _ =>
-            unimplemented!("{:08X}", class_method)
+        _ => unimplemented!("{:08X}", class_method),
     };
 
     AMQPFrame::Method(channel, class_method, method_frame_args)
@@ -300,6 +299,21 @@ fn decode_basic_consume_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::BasicConsumeOk(args)
 }
 
+fn decode_basic_cancel(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicCancelArgs::default();
+    args.consumer_tag = decode_short_string(&mut src);
+    args.no_wait = src.get_u8() != 0;
+
+    MethodFrameArgs::BasicCancel(args)
+}
+
+fn decode_basic_cancel_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicCancelOkArgs::default();
+    args.consumer_tag = decode_short_string(&mut src);
+
+    MethodFrameArgs::BasicCancelOk(args)
+}
+
 fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = BasicDeliverArgs::default();
     args.consumer_tag = decode_short_string(&mut src);
@@ -320,7 +334,6 @@ fn decode_basic_publish(mut src: &mut BytesMut) -> MethodFrameArgs {
 
     MethodFrameArgs::BasicPublish(args)
 }
-
 
 fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class_id = src.get_u16();
@@ -397,12 +410,7 @@ fn decode_field_table(buf: &mut BytesMut) -> Option<HashMap<String, AMQPFieldVal
     Some(table)
 }
 
-fn encode_method_frame(
-    buf: &mut BytesMut,
-    channel: Channel,
-    cm: ClassMethod,
-    args: &MethodFrameArgs,
-) {
+fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, args: &MethodFrameArgs) {
     buf.put_u8(1u8);
     buf.put_u16(channel);
 
@@ -430,10 +438,12 @@ fn encode_method_frame(
         MethodFrameArgs::QueueDeclareOk(args) => encode_queue_declare_ok(&mut fr, args),
         MethodFrameArgs::QueueBind(args) => encode_queue_bind(&mut fr, args),
         MethodFrameArgs::QueueBindOk => (),
-        MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
         MethodFrameArgs::BasicConsume(args) => encode_basic_consume(&mut fr, args),
         MethodFrameArgs::BasicConsumeOk(args) => encode_basic_consume_ok(&mut fr, args),
-        MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args)
+        MethodFrameArgs::BasicCancel(args) => encode_basic_cancel(&mut fr, args),
+        MethodFrameArgs::BasicCancelOk(args) => encode_basic_cancel_ok(&mut fr, args),
+        MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
+        MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args),
     }
 
     buf.put_u32(fr.len() as u32);
@@ -560,6 +570,15 @@ fn encode_basic_consume_ok(mut buf: &mut BytesMut, args: &BasicConsumeOkArgs) {
     encode_short_string(&mut buf, &args.consumer_tag);
 }
 
+fn encode_basic_cancel(mut buf: &mut BytesMut, args: &BasicCancelArgs) {
+    encode_short_string(&mut buf, &args.consumer_tag);
+    buf.put_u8(if args.no_wait { 1 } else { 0 });
+}
+
+fn encode_basic_cancel_ok(mut buf: &mut BytesMut, args: &BasicCancelOkArgs) {
+    encode_short_string(&mut buf, &args.consumer_tag);
+}
+
 fn encode_basic_deliver(mut buf: &mut BytesMut, args: &BasicDeliverArgs) {
     encode_short_string(&mut buf, &args.consumer_tag);
     buf.put_u64(args.delivery_tag);
@@ -568,7 +587,6 @@ fn encode_basic_deliver(mut buf: &mut BytesMut, args: &BasicDeliverArgs) {
     encode_short_string(&mut buf, &args.routing_key);
 }
 
-        //BASIC_DELIVER => vec![t_ss!(), t_u64!(), t_u8!(), t_ss!(), t_ss!()],
 fn encode_basic_publish(mut buf: &mut BytesMut, args: &BasicPublishArgs) {
     buf.put_u16(0);
     encode_short_string(&mut buf, &args.exchange_name);

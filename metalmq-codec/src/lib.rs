@@ -10,6 +10,9 @@ extern crate bitflags;
 
 use std::fmt;
 
+/// Consumer tag type for basic consume
+pub type ConsumerTag = String;
+
 /// Type alias for a sync and send error.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 /// Type alias for a simplified Result with Error.
@@ -90,7 +93,7 @@ mod tests {
             exchange_name: "exchg".into(),
             routing_key: "key".into(),
             no_wait: false,
-            args: None
+            args: None,
         };
 
         let res = encoder.encode(

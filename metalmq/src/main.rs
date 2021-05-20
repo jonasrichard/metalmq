@@ -24,6 +24,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+pub type ConsumerTag = String;
+
+//impl From<&str> for ConsumerTag {
+//    fn from(f: &str) -> ConsumerTag {
+//        f.to_owned()
+//    }
+//}
+
 pub(crate) struct Context {
     pub(crate) exchanges: exchange::manager::ExchangeManager,
     pub(crate) queues: queue::manager::QueueManager,
@@ -90,11 +98,21 @@ fn setup_logger() {
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
+            let mut lvl = buf.style();
+            lvl.set_bold(true);
+
+            match record.level() {
+                log::Level::Error => lvl.set_color(env_logger::fmt::Color::Red),
+                log::Level::Warn => lvl.set_color(env_logger::fmt::Color::Yellow),
+                log::Level::Info => lvl.set_color(env_logger::fmt::Color::Green),
+                _ => &mut lvl,
+            };
+
             writeln!(
                 buf,
-                "{} - [{}] {}:{} {}",
+                "{} - [{:5}] {}:{} - {}",
                 buf.timestamp_millis(),
-                record.level(),
+                lvl.value(record.level()),
                 record.file().unwrap_or_default(),
                 record.line().unwrap_or_default(),
                 record.args()

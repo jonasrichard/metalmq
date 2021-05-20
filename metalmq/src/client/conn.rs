@@ -2,9 +2,9 @@ use super::state::{self, Connection};
 use crate::{Context, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
+use log::{error, trace};
 use metalmq_codec::codec::AMQPCodec;
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
-use log::{error, trace};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
@@ -35,7 +35,10 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
                                         sink.send(response_frame).await?;
                                     }
                                 }
-                                None => (),
+                                None => {
+                                    conn.connection_close(frame::ConnectionCloseArgs::default()).await?;
+                                    ()
+                                },
                             },
                             Err(e) => return Err(Box::new(e)),
                         },
@@ -71,8 +74,11 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<Opti
     }
 }
 
-async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel,
-                             ma: frame::MethodFrameArgs) -> Result<Option<AMQPFrame>> {
+async fn handle_method_frame(
+    conn: &mut Connection,
+    channel: frame::Channel,
+    ma: frame::MethodFrameArgs,
+) -> Result<Option<AMQPFrame>> {
     use MethodFrameArgs::*;
 
     match ma {
@@ -87,6 +93,7 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel,
         QueueBind(args) => conn.queue_bind(channel, args).await,
         BasicPublish(args) => conn.basic_publish(channel, args).await,
         BasicConsume(args) => conn.basic_consume(channel, args).await,
+        BasicCancel(args) => conn.basic_cancel(channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
             Ok(None)

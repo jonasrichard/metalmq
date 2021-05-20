@@ -172,7 +172,15 @@ impl Connection {
             .await?;
         self.consumed_queues.insert(args.consumer_tag.clone(), args.queue);
 
-        Ok(Some(frame::basic_consume_ok(channel, args.consumer_tag)))
+        Ok(Some(frame::basic_consume_ok(channel, &args.consumer_tag)))
+    }
+
+    pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
+        let mut ctx = self.context.lock().await;
+        //ctx.queues.cancel(args.consumer_tag).await?;
+        self.consumed_queues.remove(&args.consumer_tag);
+
+        Ok(Some(frame::basic_cancel_ok(channel, &args.consumer_tag)))
     }
 
     pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {

@@ -192,7 +192,7 @@ impl Client {
         consumer_tag: &str,
         sink: MessageSink,
     ) -> Result<()> {
-        let frame = frame::basic_consume(channel, queue_name.into(), consumer_tag.into());
+        let frame = frame::basic_consume(channel, queue_name.into(), &consumer_tag.to_string());
         let (tx, rx) = oneshot::channel();
 
         self.server_channel

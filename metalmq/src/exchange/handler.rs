@@ -18,6 +18,10 @@ pub(crate) async fn exchange_loop(commands: &mut mpsc::Receiver<ExchangeCommand>
     while let Some(command) = commands.recv().await {
         match command {
             ExchangeCommand::Message(message) => {
+                // TODO here we need to check if this exchange is bound to a queue, or
+                // if routing key will send this message to a queue.
+                //   If not, we need to check if the message is mandatory, we need to
+                //   send back a basic-return with an error.
                 debug!(
                     "Publish message {}",
                     String::from_utf8(message.content.clone()).unwrap()
