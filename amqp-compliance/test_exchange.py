@@ -71,3 +71,25 @@ def test_basic_publish(caplog):
 
     receiver.close()
     sender.close()
+
+def test_publish_and_consume(caplog):
+    """
+    Send messages then receiver consumes then, test if server stores them.
+    """
+    caplog.set_level(logging.INFO)
+
+    sender = connect_as_guest()
+    channel = declare_exchange_and_queue(sender)
+
+    publish_message(channel)
+
+    receiver = connect_as_guest()
+    threading.Thread(target=consume_message, args=(receiver,)).start()
+
+    with message_received:
+        message_received.wait()
+
+    cleanup(channel)
+
+    receiver.close()
+    sender.close()

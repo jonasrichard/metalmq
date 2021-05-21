@@ -88,6 +88,10 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                     error!("Send error {:?}", e);
                 }
 
+                if messages.len() > 0 {
+                    info!("Send messages to new consumer");
+                }
+
                 // TODO now we send the first consumer all the messages but it is not optimal
                 // we need to send messages other consumers as well, if they are appearing
                 'send: while let Some(message) = messages.pop_front() {
