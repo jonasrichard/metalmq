@@ -89,6 +89,7 @@ async fn handle_method_frame(
         ConnectionClose(args) => conn.connection_close(args).await,
         ChannelOpen => conn.channel_open(channel).await,
         ChannelClose(args) => conn.channel_close(channel, args).await,
+        ChannelCloseOk => conn.channel_close_ok(channel).await,
         ExchangeDeclare(args) => conn.exchange_declare(channel, args).await,
         ExchangeDelete(args) => conn.exchange_delete(channel, args).await,
         QueueDeclare(args) => conn.queue_declare(channel, args).await,

@@ -34,6 +34,7 @@ pub const BASIC_CONSUME_OK: u32 = 0x003C0015;
 pub const BASIC_CANCEL: u32 = 0x003C001E;
 pub const BASIC_CANCEL_OK: u32 = 0x003C001F;
 pub const BASIC_PUBLISH: u32 = 0x003C0028;
+pub const BASIC_RETURN: u32 = 0x003C0032;
 pub const BASIC_DELIVER: u32 = 0x003C003C;
 
 pub type Channel = u16;
@@ -98,8 +99,9 @@ pub enum MethodFrameArgs {
     BasicConsumeOk(BasicConsumeOkArgs),
     BasicCancel(BasicCancelArgs),
     BasicCancelOk(BasicCancelOkArgs),
-    BasicDeliver(BasicDeliverArgs),
     BasicPublish(BasicPublishArgs),
+    BasicReturn(BasicReturnArgs),
+    BasicDeliver(BasicDeliverArgs),
 }
 
 #[derive(Clone, Debug)]
@@ -355,15 +357,6 @@ pub struct BasicCancelOkArgs {
     pub consumer_tag: ConsumerTag,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct BasicDeliverArgs {
-    pub consumer_tag: ConsumerTag,
-    pub delivery_tag: u64,
-    pub redelivered: bool,
-    pub exchange_name: String,
-    pub routing_key: String,
-}
-
 bitflags! {
     pub struct BasicPublishFlags: u8 {
         const MANDATORY = 0b00000001;
@@ -382,6 +375,23 @@ pub struct BasicPublishArgs {
     pub exchange_name: String,
     pub routing_key: String,
     pub flags: BasicPublishFlags,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BasicReturnArgs {
+    pub reply_code: u16,
+    pub reply_text: String,
+    pub exchange_name: String,
+    pub routing_key: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BasicDeliverArgs {
+    pub consumer_tag: ConsumerTag,
+    pub delivery_tag: u64,
+    pub redelivered: bool,
+    pub exchange_name: String,
+    pub routing_key: String,
 }
 
 impl From<ContentHeaderFrame> for AMQPFrame {
@@ -719,6 +729,37 @@ pub fn basic_cancel_ok(channel: u16, consumer_tag: &ConsumerTag) -> AMQPFrame {
     )
 }
 
+pub fn basic_publish(channel: u16, exchange_name: &str, routing_key: &str) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        BASIC_PUBLISH,
+        MethodFrameArgs::BasicPublish(BasicPublishArgs {
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string(),
+            flags: BasicPublishFlags::empty(),
+        }),
+    )
+}
+
+pub fn basic_return(
+    channel: u16,
+    reply_code: u16,
+    reply_text: &str,
+    exchange_name: &str,
+    routing_key: &str,
+) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        BASIC_RETURN,
+        MethodFrameArgs::BasicReturn(BasicReturnArgs {
+            reply_code,
+            reply_text: reply_text.to_string(),
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string(),
+        }),
+    )
+}
+
 pub fn basic_deliver(
     channel: u16,
     consumer_tag: &ConsumerTag,
@@ -736,18 +777,6 @@ pub fn basic_deliver(
             redelivered: redelivered,
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
-        }),
-    )
-}
-
-pub fn basic_publish(channel: u16, exchange_name: &str, routing_key: &str) -> AMQPFrame {
-    AMQPFrame::Method(
-        channel,
-        BASIC_PUBLISH,
-        MethodFrameArgs::BasicPublish(BasicPublishArgs {
-            exchange_name: exchange_name.to_string(),
-            routing_key: routing_key.to_string(),
-            flags: BasicPublishFlags::empty(),
         }),
     )
 }

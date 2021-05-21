@@ -140,8 +140,9 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         BASIC_CONSUME_OK => decode_basic_consume_ok(&mut src),
         BASIC_CANCEL => decode_basic_cancel(&mut src),
         BASIC_CANCEL_OK => decode_basic_cancel_ok(&mut src),
-        BASIC_DELIVER => decode_basic_deliver(&mut src),
         BASIC_PUBLISH => decode_basic_publish(&mut src),
+        BASIC_RETURN => decode_basic_return(&mut src),
+        BASIC_DELIVER => decode_basic_deliver(&mut src),
         _ => unimplemented!("{:08X}", class_method),
     };
 
@@ -356,6 +357,26 @@ fn decode_basic_cancel_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::BasicCancelOk(args)
 }
 
+fn decode_basic_publish(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicPublishArgs::default();
+    let _ = src.get_u16();
+    args.exchange_name = decode_short_string(&mut src);
+    args.routing_key = decode_short_string(&mut src);
+    args.flags = BasicPublishFlags::from_bits(src.get_u8()).unwrap_or_default();
+
+    MethodFrameArgs::BasicPublish(args)
+}
+
+fn decode_basic_return(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicReturnArgs::default();
+    args.reply_code = src.get_u16();
+    args.reply_text = decode_short_string(&mut src);
+    args.exchange_name = decode_short_string(&mut src);
+    args.routing_key = decode_short_string(&mut src);
+
+    MethodFrameArgs::BasicReturn(args)
+}
+
 fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = BasicDeliverArgs::default();
     args.consumer_tag = decode_short_string(&mut src);
@@ -365,16 +386,6 @@ fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
     args.routing_key = decode_short_string(&mut src);
 
     MethodFrameArgs::BasicDeliver(args)
-}
-
-fn decode_basic_publish(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicPublishArgs::default();
-    let _ = src.get_u16();
-    args.exchange_name = decode_short_string(&mut src);
-    args.routing_key = decode_short_string(&mut src);
-    args.flags = BasicPublishFlags::from_bits(src.get_u8()).unwrap_or_default();
-
-    MethodFrameArgs::BasicPublish(args)
 }
 
 fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
@@ -489,6 +500,7 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::BasicCancel(args) => encode_basic_cancel(&mut fr, args),
         MethodFrameArgs::BasicCancelOk(args) => encode_basic_cancel_ok(&mut fr, args),
         MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
+        MethodFrameArgs::BasicReturn(args) => encode_basic_return(&mut fr, args),
         MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args),
     }
 
@@ -640,19 +652,26 @@ fn encode_basic_cancel_ok(mut buf: &mut BytesMut, args: &BasicCancelOkArgs) {
     encode_short_string(&mut buf, &args.consumer_tag);
 }
 
+fn encode_basic_publish(mut buf: &mut BytesMut, args: &BasicPublishArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.routing_key);
+    buf.put_u8(args.flags.bits());
+}
+
+fn encode_basic_return(mut buf: &mut BytesMut, args: &BasicReturnArgs) {
+    buf.put_u16(args.reply_code);
+    encode_short_string(&mut buf, &args.reply_text);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.routing_key);
+}
+
 fn encode_basic_deliver(mut buf: &mut BytesMut, args: &BasicDeliverArgs) {
     encode_short_string(&mut buf, &args.consumer_tag);
     buf.put_u64(args.delivery_tag);
     buf.put_u8(if args.redelivered { 1 } else { 0 });
     encode_short_string(&mut buf, &args.exchange_name);
     encode_short_string(&mut buf, &args.routing_key);
-}
-
-fn encode_basic_publish(mut buf: &mut BytesMut, args: &BasicPublishArgs) {
-    buf.put_u16(0);
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.routing_key);
-    buf.put_u8(args.flags.bits());
 }
 
 fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {

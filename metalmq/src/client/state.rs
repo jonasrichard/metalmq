@@ -96,6 +96,10 @@ impl Connection {
         Ok(Some(frame::channel_close_ok(channel)))
     }
 
+    pub(crate) async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
+        Ok(None)
+    }
+
     pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
         let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
