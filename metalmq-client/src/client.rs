@@ -211,7 +211,6 @@ async fn handle_in_method_frame(
         MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel).await,
         MethodFrameArgs::ChannelCloseOk => cs.channel_close_ok(channel).await,
         MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok().await,
-        MethodFrameArgs::ExchangeBindOk => cs.exchange_bind_ok().await,
         MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,

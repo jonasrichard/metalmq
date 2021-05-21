@@ -86,8 +86,6 @@ pub enum MethodFrameArgs {
     ExchangeDeclareOk,
     ExchangeDelete(ExchangeDeleteArgs),
     ExchangeDeleteOk,
-    ExchangeBind(ExchangeBindArgs), // TODO review if it is needed, susicous that queue bind is used
-    ExchangeBindOk,
     QueueDeclare(QueueDeclareArgs),
     QueueDeclareOk(QueueDeclareOkArgs),
     QueueBind(QueueBindArgs),
@@ -244,15 +242,6 @@ impl Default for ExchangeDeleteFlags {
 pub struct ExchangeDeleteArgs {
     pub exchange_name: String,
     pub flags: ExchangeDeleteFlags,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ExchangeBindArgs {
-    pub source: String,
-    pub destination: String,
-    pub routing_key: String,
-    pub no_wait: bool,
-    pub args: Option<FieldTable>,
 }
 
 bitflags! {

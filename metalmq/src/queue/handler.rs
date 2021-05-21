@@ -1,8 +1,8 @@
 use crate::message::Message;
 use crate::{ConsumerTag, Result};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use metalmq_codec::frame;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type QueueCommandSink = mpsc::Sender<QueueCommand>;
@@ -23,10 +23,16 @@ pub(crate) enum QueueCommand {
     },
 }
 
+struct Consumer {
+    consumer_tag: String,
+    sink: FrameSink,
+}
+
 pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
     // TODO we need to have a variable here to access the queue properties
-    let mut messages = VecDeque::new();
-    let mut consumers = HashMap::<ConsumerTag, FrameSink>::new();
+    let mut messages = VecDeque::<Message>::new();
+    let mut consumers = Vec::<Consumer>::new();
+    let mut current_consumer = 0;
 
     while let Some(command) = commands.recv().await {
         match command {
@@ -34,14 +40,36 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                 debug!("Sending message to consumers {}", consumers.len());
 
                 let mut has_sent = false;
+                let mut actual_consumer = current_consumer;
+                // TODO collect the indices what we need to remove, this is not optimal
+                let mut failed = Vec::<usize>::new();
 
-                // Do we need to send to all consumers? No, it is fanout yes, but topic, direct no.
-                for (consumer_tag, consumer) in &consumers {
-                    let frames = message_to_frames(&message, consumer_tag);
+                while let Some(consumer) = consumers.get(actual_consumer) {
+                    let frames = message_to_frames(&message, &consumer.consumer_tag);
 
-                    if let Ok(true) = send_message(consumer, frames).await {
+                    if let Ok(true) = send_message(&consumer.sink, frames).await {
                         has_sent = true;
+
                         break;
+                    } else {
+                        warn!(
+                            "Error sending message to consumer with tag {}, removing",
+                            consumer.consumer_tag
+                        );
+                        failed.push(actual_consumer);
+                    }
+
+                    actual_consumer = (actual_consumer + 1) % consumers.len();
+                    if actual_consumer == current_consumer {
+                        break;
+                    }
+                }
+
+                if failed.len() > 0 {
+                    current_consumer = 0;
+
+                    for f in failed.iter().rev() {
+                        consumers.remove(*f);
                     }
                 }
 
@@ -56,18 +84,33 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
             } => {
                 info!("Basic Consume {}", consumer_tag);
 
-                consumers.insert(consumer_tag, frame_sink);
-
                 if let Err(e) = response.send(()) {
                     error!("Send error {:?}", e);
                 }
 
-                // start sending pending messages
+                // TODO now we send the first consumer all the messages but it is not optimal
+                // we need to send messages other consumers as well, if they are appearing
+                'send: while let Some(message) = messages.pop_front() {
+                    let frames = message_to_frames(&message, &consumer_tag);
+
+                    if let Ok(false) = send_message(&frame_sink, frames).await {
+                        error!("Cannot send message to a consumer {}", consumer_tag);
+                        break 'send;
+                    }
+                }
+
+                consumers.push(Consumer {
+                    consumer_tag,
+                    sink: frame_sink,
+                });
             }
             QueueCommand::Cancel { consumer_tag, response } => {
                 info!("Basic Cancel {}", consumer_tag);
 
-                consumers.remove(&consumer_tag);
+                consumers
+                    .binary_search_by(|c| c.consumer_tag.cmp(&consumer_tag))
+                    .map(|pos| consumers.remove(pos))
+                    .map_err(|e| error!("Cannot cancel consumer {:?}", e));
 
                 if let Err(e) = response.send(()) {
                     error!("Send error {:?}", e);

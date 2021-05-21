@@ -165,14 +165,6 @@ impl ClientState {
         Ok(None)
     }
 
-    pub(crate) async fn exchange_bind(&mut self, _channel: Channel, _args: &frame::ExchangeBindArgs) -> MaybeFrame {
-        unimplemented!()
-    }
-
-    pub(crate) async fn exchange_bind_ok(&mut self) -> MaybeFrame {
-        Ok(None)
-    }
-
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: &frame::QueueDeclareArgs) -> MaybeFrame {
         Ok(Some(frame::queue_declare(channel, &args.name)))
     }

@@ -125,7 +125,7 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         CHANNEL_CLOSE => decode_channel_close(&mut src),
         CHANNEL_CLOSE_OK => MethodFrameArgs::ChannelCloseOk,
         EXCHANGE_DECLARE => decode_exchange_declare(&mut src),
-        EXCHANGE_DECLARE_OK => MethodFrameArgs::ExchangeBindOk,
+        EXCHANGE_DECLARE_OK => MethodFrameArgs::ExchangeDeclareOk,
         EXCHANGE_DELETE => decode_exchange_delete(&mut src),
         EXCHANGE_DELETE_OK => MethodFrameArgs::ExchangeDeleteOk,
         QUEUE_DECLARE => decode_queue_declare(&mut src),
@@ -476,8 +476,6 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::ExchangeDeclareOk => (),
         MethodFrameArgs::ExchangeDelete(args) => encode_exchange_delete(&mut fr, args),
         MethodFrameArgs::ExchangeDeleteOk => (),
-        MethodFrameArgs::ExchangeBind(args) => encode_exchange_bind(&mut fr, args),
-        MethodFrameArgs::ExchangeBindOk => (),
         MethodFrameArgs::QueueDeclare(args) => encode_queue_declare(&mut fr, args),
         MethodFrameArgs::QueueDeclareOk(args) => encode_queue_declare_ok(&mut fr, args),
         MethodFrameArgs::QueueBind(args) => encode_queue_bind(&mut fr, args),
@@ -572,15 +570,6 @@ fn encode_exchange_declare(mut buf: &mut BytesMut, args: &ExchangeDeclareArgs) {
     encode_short_string(&mut buf, &args.exchange_name);
     encode_short_string(&mut buf, &args.exchange_type);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(&mut buf);
-}
-
-fn encode_exchange_bind(mut buf: &mut BytesMut, args: &ExchangeBindArgs) {
-    buf.put_u16(0);
-    encode_short_string(&mut buf, &args.destination);
-    encode_short_string(&mut buf, &args.source);
-    encode_short_string(&mut buf, &args.routing_key);
-    buf.put_u8(if args.no_wait { 1 } else { 0 });
     encode_empty_field_table(&mut buf);
 }
 
