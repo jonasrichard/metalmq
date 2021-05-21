@@ -126,10 +126,16 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         CHANNEL_CLOSE_OK => MethodFrameArgs::ChannelCloseOk,
         EXCHANGE_DECLARE => decode_exchange_declare(&mut src),
         EXCHANGE_DECLARE_OK => MethodFrameArgs::ExchangeBindOk,
+        EXCHANGE_DELETE => decode_exchange_delete(&mut src),
+        EXCHANGE_DELETE_OK => MethodFrameArgs::ExchangeDeleteOk,
         QUEUE_DECLARE => decode_queue_declare(&mut src),
         QUEUE_DECLARE_OK => decode_queue_declare_ok(&mut src),
         QUEUE_BIND => decode_queue_bind(&mut src),
         QUEUE_BIND_OK => MethodFrameArgs::QueueBindOk,
+        QUEUE_DELETE => decode_queue_delete(&mut src),
+        QUEUE_DELETE_OK => decode_queue_delete_ok(&mut src),
+        QUEUE_UNBIND => decode_queue_unbind(&mut src),
+        QUEUE_UNBIND_OK => MethodFrameArgs::QueueUnbindOk,
         BASIC_CONSUME => decode_basic_consume(&mut src),
         BASIC_CONSUME_OK => decode_basic_consume_ok(&mut src),
         BASIC_CANCEL => decode_basic_cancel(&mut src),
@@ -249,6 +255,15 @@ fn decode_exchange_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::ExchangeDeclare(args)
 }
 
+fn decode_exchange_delete(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = ExchangeDeleteArgs::default();
+    let _ = src.get_u16();
+    args.exchange_name = decode_short_string(&mut src);
+    args.flags = ExchangeDeleteFlags::from_bits(src.get_u8()).unwrap_or_default();
+
+    MethodFrameArgs::ExchangeDelete(args)
+}
+
 fn decode_queue_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = QueueDeclareArgs::default();
     let _ = src.get_u16();
@@ -279,6 +294,33 @@ fn decode_queue_bind(mut src: &mut BytesMut) -> MethodFrameArgs {
     args.args = decode_field_table(&mut src);
 
     MethodFrameArgs::QueueBind(args)
+}
+
+fn decode_queue_delete(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueueDeleteArgs::default();
+    let _ = src.get_u16();
+    args.queue_name = decode_short_string(&mut src);
+    args.flags = QueueDeleteFlags::from_bits(src.get_u8()).unwrap_or_default();
+
+    MethodFrameArgs::QueueDelete(args)
+}
+
+fn decode_queue_delete_ok(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueueDeleteOkArgs::default();
+    args.message_count = src.get_u32();
+
+    MethodFrameArgs::QueueDeleteOk(args)
+}
+
+fn decode_queue_unbind(mut src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueueUnbindArgs::default();
+    let _ = src.get_u16();
+    args.queue_name = decode_short_string(&mut src);
+    args.exchange_name = decode_short_string(&mut src);
+    args.routing_key = decode_short_string(&mut src);
+    args.args = decode_field_table(&mut src);
+
+    MethodFrameArgs::QueueUnbind(args)
 }
 
 fn decode_basic_consume(mut src: &mut BytesMut) -> MethodFrameArgs {
@@ -432,12 +474,18 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::ChannelCloseOk => (),
         MethodFrameArgs::ExchangeDeclare(args) => encode_exchange_declare(&mut fr, args),
         MethodFrameArgs::ExchangeDeclareOk => (),
+        MethodFrameArgs::ExchangeDelete(args) => encode_exchange_delete(&mut fr, args),
+        MethodFrameArgs::ExchangeDeleteOk => (),
         MethodFrameArgs::ExchangeBind(args) => encode_exchange_bind(&mut fr, args),
         MethodFrameArgs::ExchangeBindOk => (),
         MethodFrameArgs::QueueDeclare(args) => encode_queue_declare(&mut fr, args),
         MethodFrameArgs::QueueDeclareOk(args) => encode_queue_declare_ok(&mut fr, args),
         MethodFrameArgs::QueueBind(args) => encode_queue_bind(&mut fr, args),
         MethodFrameArgs::QueueBindOk => (),
+        MethodFrameArgs::QueueDelete(args) => encode_queue_delete(&mut fr, args),
+        MethodFrameArgs::QueueDeleteOk(args) => encode_queue_delete_ok(&mut fr, args),
+        MethodFrameArgs::QueueUnbind(args) => encode_queue_unbind(&mut fr, args),
+        MethodFrameArgs::QueueUnbindOk => (),
         MethodFrameArgs::BasicConsume(args) => encode_basic_consume(&mut fr, args),
         MethodFrameArgs::BasicConsumeOk(args) => encode_basic_consume_ok(&mut fr, args),
         MethodFrameArgs::BasicCancel(args) => encode_basic_cancel(&mut fr, args),
@@ -536,6 +584,12 @@ fn encode_exchange_bind(mut buf: &mut BytesMut, args: &ExchangeBindArgs) {
     encode_empty_field_table(&mut buf);
 }
 
+fn encode_exchange_delete(mut buf: &mut BytesMut, args: &ExchangeDeleteArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, &args.exchange_name);
+    buf.put_u8(args.flags.bits());
+}
+
 fn encode_queue_declare(mut buf: &mut BytesMut, args: &QueueDeclareArgs) {
     buf.put_u16(0);
     encode_short_string(&mut buf, &args.name);
@@ -555,6 +609,24 @@ fn encode_queue_bind(mut buf: &mut BytesMut, args: &QueueBindArgs) {
     encode_short_string(&mut buf, &args.exchange_name);
     encode_short_string(&mut buf, &args.routing_key);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
+    encode_empty_field_table(&mut buf);
+}
+
+fn encode_queue_delete(mut buf: &mut BytesMut, args: &QueueDeleteArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, &args.queue_name);
+    buf.put_u8(args.flags.bits());
+}
+
+fn encode_queue_delete_ok(buf: &mut BytesMut, args: &QueueDeleteOkArgs) {
+    buf.put_u32(args.message_count);
+}
+
+fn encode_queue_unbind(mut buf: &mut BytesMut, args: &QueueUnbindArgs) {
+    buf.put_u16(0);
+    encode_short_string(&mut buf, &args.queue_name);
+    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(&mut buf, &args.routing_key);
     encode_empty_field_table(&mut buf);
 }
 

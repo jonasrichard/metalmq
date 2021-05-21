@@ -125,6 +125,11 @@ impl Connection {
         }
     }
 
+    pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
+        // TODO do the delete here
+        Ok(Some(frame::exchange_delete_ok(channel)))
+    }
+
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.queues.declare(args.name.clone()).await?;
@@ -141,6 +146,16 @@ impl Connection {
         }
 
         Ok(Some(frame::queue_bind_ok(channel)))
+    }
+
+    pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
+        // TODO delete the queue
+        Ok(Some(frame::queue_delete_ok(channel, 0)))
+    }
+
+    pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
+        // TODO implement queue unbind
+        Ok(Some(frame::queue_unbind_ok(channel)))
     }
 
     pub(crate) async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {

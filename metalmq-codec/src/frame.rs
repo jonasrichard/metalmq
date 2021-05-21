@@ -17,11 +17,17 @@ pub const CHANNEL_CLOSE_OK: u32 = 0x00140029;
 
 pub const EXCHANGE_DECLARE: u32 = 0x0028000A;
 pub const EXCHANGE_DECLARE_OK: u32 = 0x0028000B;
+pub const EXCHANGE_DELETE: u32 = 0x00280014;
+pub const EXCHANGE_DELETE_OK: u32 = 0x00280015;
 
 pub const QUEUE_DECLARE: u32 = 0x0032000A;
 pub const QUEUE_DECLARE_OK: u32 = 0x0032000B;
 pub const QUEUE_BIND: u32 = 0x00320014;
 pub const QUEUE_BIND_OK: u32 = 0x00320015;
+pub const QUEUE_DELETE: u32 = 0x00320028;
+pub const QUEUE_DELETE_OK: u32 = 0x00320029;
+pub const QUEUE_UNBIND: u32 = 0x00320032;
+pub const QUEUE_UNBIND_OK: u32 = 0x00320033;
 
 pub const BASIC_CONSUME: u32 = 0x003C0014;
 pub const BASIC_CONSUME_OK: u32 = 0x003C0015;
@@ -78,12 +84,18 @@ pub enum MethodFrameArgs {
     ChannelCloseOk,
     ExchangeDeclare(ExchangeDeclareArgs),
     ExchangeDeclareOk,
-    ExchangeBind(ExchangeBindArgs),
+    ExchangeDelete(ExchangeDeleteArgs),
+    ExchangeDeleteOk,
+    ExchangeBind(ExchangeBindArgs), // TODO review if it is needed, susicous that queue bind is used
     ExchangeBindOk,
     QueueDeclare(QueueDeclareArgs),
     QueueDeclareOk(QueueDeclareOkArgs),
     QueueBind(QueueBindArgs),
     QueueBindOk,
+    QueueDelete(QueueDeleteArgs),
+    QueueDeleteOk(QueueDeleteOkArgs),
+    QueueUnbind(QueueUnbindArgs),
+    QueueUnbindOk,
     BasicConsume(BasicConsumeArgs),
     BasicConsumeOk(BasicConsumeOkArgs),
     BasicCancel(BasicCancelArgs),
@@ -215,6 +227,25 @@ pub struct ExchangeDeclareArgs {
     pub args: Option<FieldTable>,
 }
 
+bitflags! {
+    pub struct ExchangeDeleteFlags: u8 {
+        const IF_UNUSED = 0b00000001;
+        const NO_WAIT = 0b00000010;
+    }
+}
+
+impl Default for ExchangeDeleteFlags {
+    fn default() -> Self {
+        ExchangeDeleteFlags::empty()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ExchangeDeleteArgs {
+    pub exchange_name: String,
+    pub flags: ExchangeDeleteFlags,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ExchangeBindArgs {
     pub source: String,
@@ -260,6 +291,39 @@ pub struct QueueBindArgs {
     pub exchange_name: String,
     pub routing_key: String,
     pub no_wait: bool,
+    pub args: Option<FieldTable>,
+}
+
+bitflags! {
+    pub struct QueueDeleteFlags: u8 {
+        const IF_UNUSED = 0b00000001;
+        const IF_EMPTY = 0b00000010;
+        const NO_WAIT = 0b00000100;
+    }
+}
+
+impl Default for QueueDeleteFlags {
+    fn default() -> Self {
+        QueueDeleteFlags::empty()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct QueueDeleteArgs {
+    pub queue_name: String,
+    pub flags: QueueDeleteFlags,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct QueueDeleteOkArgs {
+    pub message_count: u32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct QueueUnbindArgs {
+    pub queue_name: String,
+    pub exchange_name: String,
+    pub routing_key: String,
     pub args: Option<FieldTable>,
 }
 
@@ -529,6 +593,21 @@ pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, EXCHANGE_DECLARE_OK, MethodFrameArgs::ExchangeDeclareOk)
 }
 
+pub fn exchange_delete(channel: u16, exchange_name: &str, flags: Option<ExchangeDeleteFlags>) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        EXCHANGE_DELETE,
+        MethodFrameArgs::ExchangeDelete(ExchangeDeleteArgs {
+            exchange_name: exchange_name.to_string(),
+            flags: flags.unwrap_or_default(),
+        }),
+    )
+}
+
+pub fn exchange_delete_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, EXCHANGE_DELETE_OK, MethodFrameArgs::ExchangeDeleteOk)
+}
+
 pub fn queue_bind(channel: u16, queue_name: &str, exchange_name: &str, routing_key: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
@@ -545,6 +624,42 @@ pub fn queue_bind(channel: u16, queue_name: &str, exchange_name: &str, routing_k
 
 pub fn queue_bind_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, QUEUE_BIND_OK, MethodFrameArgs::QueueBindOk)
+}
+
+pub fn queue_delete(channel: u16, queue_name: &str, flags: Option<QueueDeleteFlags>) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        QUEUE_DELETE,
+        MethodFrameArgs::QueueDelete(QueueDeleteArgs {
+            queue_name: queue_name.to_string(),
+            flags: flags.unwrap_or_default(),
+        }),
+    )
+}
+
+pub fn queue_delete_ok(channel: u16, message_count: u32) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        QUEUE_DELETE_OK,
+        MethodFrameArgs::QueueDeleteOk(QueueDeleteOkArgs { message_count }),
+    )
+}
+
+pub fn queue_unbind(channel: u16, queue_name: &str, exchange_name: &str, routing_key: &str) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        QUEUE_UNBIND,
+        MethodFrameArgs::QueueUnbind(QueueUnbindArgs {
+            queue_name: queue_name.to_string(),
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string(),
+            args: None,
+        }),
+    )
+}
+
+pub fn queue_unbind_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, QUEUE_UNBIND_OK, MethodFrameArgs::QueueUnbindOk)
 }
 
 pub fn queue_declare(channel: u16, queue_name: &str) -> AMQPFrame {
