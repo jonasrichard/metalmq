@@ -37,6 +37,8 @@ pub const BASIC_PUBLISH: u32 = 0x003C0028;
 pub const BASIC_RETURN: u32 = 0x003C0032;
 pub const BASIC_DELIVER: u32 = 0x003C003C;
 
+pub const CONFIRM_SELECT: u32 = 0x0055000A;
+
 pub type Channel = u16;
 pub type ClassMethod = u32;
 pub type ClassId = u16;
@@ -102,6 +104,7 @@ pub enum MethodFrameArgs {
     BasicPublish(BasicPublishArgs),
     BasicReturn(BasicReturnArgs),
     BasicDeliver(BasicDeliverArgs),
+    ConfirmSelect(ConfirmSelectArgs),
 }
 
 #[derive(Clone, Debug)]
@@ -392,6 +395,11 @@ pub struct BasicDeliverArgs {
     pub redelivered: bool,
     pub exchange_name: String,
     pub routing_key: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ConfirmSelectArgs {
+    pub no_wait: bool,
 }
 
 impl From<ContentHeaderFrame> for AMQPFrame {
@@ -778,6 +786,14 @@ pub fn basic_deliver(
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
         }),
+    )
+}
+
+pub fn confirm_select(channel: u16, no_wait: bool) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        CONFIRM_SELECT,
+        MethodFrameArgs::ConfirmSelect(ConfirmSelectArgs { no_wait }),
     )
 }
 

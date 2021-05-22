@@ -202,6 +202,10 @@ impl Connection {
         Ok(Some(frame::basic_cancel_ok(channel, &args.consumer_tag)))
     }
 
+    pub(crate) async fn confirm_select(&mut self, channel: Channel, args: frame::ConfirmSelectArgs) -> MaybeFrame {
+        Ok(None)
+    }
+
     pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
         // TODO collect info into a data struct
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
