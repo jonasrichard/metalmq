@@ -54,8 +54,6 @@ def test_basic_publish(caplog):
     """
     Send a message to the default exchange and the other user will get it.
     """
-    caplog.set_level(logging.INFO)
-
     sender = connect_as_guest()
     channel = declare_exchange_and_queue(sender, 'my-exchange', 'topic', 'my-queue')
 
