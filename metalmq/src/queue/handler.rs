@@ -1,4 +1,4 @@
-use crate::message::Message;
+use crate::message::{self, Message};
 use crate::{ConsumerTag, Result};
 use log::{debug, error, info, warn};
 use metalmq_codec::frame;
@@ -147,16 +147,17 @@ async fn send_message(consumer: &FrameSink, frames: Vec<frame::AMQPFrame>) -> Re
 }
 
 fn message_to_frames(message: &Message, consumer_tag: &ConsumerTag) -> Vec<frame::AMQPFrame> {
-    vec![
-        frame::basic_deliver(
-            message.channel,
-            consumer_tag,
-            0,
-            false,
-            &message.exchange,
-            &message.routing_key,
-        ),
-        frame::AMQPFrame::ContentHeader(frame::content_header(1, message.content.len() as u64)),
-        frame::AMQPFrame::ContentBody(frame::content_body(1, message.content.as_slice())),
-    ]
+    let mut frames = message::message_to_content_frames(&message);
+
+    let basic_deliver = frame::basic_deliver(
+        message.channel,
+        consumer_tag,
+        0,
+        false,
+        &message.exchange,
+        &message.routing_key,
+    );
+    frames.insert(0, basic_deliver);
+
+    frames
 }

@@ -1,4 +1,4 @@
-use super::state::{self, Connection};
+use super::state::{self, Connection, FrameResponse};
 use crate::{Context, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
@@ -24,7 +24,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
                     Some(payload) =>
                         match payload {
                             Ok(frame) => match handle_client_frame(&mut conn, frame).await? {
-                                Some(response_frame) => {
+                                FrameResponse::Frame(response_frame) => {
                                     if let AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) = response_frame {
                                         trace!("Outgoing {:?}", response_frame);
                                         sink.send(response_frame).await?;
@@ -34,8 +34,14 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
                                         trace!("Outgoing {:?}", response_frame);
                                         sink.send(response_frame).await?;
                                     }
-                                }
-                                None => {
+                                },
+                                FrameResponse::Frames(response_frames) => {
+                                    for f in response_frames {
+                                        trace!("Outgoing {:?}", f);
+                                        sink.send(f).await?;
+                                    }
+                                },
+                                FrameResponse::None => {
                                     conn.connection_close(frame::ConnectionCloseArgs::default()).await?;
                                     ()
                                 },
@@ -59,15 +65,15 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
 
 //type SinkType = SplitSink<Framed<TcpStream, AMQPCodec>, AMQPFrame>;
 
-async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<Option<AMQPFrame>> {
+async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<FrameResponse> {
     use AMQPFrame::*;
 
     match f {
-        Header => Ok(Some(frame::connection_start(0))),
+        Header => Ok(FrameResponse::Frame(frame::connection_start(0))),
         Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
         ContentHeader(ch) => conn.receive_content_header(ch).await,
         ContentBody(cb) => conn.receive_content_body(cb).await,
-        Heartbeat(_) => Ok(None),
+        Heartbeat(_) => Ok(FrameResponse::None),
         //_ => {
         //    error!("Unhandler frame type {:?}", f);
         //    Ok(None)
@@ -79,12 +85,12 @@ async fn handle_method_frame(
     conn: &mut Connection,
     channel: frame::Channel,
     ma: frame::MethodFrameArgs,
-) -> Result<Option<AMQPFrame>> {
+) -> Result<FrameResponse> {
     use MethodFrameArgs::*;
 
     match ma {
-        ConnectionStartOk(_) => Ok(Some(frame::connection_tune(0))),
-        ConnectionTuneOk(_) => Ok(None),
+        ConnectionStartOk(_) => Ok(FrameResponse::Frame(frame::connection_tune(0))),
+        ConnectionTuneOk(_) => Ok(FrameResponse::None),
         ConnectionOpen(args) => conn.connection_open(channel, args).await,
         ConnectionClose(args) => conn.connection_close(args).await,
         ChannelOpen => conn.channel_open(channel).await,
@@ -102,7 +108,7 @@ async fn handle_method_frame(
         ConfirmSelect(args) => conn.confirm_select(channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
-            Ok(None)
+            Ok(FrameResponse::None)
         }
     }
 }

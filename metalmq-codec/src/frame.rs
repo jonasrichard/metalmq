@@ -36,8 +36,10 @@ pub const BASIC_CANCEL_OK: u32 = 0x003C001F;
 pub const BASIC_PUBLISH: u32 = 0x003C0028;
 pub const BASIC_RETURN: u32 = 0x003C0032;
 pub const BASIC_DELIVER: u32 = 0x003C003C;
+pub const BASIC_ACK: u32 = 0x003C0050;
 
 pub const CONFIRM_SELECT: u32 = 0x0055000A;
+pub const CONFIRM_SELECT_OK: u32 = 0x0055000B;
 
 pub type Channel = u16;
 pub type ClassMethod = u32;
@@ -104,7 +106,9 @@ pub enum MethodFrameArgs {
     BasicPublish(BasicPublishArgs),
     BasicReturn(BasicReturnArgs),
     BasicDeliver(BasicDeliverArgs),
+    BasicAck(BasicAckArgs),
     ConfirmSelect(ConfirmSelectArgs),
+    ConfirmSelectOk,
 }
 
 #[derive(Clone, Debug)]
@@ -398,6 +402,12 @@ pub struct BasicDeliverArgs {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct BasicAckArgs {
+    pub delivery_tag: u64,
+    pub multiple: bool,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct ConfirmSelectArgs {
     pub no_wait: bool,
 }
@@ -541,10 +551,10 @@ pub fn connection_close(channel: u16, code: u16, text: &str, class_id: u16, meth
         channel,
         CONNECTION_CLOSE,
         MethodFrameArgs::ConnectionClose(ConnectionCloseArgs {
-            code: code,
+            code,
             text: text.into(),
-            class_id: class_id,
-            method_id: method_id,
+            class_id,
+            method_id,
         }),
     )
 }
@@ -566,10 +576,10 @@ pub fn channel_close(channel: Channel, code: u16, text: &str, class_id: u16, met
         channel,
         CHANNEL_CLOSE,
         MethodFrameArgs::ChannelClose(ChannelCloseArgs {
-            code: code,
+            code,
             text: text.into(),
-            class_id: class_id,
-            method_id: method_id,
+            class_id,
+            method_id,
         }),
     )
 }
@@ -687,8 +697,8 @@ pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, co
         QUEUE_DECLARE_OK,
         MethodFrameArgs::QueueDeclareOk(QueueDeclareOkArgs {
             name: queue_name,
-            message_count: message_count,
-            consumer_count: consumer_count,
+            message_count,
+            consumer_count,
         }),
     )
 }
@@ -781,11 +791,19 @@ pub fn basic_deliver(
         BASIC_DELIVER,
         MethodFrameArgs::BasicDeliver(BasicDeliverArgs {
             consumer_tag: consumer_tag.to_string(),
-            delivery_tag: delivery_tag,
-            redelivered: redelivered,
+            delivery_tag,
+            redelivered,
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
         }),
+    )
+}
+
+pub fn basic_ack(channel: u16, delivery_tag: u64, multiple: bool) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        BASIC_ACK,
+        MethodFrameArgs::BasicAck(BasicAckArgs { delivery_tag, multiple }),
     )
 }
 
@@ -797,9 +815,13 @@ pub fn confirm_select(channel: u16, no_wait: bool) -> AMQPFrame {
     )
 }
 
+pub fn confirm_select_ok(channel: u16) -> AMQPFrame {
+    AMQPFrame::Method(channel, CONFIRM_SELECT_OK, MethodFrameArgs::ConfirmSelectOk)
+}
+
 pub fn content_header(channel: u16, size: u64) -> ContentHeaderFrame {
     ContentHeaderFrame {
-        channel: channel,
+        channel,
         class_id: 0x003C,
         weight: 0,
         body_size: size,
@@ -810,7 +832,7 @@ pub fn content_header(channel: u16, size: u64) -> ContentHeaderFrame {
 
 pub fn content_body(channel: u16, payload: &[u8]) -> ContentBodyFrame {
     ContentBodyFrame {
-        channel: channel,
+        channel,
         body: payload.to_vec(),
     }
 }

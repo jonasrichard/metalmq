@@ -95,7 +95,7 @@ impl QueueManager {
                 queue
                     .command_sink
                     .send(QueueCommand::Cancel {
-                        consumer_tag: consumer_tag,
+                        consumer_tag,
                         response: tx,
                     })
                     .await?;

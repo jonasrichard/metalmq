@@ -44,7 +44,12 @@ impl ExchangeManager {
         match ex.get(&exchange.name) {
             None => {
                 if passive {
-                    return error(0, frame::EXCHANGE_DECLARE, 404, "Exchange not found");
+                    return error(
+                        0,
+                        frame::EXCHANGE_DECLARE,
+                        404,
+                        &format!("NOT_FOUND - no exchange '{}' in vhost '/'", exchange.name),
+                    );
                 }
             }
             Some(current) => {

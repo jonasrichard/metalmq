@@ -75,7 +75,7 @@ impl Decoder for AMQPCodec {
 
                     // TODO more effective copy
                     let frame = AMQPFrame::ContentBody(ContentBodyFrame {
-                        channel: channel,
+                        channel,
                         body: bytes.to_vec(),
                     });
 
@@ -143,7 +143,9 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
         BASIC_PUBLISH => decode_basic_publish(&mut src),
         BASIC_RETURN => decode_basic_return(&mut src),
         BASIC_DELIVER => decode_basic_deliver(&mut src),
+        BASIC_ACK => decode_basic_ack(&mut src),
         CONFIRM_SELECT => decode_confirm_select(&mut src),
+        CONFIRM_SELECT_OK => MethodFrameArgs::ConfirmSelectOk,
         _ => unimplemented!("{:08X}", class_method),
     };
 
@@ -203,7 +205,7 @@ fn decode_connection_open(mut src: &mut BytesMut) -> MethodFrameArgs {
     let flags = src.get_u8();
 
     MethodFrameArgs::ConnectionOpen(ConnectionOpenArgs {
-        virtual_host: virtual_host,
+        virtual_host,
         insist: flags & 0x01 != 0,
     })
 }
@@ -389,7 +391,15 @@ fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::BasicDeliver(args)
 }
 
-fn decode_confirm_select(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_ack(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicAckArgs::default();
+    args.delivery_tag = src.get_u64();
+    args.multiple = src.get_u8() != 0;
+
+    MethodFrameArgs::BasicAck(args)
+}
+
+fn decode_confirm_select(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = ConfirmSelectArgs::default();
     args.no_wait = src.get_u8() != 0;
 
@@ -404,10 +414,10 @@ fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     // TODO property list, it seems that we need to know from the class_id what is the type list
 
     AMQPFrame::ContentHeader(ContentHeaderFrame {
-        channel: channel,
-        class_id: class_id,
-        weight: weight,
-        body_size: body_size,
+        channel,
+        class_id,
+        weight,
+        body_size,
         prop_flags: property_flags,
         args: vec![],
     })
@@ -510,7 +520,9 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
         MethodFrameArgs::BasicReturn(args) => encode_basic_return(&mut fr, args),
         MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args),
+        MethodFrameArgs::BasicAck(args) => encode_basic_ack(&mut fr, args),
         MethodFrameArgs::ConfirmSelect(args) => encode_confirm_select(&mut fr, args),
+        MethodFrameArgs::ConfirmSelectOk => (),
     }
 
     buf.put_u32(fr.len() as u32);
@@ -681,6 +693,11 @@ fn encode_basic_deliver(mut buf: &mut BytesMut, args: &BasicDeliverArgs) {
     buf.put_u8(if args.redelivered { 1 } else { 0 });
     encode_short_string(&mut buf, &args.exchange_name);
     encode_short_string(&mut buf, &args.routing_key);
+}
+
+fn encode_basic_ack(buf: &mut BytesMut, args: &BasicAckArgs) {
+    buf.put_u64(args.delivery_tag);
+    buf.put_u8(if args.multiple { 1 } else { 0 });
 }
 
 fn encode_confirm_select(buf: &mut BytesMut, args: &ConfirmSelectArgs) {

@@ -1,14 +1,21 @@
-use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink};
+use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
 use crate::message;
 use crate::{Context, Result, RuntimeError};
-use log::info;
+use log::error;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 
-pub(crate) type MaybeFrame = Result<Option<AMQPFrame>>;
+/// Response of a handler function
+pub(crate) enum FrameResponse {
+    None,
+    Frame(AMQPFrame),
+    Frames(Vec<AMQPFrame>),
+}
+
+pub(crate) type MaybeFrame = Result<FrameResponse>;
 
 pub(crate) const NOT_FOUND: u16 = 404;
 pub(crate) const PRECONDITION_FAILED: u16 = 406;
@@ -62,7 +69,7 @@ impl Connection {
         if args.virtual_host != "/" {
             connection_error(NOT_ALLOWED, "Cannot connect to virtualhost", frame::CONNECTION_OPEN)
         } else {
-            Ok(Some(frame::connection_open_ok(channel)))
+            Ok(FrameResponse::Frame(frame::connection_open_ok(channel)))
         }
     }
 
@@ -75,7 +82,7 @@ impl Connection {
                 .await?;
         }
 
-        Ok(Some(frame::connection_close_ok(0)))
+        Ok(FrameResponse::Frame(frame::connection_close_ok(0)))
     }
 
     pub(crate) async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
@@ -83,7 +90,7 @@ impl Connection {
             channel_error(channel, CHANNEL_ERROR, "Channel already opened", frame::CHANNEL_OPEN)
         } else {
             self.open_channels.insert(channel, ());
-            Ok(Some(frame::channel_open_ok(channel)))
+            Ok(FrameResponse::Frame(frame::channel_open_ok(channel)))
         }
     }
 
@@ -93,11 +100,11 @@ impl Connection {
 
         self.open_channels.remove(&channel);
 
-        Ok(Some(frame::channel_close_ok(channel)))
+        Ok(FrameResponse::Frame(frame::channel_close_ok(channel)))
     }
 
     pub(crate) async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
-        Ok(None)
+        Ok(FrameResponse::None)
     }
 
     pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
@@ -113,16 +120,16 @@ impl Connection {
                 self.exchanges.insert(exchange_name.clone(), ch);
 
                 if no_wait {
-                    Ok(None)
+                    Ok(FrameResponse::None)
                 } else {
-                    Ok(Some(frame::exchange_declare_ok(channel)))
+                    Ok(FrameResponse::Frame(frame::exchange_declare_ok(channel)))
                 }
             }
             Err(e) => match e.downcast::<RuntimeError>() {
                 Ok(mut rte) => {
                     rte.channel = channel;
 
-                    Ok(Some(AMQPFrame::from(*rte)))
+                    Ok(FrameResponse::Frame(AMQPFrame::from(*rte)))
                 }
                 Err(e2) => Err(e2),
             },
@@ -131,14 +138,14 @@ impl Connection {
 
     pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
         // TODO do the delete here
-        Ok(Some(frame::exchange_delete_ok(channel)))
+        Ok(FrameResponse::Frame(frame::exchange_delete_ok(channel)))
     }
 
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.queues.declare(args.name.clone()).await?;
 
-        Ok(Some(frame::queue_declare_ok(channel, args.name, 0, 0)))
+        Ok(FrameResponse::Frame(frame::queue_declare_ok(channel, args.name, 0, 0)))
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
@@ -149,17 +156,17 @@ impl Connection {
         } else {
         }
 
-        Ok(Some(frame::queue_bind_ok(channel)))
+        Ok(FrameResponse::Frame(frame::queue_bind_ok(channel)))
     }
 
     pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
         // TODO delete the queue
-        Ok(Some(frame::queue_delete_ok(channel, 0)))
+        Ok(FrameResponse::Frame(frame::queue_delete_ok(channel, 0)))
     }
 
     pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
         // TODO implement queue unbind
-        Ok(Some(frame::queue_unbind_ok(channel)))
+        Ok(FrameResponse::Frame(frame::queue_unbind_ok(channel)))
     }
 
     pub(crate) async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
@@ -180,7 +187,7 @@ impl Connection {
                 },
             );
 
-            Ok(None)
+            Ok(FrameResponse::None)
         }
     }
 
@@ -191,19 +198,25 @@ impl Connection {
             .await?;
         self.consumed_queues.insert(args.consumer_tag.clone(), args.queue);
 
-        Ok(Some(frame::basic_consume_ok(channel, &args.consumer_tag)))
+        Ok(FrameResponse::Frame(frame::basic_consume_ok(
+            channel,
+            &args.consumer_tag,
+        )))
     }
 
     pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
-        let mut ctx = self.context.lock().await;
+        let ctx = self.context.lock().await;
         //ctx.queues.cancel(args.consumer_tag).await?;
         self.consumed_queues.remove(&args.consumer_tag);
 
-        Ok(Some(frame::basic_cancel_ok(channel, &args.consumer_tag)))
+        Ok(FrameResponse::Frame(frame::basic_cancel_ok(
+            channel,
+            &args.consumer_tag,
+        )))
     }
 
     pub(crate) async fn confirm_select(&mut self, channel: Channel, args: frame::ConfirmSelectArgs) -> MaybeFrame {
-        Ok(None)
+        Ok(FrameResponse::Frame(frame::confirm_select_ok(channel)))
     }
 
     pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
@@ -212,7 +225,7 @@ impl Connection {
             pc.length = Some(header.body_size);
         }
 
-        Ok(None)
+        Ok(FrameResponse::None)
     }
 
     pub(crate) async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
@@ -229,17 +242,32 @@ impl Connection {
 
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
-                    ch.send(ExchangeCommand::Message(msg)).await?;
-                    Ok(None)
+                    // TODO what happens if we cannot route the message to an existing exchange?
+                    // Probably we need to send back an error if it is a mandatory message
+                    let (tx, rx) = oneshot::channel();
+                    ch.send(ExchangeCommand::Message(msg, tx)).await?;
+
+                    match rx.await {
+                        Ok(MessageSentResult::None) => Ok(FrameResponse::None),
+                        Ok(MessageSentResult::MessageNotRouted(original_message)) => {
+                            send_basic_return(original_message)
+                        }
+                        Err(e) => {
+                            error!("Receiving response from exchange {:?}", e);
+                            Ok(FrameResponse::None)
+                        }
+                    }
                 }
-                None =>
-                // TODO error, exchange cannot be found
-                {
-                    Ok(None)
+                None => {
+                    if msg.mandatory {
+                        send_basic_return(msg)
+                    } else {
+                        Ok(FrameResponse::None)
+                    }
                 }
             }
         } else {
-            Ok(None)
+            Ok(FrameResponse::None)
         }
     }
 }
@@ -247,11 +275,32 @@ impl Connection {
 fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
     let (cid, mid) = frame::split_class_method(cm_id);
 
-    Ok(Some(frame::channel_close(channel, code, text, cid, mid)))
+    Ok(FrameResponse::Frame(frame::channel_close(
+        channel, code, text, cid, mid,
+    )))
 }
 
 fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
     let (cid, mid) = frame::split_class_method(cm_id);
 
-    Ok(Some(frame::connection_close(0, code, text, cid, mid)))
+    Ok(FrameResponse::Frame(frame::connection_close(0, code, text, cid, mid)))
+}
+
+fn send_basic_return(message: message::Message) -> MaybeFrame {
+    let mut frames = message::message_to_content_frames(&message);
+
+    frames.insert(
+        0,
+        frame::basic_return(
+            message.channel,
+            312,
+            "NO_ROUTE",
+            &message.exchange,
+            &message.routing_key,
+        ),
+    );
+
+    frames.push(frame::basic_ack(message.channel, 1u64, false));
+
+    Ok(FrameResponse::Frames(frames))
 }
