@@ -37,7 +37,7 @@ def test_server_generated_consumer_tags_one_by_one_ack(caplog):
     conn = connect_as_guest()
     channel = declare_exchange(conn)
 
-    for i in range(1, 10):
+    for i in range(0, 10):
         channel.basic_publish(
                 'ctag-exchange',
                 'ctag-queue',

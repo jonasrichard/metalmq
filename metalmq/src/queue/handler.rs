@@ -12,6 +12,10 @@ pub(crate) type FrameSink = mpsc::Sender<frame::AMQPFrame>;
 #[derive(Debug)]
 pub(crate) enum QueueCommand {
     Message(Message),
+    Ack {
+        consumer_tag: String,
+        delivery_tag: u64,
+    },
     Consume {
         consumer_tag: String,
         frame_sink: FrameSink,
@@ -33,6 +37,11 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
     let mut messages = VecDeque::<Message>::new();
     let mut consumers = Vec::<Consumer>::new();
     let mut current_consumer = 0;
+
+    // TODO we need to store the delivery tags by consumers
+    // Also we need to mark a message that it is sent, so we need to wait
+    // for the ack, until that we cannot send new messages out - or depending
+    // the consuming yes?
 
     while let Some(command) = commands.recv().await {
         match command {
@@ -119,6 +128,13 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
                 if let Err(e) = response.send(()) {
                     error!("Send error {:?}", e);
                 }
+            }
+            QueueCommand::Ack {
+                consumer_tag,
+                delivery_tag,
+            } => {
+                warn!("TODO implement ack for {} and {}", consumer_tag, delivery_tag);
+                // TODO we need to remove the messages with that consumer and delivery tag
             }
         }
     }

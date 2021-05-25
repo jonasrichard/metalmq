@@ -1,7 +1,8 @@
 use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
 use crate::message;
+use crate::queue::handler as queue_handler;
 use crate::{Context, Result, RuntimeError};
-use log::error;
+use log::{debug, error};
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,6 +23,14 @@ pub(crate) const PRECONDITION_FAILED: u16 = 406;
 pub(crate) const CHANNEL_ERROR: u16 = 504;
 pub(crate) const NOT_ALLOWED: u16 = 530;
 
+#[derive(Debug)]
+struct ConsumedQueue {
+    channel: Channel,
+    queue_name: String,
+    consumer_tag: String,
+    queue_sink: queue_handler::QueueCommandSink,
+}
+
 /// All the transient data of a connection are stored here.
 pub(crate) struct Connection {
     /// Unique ID of the connection.
@@ -34,8 +43,9 @@ pub(crate) struct Connection {
     exchanges: HashMap<String, ExchangeCommandSink>,
     /// Declared queues by this connection.
     queues: HashMap<String, message::MessageChannel>,
-    /// Consumed queues by this connection, consumer_tag -> queue_name
-    consumed_queues: HashMap<String, String>,
+    /// Consumed queues by this connection
+    consumed_queues: Vec<ConsumedQueue>,
+    /// Incoming messages come in different messages, we need to collect their properties
     in_flight_contents: HashMap<Channel, PublishedContent>,
     outgoing: mpsc::Sender<AMQPFrame>,
 }
@@ -54,13 +64,13 @@ struct PublishedContent {
 pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
     Connection {
         id: Uuid::new_v4().to_hyphenated().to_string(),
-        context: context,
+        context,
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         queues: HashMap::new(),
-        consumed_queues: HashMap::new(),
+        consumed_queues: Vec::new(),
         in_flight_contents: HashMap::new(),
-        outgoing: outgoing,
+        outgoing,
     }
 }
 
@@ -76,9 +86,9 @@ impl Connection {
     pub(crate) async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO cleanup
         let mut ctx = self.context.lock().await;
-        for (consumer_tag, queue_name) in &self.consumed_queues {
+        for cq in &self.consumed_queues {
             ctx.queues
-                .cancel(queue_name.to_string(), consumer_tag.to_string())
+                .cancel(cq.queue_name.clone(), cq.consumer_tag.clone())
                 .await?;
         }
 
@@ -98,12 +108,15 @@ impl Connection {
         let mut ctx = self.context.lock().await;
         ctx.exchanges.clone_connection("", "").await?;
 
+        self.consumed_queues.retain(|cq| cq.channel != channel);
         self.open_channels.remove(&channel);
 
         Ok(FrameResponse::Frame(frame::channel_close_ok(channel)))
     }
 
     pub(crate) async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
+        self.consumed_queues.retain(|cq| cq.channel != channel);
+
         Ok(FrameResponse::None)
     }
 
@@ -196,7 +209,15 @@ impl Connection {
         ctx.queues
             .consume(args.queue.clone(), args.consumer_tag.clone(), self.outgoing.clone())
             .await?;
-        self.consumed_queues.insert(args.consumer_tag.clone(), args.queue);
+
+        if let Ok(queue_channel) = ctx.queues.get_channel(args.queue.clone()).await {
+            self.consumed_queues.push(ConsumedQueue {
+                channel,
+                consumer_tag: args.consumer_tag.clone(),
+                queue_name: args.queue.clone(),
+                queue_sink: queue_channel,
+            });
+        }
 
         Ok(FrameResponse::Frame(frame::basic_consume_ok(
             channel,
@@ -207,12 +228,28 @@ impl Connection {
     pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
         let ctx = self.context.lock().await;
         //ctx.queues.cancel(args.consumer_tag).await?;
-        self.consumed_queues.remove(&args.consumer_tag);
+        self.consumed_queues
+            .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);
 
         Ok(FrameResponse::Frame(frame::basic_cancel_ok(
             channel,
             &args.consumer_tag,
         )))
+    }
+
+    pub(crate) async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> MaybeFrame {
+        if let Some(p) = self.consumed_queues.iter().position(|cq| cq.channel == channel) {
+            let cq = self.consumed_queues.get(p).unwrap();
+
+            cq.queue_sink
+                .send(queue_handler::QueueCommand::Ack {
+                    consumer_tag: cq.consumer_tag.clone(),
+                    delivery_tag: args.delivery_tag,
+                })
+                .await?;
+        }
+
+        Ok(FrameResponse::None)
     }
 
     pub(crate) async fn confirm_select(&mut self, channel: Channel, args: frame::ConfirmSelectArgs) -> MaybeFrame {

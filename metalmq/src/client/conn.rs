@@ -105,6 +105,7 @@ async fn handle_method_frame(
         BasicPublish(args) => conn.basic_publish(channel, args).await,
         BasicConsume(args) => conn.basic_consume(channel, args).await,
         BasicCancel(args) => conn.basic_cancel(channel, args).await,
+        BasicAck(args) => conn.basic_ack(channel, args).await,
         ConfirmSelect(args) => conn.confirm_select(channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
