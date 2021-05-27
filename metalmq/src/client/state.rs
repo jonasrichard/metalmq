@@ -207,7 +207,12 @@ impl Connection {
     pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
         ctx.queues
-            .consume(args.queue.clone(), args.consumer_tag.clone(), self.outgoing.clone())
+            .consume(
+                args.queue.clone(),
+                args.consumer_tag.clone(),
+                args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
+                self.outgoing.clone(),
+            )
             .await?;
 
         if let Ok(queue_channel) = ctx.queues.get_channel(args.queue.clone()).await {

@@ -62,6 +62,7 @@ impl QueueManager {
         &mut self,
         name: String,
         consumer_tag: String,
+        no_ack: bool,
         outgoing: mpsc::Sender<AMQPFrame>,
     ) -> Result<()> {
         let q = self.queues.lock().await;
@@ -73,6 +74,7 @@ impl QueueManager {
                     .command_sink
                     .send(QueueCommand::Consume {
                         consumer_tag,
+                        no_ack,
                         frame_sink: outgoing,
                         response: tx,
                     })
