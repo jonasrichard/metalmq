@@ -32,6 +32,24 @@ struct Consumer {
     sink: FrameSink,
 }
 
+// Message delivery
+//   pick up a consumer - randomly
+//   pick up the next message from the queue
+//   send it via the channel and
+//     mark it as SentOut
+//     store the timestamp
+//     set delivery try = 1
+//   send multiple messages like 10 in a way - max out flight messages
+//   if a messages is acked, let us remove from the queue
+//   since we set up a time, if there is a timeout, we can redeliver the message
+//     (it would be good to choose a different consumer)
+//     set delivery try += 1
+//     if delivery try is greater than 5 before, we can drop the message
+//       (later we can send it to an alternative queue)
+//
+//  Cancel consume
+//    All messages which are outflight needs to be redelivered to the
+//      remaining consumers.
 pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>) {
     // TODO we need to have a variable here to access the queue properties
     let mut messages = VecDeque::<Message>::new();

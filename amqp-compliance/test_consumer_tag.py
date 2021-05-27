@@ -1,11 +1,8 @@
+import helper
 import logging
 import pika
 
 LOG = logging.getLogger()
-
-def connect_as_guest():
-    params = pika.URLParameters('amqp://guest:guest@localhost:5672/%2F')
-    return pika.BlockingConnection(parameters=params)
 
 def declare_exchange(conn):
     channel = conn.channel(channel_number=3)
@@ -20,13 +17,26 @@ def cleanup(channel, exchange, queue):
     channel.queue_delete(queue)
     channel.exchange_delete(exchange)
 
+current_consumer_tag = ""
 messages_received = 0
+last_delivery_tag = -1
 
 def on_receive(channel, method, properties, body):
     global messages_received
+    global last_delivery_tag
 
     LOG.info('Go message %s %s %s', method, properties, body)
     messages_received += 1
+
+    assert method.consumer_tag == current_consumer_tag
+
+    assert last_delivery_tag < method.delivery_tag
+    last_delivery_tag = method.delivery_tag
+
+    #assert not (method.redelivered)
+
+    assert method.routing_key == 'ctag-queue'
+
     channel.basic_ack(delivery_tag=method.delivery_tag, multiple=False)
 
     if messages_received == 10:
@@ -34,7 +44,9 @@ def on_receive(channel, method, properties, body):
 
 
 def test_server_generated_consumer_tags_one_by_one_ack(caplog):
-    conn = connect_as_guest()
+    global current_consumer_tag
+
+    conn = helper.connect()
     channel = declare_exchange(conn)
 
     for i in range(0, 10):
@@ -44,7 +56,7 @@ def test_server_generated_consumer_tags_one_by_one_ack(caplog):
                 'Message {}'.format(i),
                 pika.BasicProperties(content_type='text/plain', delivery_mode=1))
 
-    channel.basic_consume('ctag-queue', on_message_callback=on_receive)
+    current_consumer_tag = channel.basic_consume('ctag-queue', on_message_callback=on_receive)
     channel.start_consuming()
 
     cleanup(channel, 'ctag-exchange', 'ctag-queue')

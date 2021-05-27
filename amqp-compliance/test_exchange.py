@@ -1,3 +1,4 @@
+import helper
 import logging
 import pika
 import pytest
@@ -6,10 +7,6 @@ import time
 
 LOG = logging.getLogger()
 message_received = threading.Condition()
-
-def connect_as_guest():
-    params = pika.URLParameters('amqp://guest:guest@localhost:5672/%2F')
-    return pika.BlockingConnection(parameters=params)
 
 def declare_exchange_and_queue(conn, exchange, exchange_type, queue):
     channel = conn.channel(channel_number=1)
@@ -54,7 +51,7 @@ def test_basic_publish(caplog):
     """
     Send a message to the default exchange and the other user will get it.
     """
-    sender = connect_as_guest()
+    sender = helper.connect()
     channel = declare_exchange_and_queue(sender, 'my-exchange', 'topic', 'my-queue')
 
     receiver = connect_as_guest()
@@ -74,7 +71,7 @@ def test_exchange_declare_passive(caplog):
     """
     On passive exchange declare if exchange doesn't exist we need to get an error.
     """
-    client = connect_as_guest()
+    client = helper.connect()
     channel = client.channel(channel_number=2)
 
     with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
@@ -89,7 +86,7 @@ def test_exchange_mandatory_error(caplog):
     """
     Basic return should send back if messages is non-routable and mandatory is true
     """
-    client = connect_as_guest()
+    client = helper.connect()
     channel = client.channel(channel_number=4)
 
     channel.confirm_delivery()
