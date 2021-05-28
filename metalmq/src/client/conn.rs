@@ -18,7 +18,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
     loop {
         tokio::select! {
             data = stream.next() => {
-                trace!("Payload {:?}", data);
+                trace!("Incoming {:?}", data);
 
                 match data {
                     Some(payload) =>
@@ -42,7 +42,6 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
                                     }
                                 },
                                 FrameResponse::None => {
-                                    conn.connection_close(frame::ConnectionCloseArgs::default()).await?;
                                     ()
                                 },
                             },

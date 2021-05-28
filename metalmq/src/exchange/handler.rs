@@ -39,7 +39,7 @@ pub(crate) async fn exchange_loop(commands: &mut mpsc::Receiver<ExchangeCommand>
                     );
 
                     for ch in &queues {
-                        if let Err(e) = ch.send(QueueCommand::Message(message.clone())).await {
+                        if let Err(e) = ch.send(QueueCommand::PublishMessage(message.clone())).await {
                             error!("Send error {:?}", e);
                         }
                     }

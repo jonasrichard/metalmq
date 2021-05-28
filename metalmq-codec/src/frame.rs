@@ -121,13 +121,24 @@ pub struct ContentHeaderFrame {
     pub args: Vec<AMQPValue>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ContentBodyFrame {
     pub channel: Channel,
     // TODO here we need something which can be cloned cheap like Box or Rc. Sometimes we can move
     // out this from the struct and we can build a new struct. But we need to avoid the
     // byte-to-byte copy.
     pub body: Vec<u8>,
+}
+
+impl std::fmt::Debug for ContentBodyFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let body = String::from_utf8_lossy(&self.body[..std::cmp::min(64usize, self.body.len())]);
+
+        f.write_fmt(format_args!(
+            "ContentBodyFrame {{ channel: {}, body: \"{}\" }}",
+            &self.channel, body
+        ))
+    }
 }
 
 /// Type alias for inner type of field value.

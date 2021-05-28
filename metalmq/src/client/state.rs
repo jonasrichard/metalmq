@@ -2,11 +2,12 @@ use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, ha
 use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::{Context, Result, RuntimeError};
-use log::{debug, error};
+use log::{debug, error, trace};
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time;
 use uuid::Uuid;
 
 /// Response of a handler function
@@ -87,6 +88,8 @@ impl Connection {
         // TODO cleanup
         let mut ctx = self.context.lock().await;
         for cq in &self.consumed_queues {
+            trace!("Cleaning up consumers {:?}", cq);
+
             ctx.queues
                 .cancel(cq.queue_name.clone(), cq.consumer_tag.clone())
                 .await?;
@@ -231,15 +234,29 @@ impl Connection {
     }
 
     pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
-        let ctx = self.context.lock().await;
-        //ctx.queues.cancel(args.consumer_tag).await?;
-        self.consumed_queues
-            .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);
+        if let Some(pos) = self
+            .consumed_queues
+            .iter()
+            .position(|cq| cq.consumer_tag.cmp(&args.consumer_tag) == std::cmp::Ordering::Equal)
+        {
+            let mut ctx = self.context.lock().await;
 
-        Ok(FrameResponse::Frame(frame::basic_cancel_ok(
-            channel,
-            &args.consumer_tag,
-        )))
+            let cq = self.consumed_queues.get(pos).unwrap();
+
+            ctx.queues
+                .cancel(cq.queue_name.clone(), cq.consumer_tag.clone())
+                .await?;
+
+            self.consumed_queues
+                .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);
+            Ok(FrameResponse::Frame(frame::basic_cancel_ok(
+                channel,
+                &args.consumer_tag,
+            )))
+        } else {
+            // TODO error: canceling consuming which didn't exist
+            Ok(FrameResponse::None)
+        }
     }
 
     pub(crate) async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> MaybeFrame {
@@ -247,10 +264,13 @@ impl Connection {
             let cq = self.consumed_queues.get(p).unwrap();
 
             cq.queue_sink
-                .send(queue_handler::QueueCommand::Ack {
-                    consumer_tag: cq.consumer_tag.clone(),
-                    delivery_tag: args.delivery_tag,
-                })
+                .send_timeout(
+                    queue_handler::QueueCommand::AckMessage {
+                        consumer_tag: cq.consumer_tag.clone(),
+                        delivery_tag: args.delivery_tag,
+                    },
+                    time::Duration::from_secs(1),
+                )
                 .await?;
         }
 
@@ -287,7 +307,8 @@ impl Connection {
                     // TODO what happens if we cannot route the message to an existing exchange?
                     // Probably we need to send back an error if it is a mandatory message
                     let (tx, rx) = oneshot::channel();
-                    ch.send(ExchangeCommand::Message(msg, tx)).await?;
+                    ch.send_timeout(ExchangeCommand::Message(msg, tx), time::Duration::from_secs(1))
+                        .await?;
 
                     match rx.await {
                         Ok(MessageSentResult::None) => Ok(FrameResponse::None),

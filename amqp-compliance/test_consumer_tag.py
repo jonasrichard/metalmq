@@ -25,7 +25,7 @@ def on_receive(channel, method, properties, body):
     global messages_received
     global last_delivery_tag
 
-    LOG.info('Go message %s %s %s', method, properties, body)
+    LOG.info('Got message %s %s %s', method, properties, body)
     messages_received += 1
 
     assert method.consumer_tag == current_consumer_tag

@@ -1,12 +1,38 @@
 use crate::client::error;
+use crate::queue::consumer_handler::{self, ConsumerCommand};
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::Result;
+use log::trace;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time;
 
+// QueueManager thread
+//   handles:
+//     - declare queue (so create queue)
+//     - get queue tokio channel
+//     - consume queue
+//     - delete queue
+//
+//  Queue handler:
+//    Representation as an AMQP queue
+//    handles:
+//      - enqueue a message (basic publish)
+//      - get a message for delivery (message or none)
+//      - ack a message asked for delivery
+//
+//  Consumer handler
+//    The consumer loop, seeing if there is any new messages and sends them
+//    handles:
+//      - new consumer
+//      - cancel consumer
+//      - new message was published
+//      - reject message
+//      - recover (redeliver unacked messages on that channel) - check the spec
+//        https://www.rabbitmq.com/amqp-0-9-1-reference.html#class.basic
 pub(crate) struct QueueManager {
     queues: Arc<Mutex<HashMap<String, Queue>>>,
 }
@@ -28,14 +54,22 @@ impl QueueManager {
             Some(queue) => Ok(queue.command_sink.clone()),
             None => {
                 let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+                let (cons_tx, mut cons_rx) = mpsc::channel(1);
 
                 let queue = Queue {
                     name: name.clone(),
                     command_sink: cmd_tx.clone(),
+                    consumer_sink: cons_tx.clone(),
                 };
 
                 tokio::spawn(async move {
-                    handler::queue_loop(&mut cmd_rx).await;
+                    handler::queue_loop(&mut cmd_rx, cons_tx).await;
+                });
+
+                let cmd_tx_clone = cmd_tx.clone();
+
+                tokio::spawn(async move {
+                    consumer_handler::consumer_handler_loop(&mut cons_rx, cmd_tx_clone).await;
                 });
 
                 q.insert(name, queue);
@@ -70,14 +104,18 @@ impl QueueManager {
         match q.get(&name) {
             Some(queue) => {
                 let (tx, rx) = oneshot::channel();
+
                 queue
-                    .command_sink
-                    .send(QueueCommand::Consume {
-                        consumer_tag,
-                        no_ack,
-                        frame_sink: outgoing,
-                        response: tx,
-                    })
+                    .consumer_sink
+                    .send_timeout(
+                        ConsumerCommand::StartConsuming {
+                            consumer_tag,
+                            no_ack,
+                            sink: outgoing,
+                            result: tx,
+                        },
+                        time::Duration::from_secs(1),
+                    )
                     .await?;
 
                 rx.await?;
@@ -94,12 +132,16 @@ impl QueueManager {
         match q.get(&name) {
             Some(queue) => {
                 let (tx, rx) = oneshot::channel();
+
                 queue
-                    .command_sink
-                    .send(QueueCommand::Cancel {
-                        consumer_tag,
-                        response: tx,
-                    })
+                    .consumer_sink
+                    .send_timeout(
+                        ConsumerCommand::CancelConsuming {
+                            consumer_tag,
+                            result: tx,
+                        },
+                        time::Duration::from_secs(1),
+                    )
                     .await?;
 
                 rx.await?;
