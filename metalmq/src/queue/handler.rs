@@ -81,6 +81,10 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
                     if let Err(e) = result.send(Some(message.clone())) {
                         error!("Error {:?}", e);
                     }
+                } else {
+                    if let Err(e) = result.send(None) {
+                        error!("Error {:?}", e);
+                    }
                 }
             }
             QueueCommand::AckMessage {

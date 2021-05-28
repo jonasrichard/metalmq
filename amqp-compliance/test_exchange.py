@@ -54,7 +54,7 @@ def test_basic_publish(caplog):
     sender = helper.connect()
     channel = declare_exchange_and_queue(sender, 'my-exchange', 'topic', 'my-queue')
 
-    receiver = connect_as_guest()
+    receiver = helper.connect()
     threading.Thread(target=consume_message, args=(receiver, 'my-queue')).start()
 
     publish_message(channel, 'my-exchange', 'my-queue')
