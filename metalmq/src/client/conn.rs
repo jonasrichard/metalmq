@@ -88,7 +88,7 @@ async fn handle_method_frame(
     use MethodFrameArgs::*;
 
     match ma {
-        ConnectionStartOk(_) => Ok(FrameResponse::Frame(frame::connection_tune(0))),
+        ConnectionStartOk(_) => Ok(FrameResponse::Frame(frame::connection_tune(0))), // TODO check credentials
         ConnectionTuneOk(_) => Ok(FrameResponse::None),
         ConnectionOpen(args) => conn.connection_open(channel, args).await,
         ConnectionClose(args) => conn.connection_close(args).await,
