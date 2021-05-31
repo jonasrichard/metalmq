@@ -67,21 +67,6 @@ def test_basic_publish(caplog):
     receiver.close()
     sender.close()
 
-def test_exchange_declare_passive(caplog):
-    """
-    On passive exchange declare if exchange doesn't exist we need to get an error.
-    """
-    client = helper.connect()
-    channel = client.channel(channel_number=2)
-
-    with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
-        channel.exchange_declare(exchange='non-existent',
-                exchange_type='topic',
-                passive=True)
-
-    assert 404 == exp.value.reply_code
-    assert str(exp.value.reply_text).startswith("NOT_FOUND - no exchange 'non-existent' in vhost '/'")
-
 def test_exchange_mandatory_error(caplog):
     """
     Basic return should send back if messages is non-routable and mandatory is true
