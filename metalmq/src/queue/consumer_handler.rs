@@ -136,6 +136,7 @@ async fn send_message(consumer: &FrameSink, frames: Vec<AMQPFrame>) -> Result<bo
     'frames: for f in &frames {
         debug!("Sending frame {:?}", f);
 
+        // TODO here we can pass frame and get back from the SendError
         if let Err(e) = consumer.send_timeout(f.clone(), time::Duration::from_secs(1)).await {
             // TODO remove this channel from the consumers
             error!("Message send error {:?}", e);

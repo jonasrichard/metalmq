@@ -1,5 +1,5 @@
 use crate::client::{channel_error, ChannelError};
-use crate::queue::consumer_handler::{self, ConsumerCommand};
+use crate::queue::consumer_handler::{self, ConsumerCommand, ConsumerCommandSink};
 use crate::queue::handler::{self, QueueCommandSink};
 use crate::queue::Queue;
 use crate::Result;
@@ -46,11 +46,12 @@ pub(crate) fn start() -> QueueManager {
 impl QueueManager {
     /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
     /// creates that.
-    pub(crate) async fn declare(&mut self, name: String) -> Result<QueueCommandSink> {
+    pub(crate) async fn declare(&mut self, name: String) -> Result<()> {
         let mut q = self.queues.lock().await;
 
+        // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
         match q.get(&name) {
-            Some(queue) => Ok(queue.command_sink.clone()),
+            Some(queue) => Ok(()),
             None => {
                 let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
                 let (cons_tx, mut cons_rx) = mpsc::channel(1);
@@ -65,29 +66,23 @@ impl QueueManager {
                     handler::queue_loop(&mut cmd_rx, cons_tx).await;
                 });
 
-                let cmd_tx_clone = cmd_tx.clone();
-
                 tokio::spawn(async move {
-                    consumer_handler::consumer_handler_loop(&mut cons_rx, cmd_tx_clone).await;
+                    consumer_handler::consumer_handler_loop(&mut cons_rx, cmd_tx).await;
                 });
 
                 q.insert(name, queue);
 
-                Ok(cmd_tx)
+                Ok(())
             }
         }
     }
 
-    pub(crate) async fn get_channel(&mut self, name: String) -> Result<QueueCommandSink> {
+    pub(crate) async fn get_command_sink(&mut self, name: String) -> Result<QueueCommandSink> {
         let q = self.queues.lock().await;
 
         match q.get(&name) {
             Some(queue) => Ok(queue.command_sink.clone()),
-            None =>
-            // TODO check error code because we can call this from several places
-            {
-                channel_error(0, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found")
-            }
+            None => channel_error(0, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found"),
         }
     }
 

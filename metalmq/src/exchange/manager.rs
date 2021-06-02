@@ -119,7 +119,7 @@ impl ExchangeManager {
         Ok(())
     }
 
-    pub(crate) async fn clone_connection(&mut self, _exchange_name: &str, _conn: &str) -> Result<()> {
+    pub(crate) async fn delete_exchange(&mut self, exchange_name: &str) -> Result<()> {
         Ok(())
     }
 
