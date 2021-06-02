@@ -1,11 +1,9 @@
-use crate::message::{self, Message};
-use crate::queue::consumer_handler::ConsumerCommandSink;
-use crate::{ConsumerTag, Result};
-use log::{debug, error, info, trace, warn};
-use metalmq_codec::frame;
+use crate::message::Message;
+use crate::queue::consumer_handler::{ConsumerCommand, ConsumerCommandSink};
+use log::{error, trace};
 use std::collections::VecDeque;
+use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time;
 
 pub(crate) type QueueCommandSink = mpsc::Sender<QueueCommand>;
 //pub(crate) type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
@@ -66,6 +64,10 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
                 trace!("Queue message {:?}", message);
 
                 messages.push_back(message);
+
+                if let Err(e) = consumer_sink.send(ConsumerCommand::MessagePublished).await {
+                    error!("Error {:?}", e);
+                };
             }
             QueueCommand::GetMessage { result, tags } => {
                 trace!("Get message from queue");
@@ -76,6 +78,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
                     outbox.on_sent_out(OutgoingMessage {
                         message: message.clone(),
                         tags,
+                        sent_at: Instant::now(),
                     });
 
                     if let Err(e) = result.send(Some(message.clone())) {
@@ -100,6 +103,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
 struct OutgoingMessage {
     message: Message,
     tags: Option<(String, u64)>,
+    sent_at: Instant,
 }
 
 struct Outbox {

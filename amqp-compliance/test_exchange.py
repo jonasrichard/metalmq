@@ -42,6 +42,8 @@ def consume_message(conn, queue):
 
 def on_consumer_receive(channel, method, properties, body):
     LOG.info('Got message %s', body)
+
+    channel.basic_ack(delivery_tag=method.delivery_tag, multiple=False)
     channel.stop_consuming()
 
     with message_received:
@@ -56,6 +58,9 @@ def test_basic_publish(caplog):
 
     receiver = helper.connect()
     threading.Thread(target=consume_message, args=(receiver, 'my-queue')).start()
+
+    # Give chance to the consumer for starting and going into waiting state
+    time.sleep(0.5)
 
     publish_message(channel, 'my-exchange', 'my-queue')
 

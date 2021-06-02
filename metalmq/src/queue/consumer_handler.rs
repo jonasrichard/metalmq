@@ -114,6 +114,13 @@ pub(crate) async fn consumer_handler_loop(
 
                 result.send(());
             }
+            ConsumerCommand::MessagePublished => {
+                if let Some(consumer) = consumers.first_mut() {
+                    if let Err(e) = get_message_from_queue_and_send(consumer, &queue).await {
+                        error!("Error {:?}", e);
+                    }
+                }
+            }
             _ => (),
         }
     }
@@ -155,4 +162,41 @@ fn message_to_frames(message: &Message, consumer_tag: &ConsumerTag, delivery_tag
     frames.insert(0, basic_deliver);
 
     frames
+}
+
+async fn get_message_from_queue_and_send(
+    mut consumer: &mut Consumer,
+    queue: &mpsc::Sender<QueueCommand>,
+) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+
+    if let Err(e) = queue
+        .send(QueueCommand::GetMessage {
+            tags: Some((consumer.consumer_tag.clone(), consumer.delivery_tag_counter)),
+            result: tx,
+        })
+        .await
+    {
+        error!("Error {:?}", e);
+
+        return Ok(());
+    }
+
+    match rx.await {
+        Ok(Some(message)) => {
+            let frames = message_to_frames(&message, &consumer.consumer_tag, consumer.delivery_tag_counter);
+
+            if let Err(e) = send_message(&consumer.sink, frames).await {
+                error!("Error {:?}", e);
+            }
+        }
+        Ok(None) => (), // queue is empty
+        Err(e) => {
+            error!("Error {:?}", e);
+        }
+    }
+
+    consumer.delivery_tag_counter += 1;
+
+    Ok(())
 }

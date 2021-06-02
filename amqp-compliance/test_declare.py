@@ -36,17 +36,17 @@ def test_passive_declare_non_existent_exchange(caplog):
 
 def test_exchange_name_contains_disallowed_char(caplog):
     with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
-        Declare(exchange_name="exchange?")
+        Declare(exchange_name="exchange$#'!")
 
     assert 406 == exp.value.reply_code
-    assert str(exp.value.reply_text).startswith("NOT_FOUND")
+    assert str(exp.value.reply_text).startswith("PRECONDITION_FAILED")
 
 def test_exchange_with_not_supported_type(caplog):
-    with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
+    with pytest.raises(pika.exceptions.ConnectionClosedByBroker) as exp:
         Declare(exchange_name="topic-not-exist", exchange_type="broadcast")
 
     assert 503 == exp.value.reply_code
-    assert str(exp.value.reply_text).startswith("NOT_FOUND")
+    assert str(exp.value.reply_text).startswith("COMMAND_INVALID")
 
 def test_exchange_redeclare_with_different_type(caplog):
     d = Declare(exchange_name="redecl-direct", exchange_type="direct")
@@ -55,5 +55,15 @@ def test_exchange_redeclare_with_different_type(caplog):
     with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
         d2 = Declare(exchange_name="redecl-direct", exchange_type="fanout")
 
-    assert 530 == exp.value.reply_code
-    assert str(exp.value.reply_text).startswith("NOT_ALLOWED")
+    assert 406 == exp.value.reply_code
+    assert str(exp.value.reply_text).startswith("PRECONDITION_FAILED")
+
+def test_exchange_auto_delete(caplog):
+    d = Declare(exchange_name="xchg-auto-delete", auto_delete=True)
+    d.close()
+
+    with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
+        Declare(exchange_name="xchg-auto-delete", passive=True)
+
+    assert 406 == exp.value.reply_code
+    assert exp.value.reply_text.startswith("PRECONDITION_FAILED")

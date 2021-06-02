@@ -1,9 +1,8 @@
-use crate::client::error;
+use crate::client::{channel_error, ChannelError};
 use crate::queue::consumer_handler::{self, ConsumerCommand};
-use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
+use crate::queue::handler::{self, QueueCommandSink};
 use crate::queue::Queue;
 use crate::Result;
-use log::trace;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -87,7 +86,7 @@ impl QueueManager {
             None =>
             // TODO check error code because we can call this from several places
             {
-                error(0, frame::QUEUE_DECLARE, 404, "Not found")
+                channel_error(0, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found")
             }
         }
     }
@@ -122,7 +121,7 @@ impl QueueManager {
 
                 Ok(())
             }
-            None => error(0, frame::BASIC_CONSUME, 404, "Not found"),
+            None => channel_error(0, frame::BASIC_CONSUME, ChannelError::NotFound, "Not found"),
         }
     }
 

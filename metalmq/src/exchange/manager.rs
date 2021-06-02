@@ -1,4 +1,4 @@
-use crate::client::{error, state};
+use crate::client::{channel_error, connection_error, ChannelError, ConnectionError};
 use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
@@ -41,13 +41,16 @@ impl ExchangeManager {
 
         debug!("Declare exchange: {:?}", exchange);
 
+        validate_exchange_name(&exchange.name)?;
+        validate_exchange_type(&exchange.exchange_type)?;
+
         match ex.get(&exchange.name) {
             None => {
                 if passive {
-                    return error(
+                    return channel_error(
                         0,
                         frame::EXCHANGE_DECLARE,
-                        404,
+                        ChannelError::NotFound,
                         &format!("NOT_FOUND - no exchange '{}' in vhost '/'", exchange.name),
                     );
                 }
@@ -55,17 +58,19 @@ impl ExchangeManager {
             Some(current) => {
                 debug!("Current instance {:?}", current.exchange);
 
+                // TODO: the server must ignore the auto delete field if the exchange already
+                // exists
                 if current.exchange != exchange {
                     error!(
                         "Current exchange: {:?} to be declared. {:?}",
                         current.exchange, exchange
                     );
 
-                    return error(
+                    return channel_error(
                         0,
                         frame::EXCHANGE_DECLARE,
-                        state::PRECONDITION_FAILED,
-                        "Exchange exists but properties are different",
+                        ChannelError::PreconditionFailed,
+                        "PRECONDITION_FAILED - Exchange exists but properties are different",
                     );
                 }
             }
@@ -80,7 +85,7 @@ impl ExchangeManager {
         let exchange_name = exchange.name.clone();
 
         let exchange_state = ExchangeState {
-            exchange: exchange,
+            exchange,
             command_sink: command_sink.clone(),
         };
 
@@ -103,8 +108,15 @@ impl ExchangeManager {
 
                 Ok(())
             }
-            None => error(0, frame::QUEUE_BIND, 404, "Not found"),
+            None => channel_error(0, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
         }
+    }
+
+    pub(crate) async fn unbind_queue(&mut self, exchange_name: &str, queue_name: &str) -> Result<()> {
+        // TODO unbound queue
+        // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
+        // and channel belonging to them)
+        Ok(())
     }
 
     pub(crate) async fn clone_connection(&mut self, _exchange_name: &str, _conn: &str) -> Result<()> {
@@ -116,6 +128,37 @@ impl ExchangeManager {
 
         ex.values().map(|e| e.exchange.clone()).collect()
     }
+}
+
+fn validate_exchange_name(exchange_name: &str) -> Result<()> {
+    let spec = String::from("_-:.");
+
+    for c in exchange_name.chars() {
+        if !c.is_alphanumeric() && spec.find(c).is_none() {
+            return channel_error(
+                0,
+                frame::EXCHANGE_DECLARE,
+                ChannelError::PreconditionFailed,
+                "PRECONDITION_FAILED - Exchange contains invalid character",
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_exchange_type(exchange_type: &str) -> Result<()> {
+    let allowed_type = ["direct", "topic", "fanout"];
+
+    if !allowed_type.contains(&exchange_type) {
+        return connection_error(
+            frame::EXCHANGE_DECLARE,
+            ConnectionError::CommandInvalid,
+            "PRECONDITION_FAILED - Exchange type is invalid",
+        );
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -162,7 +205,7 @@ mod tests {
 
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
         assert_eq!(err.scope, ErrorScope::Channel);
-        assert_eq!(err.code, state::PRECONDITION_FAILED);
+        assert_eq!(err.code, ChannelError::PreconditionFailed);
     }
 
     #[tokio::test]

@@ -1,8 +1,9 @@
+use crate::client::{self, ChannelError, ConnectionError};
 use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
 use crate::message;
 use crate::queue::handler as queue_handler;
-use crate::{Context, Result, RuntimeError};
-use log::{debug, error, trace};
+use crate::{Context, ErrorScope, Result, RuntimeError};
+use log::{error, trace};
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,11 +19,6 @@ pub(crate) enum FrameResponse {
 }
 
 pub(crate) type MaybeFrame = Result<FrameResponse>;
-
-pub(crate) const NOT_FOUND: u16 = 404;
-pub(crate) const PRECONDITION_FAILED: u16 = 406;
-pub(crate) const CHANNEL_ERROR: u16 = 504;
-pub(crate) const NOT_ALLOWED: u16 = 530;
 
 #[derive(Debug)]
 struct ConsumedQueue {
@@ -78,7 +74,11 @@ pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame
 impl Connection {
     pub(crate) async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
         if args.virtual_host != "/" {
-            connection_error(NOT_ALLOWED, "Cannot connect to virtualhost", frame::CONNECTION_OPEN)
+            client::connection_error(
+                frame::CONNECTION_OPEN,
+                ConnectionError::NotAllowed,
+                "Cannot connect to virtualhost",
+            )
         } else {
             Ok(FrameResponse::Frame(frame::connection_open_ok(channel)))
         }
@@ -86,6 +86,8 @@ impl Connection {
 
     pub(crate) async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         // TODO cleanup
+        //   - consume handler -> remove as consumer
+        //   - exchange handler -> deregister (auto-delete exchange)
         let mut ctx = self.context.lock().await;
         for cq in &self.consumed_queues {
             trace!("Cleaning up consumers {:?}", cq);
@@ -100,7 +102,11 @@ impl Connection {
 
     pub(crate) async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
         if self.open_channels.contains_key(&channel) {
-            channel_error(channel, CHANNEL_ERROR, "Channel already opened", frame::CHANNEL_OPEN)
+            client::connection_error(
+                frame::CHANNEL_OPEN,
+                ConnectionError::ChannelError,
+                "Channel already opened",
+            )
         } else {
             self.open_channels.insert(channel, ());
             Ok(FrameResponse::Frame(frame::channel_open_ok(channel)))
@@ -142,11 +148,13 @@ impl Connection {
                 }
             }
             Err(e) => match e.downcast::<RuntimeError>() {
-                Ok(mut rte) => {
-                    rte.channel = channel;
-
-                    Ok(FrameResponse::Frame(AMQPFrame::from(*rte)))
-                }
+                Ok(mut rte) => match rte.scope {
+                    ErrorScope::Connection => Ok(FrameResponse::Frame(AMQPFrame::from(*rte))),
+                    ErrorScope::Channel => {
+                        rte.channel = channel;
+                        Ok(FrameResponse::Frame(AMQPFrame::from(*rte)))
+                    }
+                },
                 Err(e2) => Err(e2),
             },
         }
@@ -187,7 +195,12 @@ impl Connection {
 
     pub(crate) async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
         if !self.exchanges.contains_key(&args.exchange_name) {
-            channel_error(channel, NOT_FOUND, "Exchange not found", frame::BASIC_PUBLISH)
+            client::channel_error(
+                channel,
+                frame::BASIC_PUBLISH,
+                ChannelError::NotFound,
+                "Exchange not found",
+            )
         } else {
             // TODO check if there is in flight content in the channel -> error
             self.in_flight_contents.insert(
@@ -335,19 +348,19 @@ impl Connection {
     }
 }
 
-fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
-    let (cid, mid) = frame::split_class_method(cm_id);
-
-    Ok(FrameResponse::Frame(frame::channel_close(
-        channel, code, text, cid, mid,
-    )))
-}
-
-fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
-    let (cid, mid) = frame::split_class_method(cm_id);
-
-    Ok(FrameResponse::Frame(frame::connection_close(0, code, text, cid, mid)))
-}
+//fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
+//    let (cid, mid) = frame::split_class_method(cm_id);
+//
+//    Ok(FrameResponse::Frame(frame::channel_close(
+//        channel, code, text, cid, mid,
+//    )))
+//}
+//
+//fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
+//    let (cid, mid) = frame::split_class_method(cm_id);
+//
+//    Ok(FrameResponse::Frame(frame::connection_close(0, code, text, cid, mid)))
+//}
 
 fn send_basic_return(message: message::Message) -> MaybeFrame {
     let mut frames = message::message_to_content_frames(&message);
