@@ -62,8 +62,6 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>
     }
 }
 
-//type SinkType = SplitSink<Framed<TcpStream, AMQPCodec>, AMQPFrame>;
-
 async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<FrameResponse> {
     use AMQPFrame::*;
 

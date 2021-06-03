@@ -9,13 +9,14 @@ pub(crate) mod manager;
 use metalmq_codec::frame::{ExchangeDeclareArgs, ExchangeDeclareFlags};
 use serde::Serialize;
 
+/// Descriptive information of the exchanges
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct Exchange {
     name: String,
     exchange_type: String,
     durable: bool,
     auto_delete: bool,
-    internal: bool
+    internal: bool,
 }
 
 impl From<ExchangeDeclareArgs> for Exchange {
@@ -25,7 +26,7 @@ impl From<ExchangeDeclareArgs> for Exchange {
             exchange_type: f.exchange_type,
             durable: ExchangeDeclareFlags::contains(&f.flags, ExchangeDeclareFlags::DURABLE),
             auto_delete: ExchangeDeclareFlags::contains(&f.flags, ExchangeDeclareFlags::AUTO_DELETE),
-            internal: ExchangeDeclareFlags::contains(&f.flags, ExchangeDeclareFlags::INTERNAL)
+            internal: ExchangeDeclareFlags::contains(&f.flags, ExchangeDeclareFlags::INTERNAL),
         }
     }
 }

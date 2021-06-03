@@ -26,6 +26,12 @@ pub(crate) enum QueueCommand {
         consumer_tag: String,
         delivery_tag: u64,
     },
+    ExchangeBound {
+        exchange_name: String,
+    },
+    ExchangeUnbound {
+        exchange_name: String,
+    },
 }
 
 // Message delivery
@@ -96,6 +102,8 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
             } => {
                 outbox.on_ack_arrive(consumer_tag, delivery_tag);
             }
+            QueueCommand::ExchangeBound { exchange_name } => {}
+            QueueCommand::ExchangeUnbound { exchange_name } => {}
         }
     }
 }

@@ -7,7 +7,7 @@ use log::{debug, error};
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 pub(crate) struct ExchangeManager {
     exchanges: Arc<Mutex<HashMap<String, ExchangeState>>>,
@@ -77,9 +77,12 @@ impl ExchangeManager {
         }
 
         let (command_sink, mut command_stream) = mpsc::channel(1);
+        let exchange_clone = exchange.clone();
 
         tokio::spawn(async move {
-            handler::exchange_loop(&mut command_stream).await.unwrap();
+            handler::exchange_loop(exchange_clone, &mut command_stream)
+                .await
+                .unwrap();
         });
 
         let exchange_name = exchange.name.clone();
@@ -94,17 +97,27 @@ impl ExchangeManager {
         Ok(command_sink)
     }
 
-    pub(crate) async fn bind_queue(&mut self, exchange_name: String, queue_channel: QueueCommandSink) -> Result<()> {
+    pub(crate) async fn bind_queue(
+        &mut self,
+        exchange_name: &str,
+        queue_name: &str,
+        routing_key: &str,
+        queue_channel: QueueCommandSink,
+    ) -> Result<()> {
         let ex = self.exchanges.lock().await;
 
-        match ex.get(&exchange_name) {
+        match ex.get(exchange_name) {
             Some(exchange_state) => {
-                // TODO we need to have a oneshot channel here to wait for the result
-                exchange_state
-                    .command_sink
-                    .send(ExchangeCommand::QueueBind { sink: queue_channel })
-                    .await
-                    .unwrap();
+                let (tx, rx) = oneshot::channel();
+                let cmd = ExchangeCommand::QueueBind {
+                    queue_name: queue_name.to_string(),
+                    routing_key: routing_key.to_string(),
+                    sink: queue_channel,
+                    result: tx,
+                };
+
+                exchange_state.command_sink.send(cmd).await?;
+                rx.await?;
 
                 Ok(())
             }
@@ -112,11 +125,33 @@ impl ExchangeManager {
         }
     }
 
-    pub(crate) async fn unbind_queue(&mut self, exchange_name: &str, queue_name: &str) -> Result<()> {
-        // TODO unbound queue
+    pub(crate) async fn unbind_queue(
+        &mut self,
+        exchange_name: &str,
+        queue_name: &str,
+        routing_key: &str,
+    ) -> Result<()> {
+        let ex = self.exchanges.lock().await;
+
+        match ex.get(exchange_name) {
+            Some(exchange_state) => {
+                let (tx, rx) = oneshot::channel();
+                let cmd = ExchangeCommand::QueueUnbind {
+                    queue_name: queue_name.to_string(),
+                    routing_key: routing_key.to_string(),
+                    result: tx,
+                };
+
+                exchange_state.command_sink.send(cmd).await?;
+                rx.await?;
+
+                Ok(())
+            }
+            None => channel_error(0, frame::QUEUE_UNBIND, ChannelError::NotFound, "Exchange not found"),
+        }
+
         // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
         // and channel belonging to them)
-        Ok(())
     }
 
     pub(crate) async fn delete_exchange(&mut self, exchange_name: &str) -> Result<()> {

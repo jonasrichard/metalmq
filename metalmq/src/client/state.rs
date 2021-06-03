@@ -1,7 +1,6 @@
 use crate::client::{self, ChannelError, ConnectionError};
 use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
 use crate::message;
-use crate::queue::consumer_handler;
 use crate::queue::handler as queue_handler;
 use crate::{Context, ErrorScope, Result, RuntimeError};
 use log::{error, trace};
@@ -191,9 +190,11 @@ impl Connection {
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
         let mut ctx = self.context.lock().await;
 
-        match ctx.queues.get_command_sink(args.queue_name).await {
+        match ctx.queues.get_command_sink(&args.queue_name).await {
             Ok(sink) => {
-                ctx.exchanges.bind_queue(args.exchange_name, sink).await?;
+                ctx.exchanges
+                    .bind_queue(&args.exchange_name, &args.queue_name, &args.routing_key, sink)
+                    .await?;
 
                 Ok(FrameResponse::Frame(frame::queue_bind_ok(channel)))
             }
@@ -249,7 +250,7 @@ impl Connection {
             )
             .await?;
 
-        match ctx.queues.get_command_sink(args.queue.clone()).await {
+        match ctx.queues.get_command_sink(&args.queue).await {
             Ok(queue_channel) => {
                 self.consumed_queues.push(ConsumedQueue {
                     channel,

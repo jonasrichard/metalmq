@@ -77,10 +77,10 @@ impl QueueManager {
         }
     }
 
-    pub(crate) async fn get_command_sink(&mut self, name: String) -> Result<QueueCommandSink> {
+    pub(crate) async fn get_command_sink(&mut self, name: &str) -> Result<QueueCommandSink> {
         let q = self.queues.lock().await;
 
-        match q.get(&name) {
+        match q.get(name) {
             Some(queue) => Ok(queue.command_sink.clone()),
             None => channel_error(0, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found"),
         }

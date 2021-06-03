@@ -126,6 +126,8 @@ fn setup_logger() {
 async fn start_http() -> Result<()> {
     let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
+    info!("Start HTTP admin API on port 3000");
+
     let make_svc = make_service_fn(|_conn| async {
         Ok::<_, Infallible>(service_fn(move |req| restapi::route(req, Arc::clone(&CONTEXT))))
     });
