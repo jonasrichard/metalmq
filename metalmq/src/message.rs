@@ -20,9 +20,9 @@ pub(crate) struct Message {
 pub(crate) type MessageChannel = mpsc::Sender<Message>;
 
 /// Create content header and content body frames from a message
-pub(crate) fn message_to_content_frames(message: &Message) -> (frame::AMQPFrame, frame::AMQPFrame) {
-    (
+pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
+    vec![
         frame::AMQPFrame::ContentHeader(frame::content_header(message.channel, message.content.len() as u64)),
         frame::AMQPFrame::ContentBody(frame::content_body(message.channel, message.content.as_slice())),
-    )
+    ]
 }
