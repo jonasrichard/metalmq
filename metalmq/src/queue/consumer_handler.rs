@@ -1,6 +1,6 @@
 use crate::message::{self, Message};
-use crate::queue::handler::QueueCommand;
-use crate::{ConsumerTag, Result};
+use crate::queue::handler::{QueueCommand, Tag};
+use crate::Result;
 use log::{debug, error, info};
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::cmp::Ordering;
@@ -65,47 +65,30 @@ pub(crate) async fn consumer_handler_loop(
                 let mut delivery_tag = 1u64;
 
                 'consumer: loop {
-                    let (tx, rx) = oneshot::channel();
+                    let tag = Tag {
+                        consumer_tag: consumer_tag.clone(),
+                        delivery_tag,
+                    };
 
-                    if let Err(e) = queue
-                        .send(QueueCommand::GetMessage {
-                            tags: Some((consumer_tag.clone(), delivery_tag)),
-                            result: tx,
-                        })
-                        .await
-                    {
-                        error!("Error {:?}", e);
-
-                        break 'consumer;
-                    }
-
-                    match rx.await {
-                        Ok(Some(message)) => {
-                            let frames = message_to_frames(&message, &consumer_tag, delivery_tag);
-
-                            if let Err(e) = send_message(&sink, frames).await {
-                                error!("Error {:?}", e);
-
-                                break 'consumer;
-                            }
+                    match get_and_send_message(&queue, &sink, tag).await {
+                        Ok(SendResult::MessageSent) => {
+                            delivery_tag += 1;
                         }
-                        Ok(None) => break 'consumer, // queue is empty
-                        Err(e) => {
-                            error!("Error {:?}", e);
-
+                        Ok(SendResult::QueueEmpty) => {
+                            consumers.push(Consumer {
+                                consumer_tag: consumer_tag.clone(),
+                                no_ack,
+                                sink,
+                                delivery_tag_counter: delivery_tag,
+                            });
                             break 'consumer;
                         }
+                        Ok(SendResult::ConsumerInvalid) => {
+                            break 'consumer;
+                        }
+                        Err(e) => error!("Error {:?}", e),
                     }
-
-                    delivery_tag += 1;
                 }
-
-                consumers.push(Consumer {
-                    consumer_tag: consumer_tag.clone(),
-                    no_ack,
-                    sink,
-                    delivery_tag_counter: delivery_tag,
-                });
             }
             ConsumerCommand::CancelConsuming { consumer_tag, result } => {
                 info!("Cancel consuming tag {}", consumer_tag);
@@ -123,6 +106,36 @@ pub(crate) async fn consumer_handler_loop(
             }
             _ => (),
         }
+    }
+}
+
+enum SendResult {
+    MessageSent,
+    QueueEmpty,
+    ConsumerInvalid,
+}
+
+async fn get_and_send_message(queue: &mpsc::Sender<QueueCommand>, sink: &FrameSink, tag: Tag) -> Result<SendResult> {
+    let delivery_tag = tag.delivery_tag;
+    let (tx, rx) = oneshot::channel();
+
+    queue
+        .send(QueueCommand::GetMessage {
+            tag: Some(tag.clone()),
+            result: tx,
+        })
+        .await?;
+
+    match rx.await? {
+        Some(message) => {
+            let frames = message_to_frames(&message, &tag);
+
+            match send_message(&sink, frames).await {
+                Err(e) => Ok(SendResult::ConsumerInvalid),
+                _ => Ok(SendResult::MessageSent),
+            }
+        }
+        None => Ok(SendResult::QueueEmpty),
     }
 }
 
@@ -149,13 +162,13 @@ async fn send_message(consumer: &FrameSink, frames: Vec<AMQPFrame>) -> Result<bo
     Ok(n == frames.len())
 }
 
-fn message_to_frames(message: &Message, consumer_tag: &ConsumerTag, delivery_tag: u64) -> Vec<frame::AMQPFrame> {
+fn message_to_frames(message: &Message, tag: &Tag) -> Vec<frame::AMQPFrame> {
     let mut frames = message::message_to_content_frames(&message);
 
     let basic_deliver = frame::basic_deliver(
         message.channel,
-        consumer_tag,
-        delivery_tag,
+        &tag.consumer_tag,
+        tag.delivery_tag,
         false,
         &message.exchange,
         &message.routing_key,
@@ -169,11 +182,16 @@ async fn get_message_from_queue_and_send(
     mut consumer: &mut Consumer,
     queue: &mpsc::Sender<QueueCommand>,
 ) -> Result<()> {
+    let tag = Tag {
+        consumer_tag: consumer.consumer_tag.clone(),
+        delivery_tag: consumer.delivery_tag_counter,
+    };
+
     let (tx, rx) = oneshot::channel();
 
     if let Err(e) = queue
         .send(QueueCommand::GetMessage {
-            tags: Some((consumer.consumer_tag.clone(), consumer.delivery_tag_counter)),
+            tag: Some(tag.clone()),
             result: tx,
         })
         .await
@@ -185,7 +203,7 @@ async fn get_message_from_queue_and_send(
 
     match rx.await {
         Ok(Some(message)) => {
-            let frames = message_to_frames(&message, &consumer.consumer_tag, consumer.delivery_tag_counter);
+            let frames = message_to_frames(&message, &tag);
 
             if let Err(e) = send_message(&consumer.sink, frames).await {
                 error!("Error {:?}", e);

@@ -1,5 +1,5 @@
 use crate::client::{channel_error, ChannelError};
-use crate::queue::consumer_handler::{self, ConsumerCommand, ConsumerCommandSink};
+use crate::queue::consumer_handler::{self, ConsumerCommand};
 use crate::queue::handler::{self, QueueCommandSink};
 use crate::queue::Queue;
 use crate::Result;

@@ -4,21 +4,16 @@ use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::{Context, ErrorScope, Result, RuntimeError};
 use log::{error, trace};
+use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time;
 use uuid::Uuid;
 
-/// Response of a handler function
-pub(crate) enum FrameResponse {
-    None,
-    Frame(AMQPFrame),
-    Frames(Vec<AMQPFrame>),
-}
-
-pub(crate) type MaybeFrame = Result<FrameResponse>;
+pub(crate) type MaybeFrame = Result<Option<Frame>>;
 
 #[derive(Debug)]
 struct ConsumedQueue {
@@ -73,6 +68,33 @@ pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame
 }
 
 impl Connection {
+    pub(crate) async fn connection_start_ok(&self, channel: Channel, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
+        let mut authenticated = false;
+
+        if args.mechanism.cmp(&"PLAIN".to_string()) == Ordering::Equal {
+            let mut it = args.response.as_bytes().split(|b| b == &0u8);
+            it.next();
+            let username = it.next();
+            let password = it.next();
+
+            trace!("User {:?} Pass {:?}", username, password);
+
+            match (username, password) {
+                (Some(b"guest"), Some(b"guest")) => authenticated = true,
+                _ => (),
+            }
+        }
+
+        match authenticated {
+            true => Ok(Some(Frame::Frame(frame::connection_tune(channel)))),
+            false => client::connection_error(
+                0u32,
+                ConnectionError::AccessRefused,
+                "Username and password are incorrect",
+            ),
+        }
+    }
+
     pub(crate) async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
         if args.virtual_host != "/" {
             client::connection_error(
@@ -81,7 +103,7 @@ impl Connection {
                 "Cannot connect to virtualhost",
             )
         } else {
-            Ok(FrameResponse::Frame(frame::connection_open_ok(channel)))
+            Ok(Some(Frame::Frame(frame::connection_open_ok(channel))))
         }
     }
 
@@ -100,7 +122,7 @@ impl Connection {
                 .await?;
         }
 
-        Ok(FrameResponse::Frame(frame::connection_close_ok(0)))
+        Ok(Some(Frame::Frame(frame::connection_close_ok(0))))
     }
 
     pub(crate) async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
@@ -112,7 +134,7 @@ impl Connection {
             )
         } else {
             self.open_channels.push(channel);
-            Ok(FrameResponse::Frame(frame::channel_open_ok(channel)))
+            Ok(Some(Frame::Frame(frame::channel_open_ok(channel))))
         }
     }
 
@@ -134,13 +156,13 @@ impl Connection {
 
         self.open_channels.retain(|c| c != &channel);
 
-        Ok(FrameResponse::Frame(frame::channel_close_ok(channel)))
+        Ok(Some(Frame::Frame(frame::channel_close_ok(channel))))
     }
 
     pub(crate) async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
         self.consumed_queues.retain(|cq| cq.channel != channel);
 
-        Ok(FrameResponse::None)
+        Ok(None)
     }
 
     pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
@@ -156,17 +178,17 @@ impl Connection {
                 self.exchanges.insert(exchange_name.clone(), ch);
 
                 if no_wait {
-                    Ok(FrameResponse::None)
+                    Ok(None)
                 } else {
-                    Ok(FrameResponse::Frame(frame::exchange_declare_ok(channel)))
+                    Ok(Some(Frame::Frame(frame::exchange_declare_ok(channel))))
                 }
             }
             Err(e) => match e.downcast::<RuntimeError>() {
                 Ok(mut rte) => match rte.scope {
-                    ErrorScope::Connection => Ok(FrameResponse::Frame(AMQPFrame::from(*rte))),
+                    ErrorScope::Connection => Ok(Some(Frame::Frame(AMQPFrame::from(*rte)))),
                     ErrorScope::Channel => {
                         rte.channel = channel;
-                        Ok(FrameResponse::Frame(AMQPFrame::from(*rte)))
+                        Ok(Some(Frame::Frame(AMQPFrame::from(*rte))))
                     }
                 },
                 Err(e2) => Err(e2),
@@ -176,7 +198,7 @@ impl Connection {
 
     pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
         // TODO do the delete here
-        Ok(FrameResponse::Frame(frame::exchange_delete_ok(channel)))
+        Ok(Some(Frame::Frame(frame::exchange_delete_ok(channel))))
     }
 
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
@@ -184,7 +206,7 @@ impl Connection {
 
         ctx.queues.declare(args.name.clone()).await?;
 
-        Ok(FrameResponse::Frame(frame::queue_declare_ok(channel, args.name, 0, 0)))
+        Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, args.name, 0, 0))))
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
@@ -196,7 +218,7 @@ impl Connection {
                     .bind_queue(&args.exchange_name, &args.queue_name, &args.routing_key, sink)
                     .await?;
 
-                Ok(FrameResponse::Frame(frame::queue_bind_ok(channel)))
+                Ok(Some(Frame::Frame(frame::queue_bind_ok(channel))))
             }
             Err(e) => client::channel_error(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Exchange not found"),
         }
@@ -204,12 +226,12 @@ impl Connection {
 
     pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
         // TODO delete the queue
-        Ok(FrameResponse::Frame(frame::queue_delete_ok(channel, 0)))
+        Ok(Some(Frame::Frame(frame::queue_delete_ok(channel, 0))))
     }
 
     pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
         // TODO implement queue unbind
-        Ok(FrameResponse::Frame(frame::queue_unbind_ok(channel)))
+        Ok(Some(Frame::Frame(frame::queue_unbind_ok(channel))))
     }
 
     pub(crate) async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
@@ -235,7 +257,7 @@ impl Connection {
                 },
             );
 
-            Ok(FrameResponse::None)
+            Ok(None)
         }
     }
 
@@ -258,10 +280,7 @@ impl Connection {
                     queue_name: args.queue.clone(),
                     queue_sink: queue_channel,
                 });
-                Ok(FrameResponse::Frame(frame::basic_consume_ok(
-                    channel,
-                    &args.consumer_tag,
-                )))
+                Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
             }
             Err(_) => client::channel_error(channel, frame::BASIC_CONSUME, ChannelError::NotFound, "Queue not found"),
         }
@@ -283,13 +302,10 @@ impl Connection {
 
             self.consumed_queues
                 .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);
-            Ok(FrameResponse::Frame(frame::basic_cancel_ok(
-                channel,
-                &args.consumer_tag,
-            )))
+            Ok(Some(Frame::Frame(frame::basic_cancel_ok(channel, &args.consumer_tag))))
         } else {
             // TODO error: canceling consuming which didn't exist
-            Ok(FrameResponse::None)
+            Ok(None)
         }
     }
 
@@ -308,11 +324,11 @@ impl Connection {
                 .await?;
         }
 
-        Ok(FrameResponse::None)
+        Ok(None)
     }
 
     pub(crate) async fn confirm_select(&mut self, channel: Channel, args: frame::ConfirmSelectArgs) -> MaybeFrame {
-        Ok(FrameResponse::Frame(frame::confirm_select_ok(channel)))
+        Ok(Some(Frame::Frame(frame::confirm_select_ok(channel))))
     }
 
     pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
@@ -321,7 +337,7 @@ impl Connection {
             pc.length = Some(header.body_size);
         }
 
-        Ok(FrameResponse::None)
+        Ok(None)
     }
 
     pub(crate) async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
@@ -345,13 +361,13 @@ impl Connection {
                         .await?;
 
                     match rx.await {
-                        Ok(MessageSentResult::None) => Ok(FrameResponse::None),
+                        Ok(MessageSentResult::None) => Ok(None),
                         Ok(MessageSentResult::MessageNotRouted(original_message)) => {
                             send_basic_return(original_message)
                         }
                         Err(e) => {
                             error!("Receiving response from exchange {:?}", e);
-                            Ok(FrameResponse::None)
+                            Ok(None)
                         }
                     }
                 }
@@ -359,12 +375,12 @@ impl Connection {
                     if msg.mandatory {
                         send_basic_return(msg)
                     } else {
-                        Ok(FrameResponse::None)
+                        Ok(None)
                     }
                 }
             }
         } else {
-            Ok(FrameResponse::None)
+            Ok(None)
         }
     }
 }
@@ -372,7 +388,7 @@ impl Connection {
 //fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
 //    let (cid, mid) = frame::split_class_method(cm_id);
 //
-//    Ok(FrameResponse::Frame(frame::channel_close(
+//    Ok(Some(Frame::Frame(frame::channel_close(
 //        channel, code, text, cid, mid,
 //    )))
 //}
@@ -380,7 +396,7 @@ impl Connection {
 //fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
 //    let (cid, mid) = frame::split_class_method(cm_id);
 //
-//    Ok(FrameResponse::Frame(frame::connection_close(0, code, text, cid, mid)))
+//    Ok(Some(Frame::Frame(frame::connection_close(0, code, text, cid, mid)))
 //}
 
 fn send_basic_return(message: message::Message) -> MaybeFrame {
@@ -399,5 +415,5 @@ fn send_basic_return(message: message::Message) -> MaybeFrame {
 
     frames.push(frame::basic_ack(message.channel, 1u64, false));
 
-    Ok(FrameResponse::Frames(frames))
+    Ok(Some(Frame::Frames(frames)))
 }

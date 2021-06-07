@@ -1,4 +1,3 @@
-use crate::ConsumerTag;
 use std::collections::HashMap;
 
 pub const CONNECTION_START: u32 = 0x000A000A;
@@ -354,25 +353,25 @@ impl Default for BasicConsumeFlags {
 #[derive(Clone, Debug, Default)]
 pub struct BasicConsumeArgs {
     pub queue: String,
-    pub consumer_tag: ConsumerTag,
+    pub consumer_tag: String,
     pub flags: BasicConsumeFlags,
     pub args: Option<FieldTable>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BasicConsumeOkArgs {
-    pub consumer_tag: ConsumerTag,
+    pub consumer_tag: String,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BasicCancelArgs {
-    pub consumer_tag: ConsumerTag,
+    pub consumer_tag: String,
     pub no_wait: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BasicCancelOkArgs {
-    pub consumer_tag: ConsumerTag,
+    pub consumer_tag: String,
 }
 
 bitflags! {
@@ -405,7 +404,7 @@ pub struct BasicReturnArgs {
 
 #[derive(Clone, Debug, Default)]
 pub struct BasicDeliverArgs {
-    pub consumer_tag: ConsumerTag,
+    pub consumer_tag: String,
     pub delivery_tag: u64,
     pub redelivered: bool,
     pub exchange_name: String,
@@ -714,7 +713,7 @@ pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, co
     )
 }
 
-pub fn basic_consume(channel: u16, queue_name: &str, consumer_tag: &ConsumerTag) -> AMQPFrame {
+pub fn basic_consume(channel: u16, queue_name: &str, consumer_tag: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CONSUME,
@@ -727,7 +726,7 @@ pub fn basic_consume(channel: u16, queue_name: &str, consumer_tag: &ConsumerTag)
     )
 }
 
-pub fn basic_consume_ok(channel: u16, consumer_tag: &ConsumerTag) -> AMQPFrame {
+pub fn basic_consume_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CONSUME_OK,
@@ -737,7 +736,7 @@ pub fn basic_consume_ok(channel: u16, consumer_tag: &ConsumerTag) -> AMQPFrame {
     )
 }
 
-pub fn basic_cancel(channel: u16, consumer_tag: &ConsumerTag, no_wait: bool) -> AMQPFrame {
+pub fn basic_cancel(channel: u16, consumer_tag: &str, no_wait: bool) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CANCEL,
@@ -748,7 +747,7 @@ pub fn basic_cancel(channel: u16, consumer_tag: &ConsumerTag, no_wait: bool) -> 
     )
 }
 
-pub fn basic_cancel_ok(channel: u16, consumer_tag: &ConsumerTag) -> AMQPFrame {
+pub fn basic_cancel_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CANCEL_OK,
@@ -791,7 +790,7 @@ pub fn basic_return(
 
 pub fn basic_deliver(
     channel: u16,
-    consumer_tag: &ConsumerTag,
+    consumer_tag: &str,
     delivery_tag: u64,
     redelivered: bool,
     exchange_name: &str,

@@ -8,6 +8,7 @@ use metalmq_codec::frame;
 pub(crate) enum ConnectionError {
     ConnectionForced = 320,
     InvalidPath = 402,
+    AccessRefused = 403,
     FrameError = 501,
     SyntaxError = 502,
     CommandInvalid = 503,

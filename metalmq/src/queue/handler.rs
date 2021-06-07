@@ -1,6 +1,7 @@
 use crate::message::Message;
 use crate::queue::consumer_handler::{ConsumerCommand, ConsumerCommandSink};
 use log::{error, trace};
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
@@ -14,11 +15,17 @@ pub(crate) struct QueueInfo {
     // TODO message metrics, current, current outgoing, etc...
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct Tag {
+    pub consumer_tag: String,
+    pub delivery_tag: u64,
+}
+
 #[derive(Debug)]
 pub(crate) enum QueueCommand {
     PublishMessage(Message),
     GetMessage {
-        tags: Option<(String, u64)>,
+        tag: Option<Tag>,
         // We need to generate a message id not to look for consumer tag, delivery tag
         result: oneshot::Sender<Option<Message>>,
     },
@@ -75,7 +82,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
                     error!("Error {:?}", e);
                 };
             }
-            QueueCommand::GetMessage { result, tags } => {
+            QueueCommand::GetMessage { result, tag } => {
                 trace!("Get message from queue");
 
                 if let Some(message) = messages.pop_front() {
@@ -83,7 +90,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
 
                     outbox.on_sent_out(OutgoingMessage {
                         message: message.clone(),
-                        tags,
+                        tag,
                         sent_at: Instant::now(),
                     });
 
@@ -110,7 +117,7 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
 
 struct OutgoingMessage {
     message: Message,
-    tags: Option<(String, u64)>,
+    tag: Option<Tag>,
     sent_at: Instant,
 }
 
@@ -121,8 +128,8 @@ struct Outbox {
 impl Outbox {
     fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64) {
         self.outgoing_messages.retain(|om| {
-            if let Some((ctag, dtag)) = &om.tags {
-                dtag != &delivery_tag || ctag.cmp(&consumer_tag) != std::cmp::Ordering::Equal
+            if let Some(tag) = &om.tag {
+                &tag.delivery_tag != &delivery_tag || tag.consumer_tag.cmp(&consumer_tag) != Ordering::Equal
             } else {
                 true
             }

@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use log::{debug, error};
-use metalmq_codec::codec::AMQPCodec;
+use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use std::collections::HashMap;
 use std::fmt;
@@ -65,13 +65,15 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
         tokio::select! {
             result = stream.next() => {
                 match result {
-                    Some(Ok(frame)) => {
+                    Some(Ok(Frame::Frame(frame))) => {
                         notify_waiter(&frame, &mut feedback)?;
 
                         if let Ok(Some(response)) = handle_in_frame(&frame, &mut client).await {
-                            sink.send(response).await?
+                            sink.send(Frame::Frame(response)).await?
                         }
                     },
+                    Some(Ok(Frame::Frames(_))) =>
+                        unimplemented!(),
                     Some(Err(e)) =>
                         error!("Handle errors {:?}", e),
                     None => {
@@ -85,23 +87,23 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
                 match request.param {
                     Param::Frame(AMQPFrame::Header) => {
                         register_waiter(&mut feedback, Some(0), request.response);
-                        sink.send(AMQPFrame::Header).await?;
+                        sink.send(Frame::Frame(AMQPFrame::Header)).await?;
                     },
                     Param::Frame(AMQPFrame::Method(ch, _, ma)) =>
                         if let Some(response) = handle_out_frame(ch, ma, &mut client).await? {
                             let resp_channel = channel(&response);
-                            sink.send(response).await?;
+                            sink.send(Frame::Frame(response)).await?;
                             register_waiter(&mut feedback, resp_channel, request.response);
                         },
                     Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) =>
                         if let Some(response) = client.basic_consume(ch, &args, msg_sink).await? {
                             let resp_channel = channel(&response);
-                            sink.send(response).await?;
+                            sink.send(Frame::Frame(response)).await?;
                             register_waiter(&mut feedback, resp_channel, request.response);
                         },
                     Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) =>
                         for response in handle_publish(ch, args, content, &mut client).await? {
-                            sink.send(response).await?;
+                            sink.send(Frame::Frame(response)).await?;
                         },
                     _ =>
                         unreachable!("{:?}", request)

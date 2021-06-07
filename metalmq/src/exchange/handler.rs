@@ -88,7 +88,8 @@ pub(crate) async fn exchange_loop(
                 if let Some(sink) = queues.remove(&routing_key) {
                     sink.send(QueueCommand::ExchangeUnbound {
                         exchange_name: exchange.name.clone(),
-                    });
+                    })
+                    .await;
                 }
 
                 result.send(true);

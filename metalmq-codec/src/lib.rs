@@ -10,9 +10,6 @@ extern crate bitflags;
 
 use std::fmt;
 
-/// Consumer tag type for basic consume
-pub type ConsumerTag = String;
-
 /// Type alias for a sync and send error.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 /// Type alias for a simplified Result with Error.
@@ -62,7 +59,7 @@ macro_rules! frame_error {
 mod tests {
     use super::*;
     use bytes::{Buf, BufMut, BytesMut};
-    use codec::AMQPCodec;
+    use codec::{AMQPCodec, Frame};
     use frame::{AMQPFrame, MethodFrameArgs};
     use tokio_util::codec::Encoder;
 
@@ -71,7 +68,7 @@ mod tests {
         let mut encoder = AMQPCodec {};
         let mut buf = BytesMut::with_capacity(1024);
 
-        let res = encoder.encode(AMQPFrame::Header, &mut buf);
+        let res = encoder.encode(Frame::Frame(AMQPFrame::Header), &mut buf);
 
         assert!(res.is_ok());
 
@@ -97,7 +94,11 @@ mod tests {
         };
 
         let res = encoder.encode(
-            AMQPFrame::Method(0x0205, frame::QUEUE_BIND, MethodFrameArgs::QueueBind(args)),
+            Frame::Frame(AMQPFrame::Method(
+                0x0205,
+                frame::QUEUE_BIND,
+                MethodFrameArgs::QueueBind(args),
+            )),
             &mut buf,
         );
 

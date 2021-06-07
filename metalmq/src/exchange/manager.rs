@@ -214,7 +214,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
-        assert_eq!(err.code, 404);
+        assert_eq!(err.code, ChannelError::PreconditionFailed as u16);
     }
 
     #[tokio::test]
@@ -240,7 +240,7 @@ mod tests {
 
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
         assert_eq!(err.scope, ErrorScope::Channel);
-        assert_eq!(err.code, ChannelError::PreconditionFailed);
+        assert_eq!(err.code, ChannelError::PreconditionFailed as u16);
     }
 
     #[tokio::test]

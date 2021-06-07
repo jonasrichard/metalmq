@@ -12,22 +12,23 @@ const FRAME_AMQP_VERSION: u8 = 0x41;
 /// Placeholder for AMQP encoder and decoder functions.
 pub struct AMQPCodec {}
 
-// TODO change type of encoder, decoder, they should deal with Vec<AMQPFrame>
+#[derive(Debug)]
+pub enum Frame {
+    Frame(AMQPFrame),
+    Frames(Vec<AMQPFrame>),
+}
 
-impl Encoder<AMQPFrame> for AMQPCodec {
+impl Encoder<Frame> for AMQPCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, event: AMQPFrame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, event: Frame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
         match event {
-            AMQPFrame::Header => buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
-
-            AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, &args),
-
-            AMQPFrame::ContentHeader(header_frame) => encode_content_header_frame(&mut buf, &header_frame),
-
-            AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, &body_frame),
-
-            AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, channel),
+            Frame::Frame(frame) => encode_amqp_frame(&mut buf, frame),
+            Frame::Frames(frames) => {
+                for frame in frames {
+                    encode_amqp_frame(&mut buf, frame);
+                }
+            }
         }
 
         Ok(())
@@ -35,9 +36,10 @@ impl Encoder<AMQPFrame> for AMQPCodec {
 }
 
 impl Decoder for AMQPCodec {
-    type Item = AMQPFrame;
+    type Item = Frame;
     type Error = std::io::Error;
 
+    // TODO here we can decode more frames until the buffer contains data
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < 8 {
             Ok(None)
@@ -53,7 +55,7 @@ impl Decoder for AMQPCodec {
 
                     let _frame_separator = src.get_u8();
 
-                    Ok(Some(frame))
+                    Ok(Some(Frame::Frame(frame)))
                 }
                 FRAME_CONTENT_HEADER => {
                     let channel = src.get_u16();
@@ -64,7 +66,7 @@ impl Decoder for AMQPCodec {
 
                     let _frame_separator = src.get_u8();
 
-                    Ok(Some(frame))
+                    Ok(Some(Frame::Frame(frame)))
                 }
                 FRAME_CONTENT_BODY => {
                     let channel = src.get_u16();
@@ -79,7 +81,7 @@ impl Decoder for AMQPCodec {
                         body: bytes.to_vec(),
                     });
 
-                    Ok(Some(frame))
+                    Ok(Some(Frame::Frame(frame)))
                 }
                 FRAME_HEARTBEAT => {
                     let channel = src.get_u16();
@@ -88,7 +90,7 @@ impl Decoder for AMQPCodec {
 
                     let _frame_separator = src.get_u8();
 
-                    Ok(Some(AMQPFrame::Heartbeat(channel)))
+                    Ok(Some(Frame::Frame(AMQPFrame::Heartbeat(channel))))
                 }
                 FRAME_AMQP_VERSION => {
                     let mut head = [0u8; 7];
@@ -96,7 +98,7 @@ impl Decoder for AMQPCodec {
 
                     // TODO check if version is 0091
 
-                    Ok(Some(AMQPFrame::Header))
+                    Ok(Some(Frame::Frame(AMQPFrame::Header)))
                 }
                 f => Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -479,6 +481,20 @@ fn decode_field_table(buf: &mut BytesMut) -> Option<HashMap<String, AMQPFieldVal
     }
 
     Some(table)
+}
+
+fn encode_amqp_frame(mut buf: &mut BytesMut, frame: AMQPFrame) {
+    match frame {
+        AMQPFrame::Header => buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
+
+        AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, &args),
+
+        AMQPFrame::ContentHeader(header_frame) => encode_content_header_frame(&mut buf, &header_frame),
+
+        AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, &body_frame),
+
+        AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, channel),
+    }
 }
 
 fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, args: &MethodFrameArgs) {
