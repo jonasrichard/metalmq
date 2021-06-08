@@ -78,6 +78,9 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
 
                 messages.push_back(message);
 
+                // TODO this only we need to do if there are consumers, otherwise they will
+                // get the message and drop that, if so... we can even send over the message
+                // itself
                 if let Err(e) = consumer_sink.send(ConsumerCommand::MessagePublished).await {
                     error!("Error {:?}", e);
                 };

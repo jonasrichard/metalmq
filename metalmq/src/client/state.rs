@@ -1,4 +1,5 @@
 use crate::client::{self, ChannelError, ConnectionError};
+// Do we need to expose the messages of a 'process' or hide it in an erlang-style?
 use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
 use crate::message;
 use crate::queue::handler as queue_handler;
@@ -9,6 +10,7 @@ use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
+// TODO don't use tokio Mutex!!!
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time;
 use uuid::Uuid;

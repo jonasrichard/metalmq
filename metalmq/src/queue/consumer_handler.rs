@@ -62,32 +62,41 @@ pub(crate) async fn consumer_handler_loop(
                     error!("Error {:?}", e);
                 }
 
-                let mut delivery_tag = 1u64;
+                let mut consumer = Consumer {
+                    consumer_tag,
+                    no_ack,
+                    sink,
+                    delivery_tag_counter: 1u64,
+                };
+
+                let mut valid_consumer = true;
 
                 'consumer: loop {
-                    let tag = Tag {
-                        consumer_tag: consumer_tag.clone(),
-                        delivery_tag,
-                    };
-
-                    match get_and_send_message(&queue, &sink, tag).await {
-                        Ok(SendResult::MessageSent) => {
-                            delivery_tag += 1;
-                        }
+                    // TODO if the message is not sent out, we need to put it back to the
+                    // queue. Since we need to do that in every case, maybe we need to
+                    // implement this in a function.
+                    match get_message_from_queue_and_send(&mut consumer, &queue).await {
                         Ok(SendResult::QueueEmpty) => {
-                            consumers.push(Consumer {
-                                consumer_tag: consumer_tag.clone(),
-                                no_ack,
-                                sink,
-                                delivery_tag_counter: delivery_tag,
-                            });
                             break 'consumer;
                         }
                         Ok(SendResult::ConsumerInvalid) => {
+                            valid_consumer = false;
+
                             break 'consumer;
                         }
-                        Err(e) => error!("Error {:?}", e),
+                        Err(e) => {
+                            valid_consumer = false;
+
+                            error!("Error {:?}", e);
+
+                            break 'consumer;
+                        }
+                        _ => (),
                     }
+                }
+
+                if valid_consumer {
+                    consumers.push(consumer);
                 }
             }
             ConsumerCommand::CancelConsuming { consumer_tag, result } => {
@@ -98,11 +107,32 @@ pub(crate) async fn consumer_handler_loop(
                 result.send(());
             }
             ConsumerCommand::MessagePublished => {
-                if let Some(consumer) = consumers.first_mut() {
-                    if let Err(e) = get_message_from_queue_and_send(consumer, &queue).await {
-                        error!("Error {:?}", e);
+                let mut invalid_ctags = vec![];
+
+                for consumer in consumers.iter_mut() {
+                    let tag = Tag {
+                        consumer_tag: consumer.consumer_tag.clone(),
+                        delivery_tag: consumer.delivery_tag_counter,
+                    };
+
+                    // TODO here we can drop the message if consumer is invalid of in case of
+                    // other error
+                    match get_message(&queue, tag.clone()).await {
+                        Err(_) => break,
+                        Ok(None) => break,
+                        Ok(Some(message)) => {
+                            let frames = message_to_frames(&message, &tag);
+
+                            match send_message(&consumer.sink, frames).await {
+                                Ok(SendResult::ConsumerInvalid) => invalid_ctags.push(consumer.consumer_tag.clone()),
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
+                        }
                     }
                 }
+
+                consumers.retain(|c| !invalid_ctags.contains(&c.consumer_tag));
             }
             _ => (),
         }
@@ -115,51 +145,33 @@ enum SendResult {
     ConsumerInvalid,
 }
 
-async fn get_and_send_message(queue: &mpsc::Sender<QueueCommand>, sink: &FrameSink, tag: Tag) -> Result<SendResult> {
-    let delivery_tag = tag.delivery_tag;
+async fn get_message(queue: &mpsc::Sender<QueueCommand>, tag: Tag) -> Result<Option<Message>> {
     let (tx, rx) = oneshot::channel();
 
     queue
         .send(QueueCommand::GetMessage {
-            tag: Some(tag.clone()),
+            tag: Some(tag),
             result: tx,
         })
         .await?;
 
-    match rx.await? {
-        Some(message) => {
-            let frames = message_to_frames(&message, &tag);
-
-            match send_message(&sink, frames).await {
-                Err(e) => Ok(SendResult::ConsumerInvalid),
-                _ => Ok(SendResult::MessageSent),
-            }
-        }
-        None => Ok(SendResult::QueueEmpty),
+    match rx.await {
+        Err(e) => Err(Box::new(e)),
+        Ok(result) => Ok(result),
     }
 }
 
-/// Send the message as frames to a consumer. Returns true if all the frames managed to
-/// be sent to the channel. The caller of this function should take care of the result,
-/// and in case of a failed sending, it should try to send to another consumer, or
-/// if there is no consumer, it should store the message.
-async fn send_message(consumer: &FrameSink, frames: Vec<AMQPFrame>) -> Result<bool> {
-    let mut n: usize = 0;
-
-    'frames: for f in &frames {
+async fn send_message(consumer: &FrameSink, frames: Vec<AMQPFrame>) -> Result<SendResult> {
+    for f in &frames {
         debug!("Sending frame {:?}", f);
 
         // TODO here we can pass frame and get back from the SendError
-        if let Err(e) = consumer.send_timeout(f.clone(), time::Duration::from_secs(1)).await {
-            // TODO remove this channel from the consumers
-            error!("Message send error {:?}", e);
-            break 'frames;
-        } else {
-            n += 1
+        if let Err(_) = consumer.send_timeout(f.clone(), time::Duration::from_secs(1)).await {
+            return Ok(SendResult::ConsumerInvalid);
         }
     }
 
-    Ok(n == frames.len())
+    Ok(SendResult::MessageSent)
 }
 
 fn message_to_frames(message: &Message, tag: &Tag) -> Vec<frame::AMQPFrame> {
@@ -181,7 +193,7 @@ fn message_to_frames(message: &Message, tag: &Tag) -> Vec<frame::AMQPFrame> {
 async fn get_message_from_queue_and_send(
     mut consumer: &mut Consumer,
     queue: &mpsc::Sender<QueueCommand>,
-) -> Result<()> {
+) -> Result<SendResult> {
     let tag = Tag {
         consumer_tag: consumer.consumer_tag.clone(),
         delivery_tag: consumer.delivery_tag_counter,
@@ -189,33 +201,24 @@ async fn get_message_from_queue_and_send(
 
     let (tx, rx) = oneshot::channel();
 
-    if let Err(e) = queue
+    queue
         .send(QueueCommand::GetMessage {
             tag: Some(tag.clone()),
             result: tx,
         })
-        .await
-    {
-        error!("Error {:?}", e);
+        .await?;
 
-        return Ok(());
-    }
-
-    match rx.await {
-        Ok(Some(message)) => {
+    match rx.await? {
+        Some(message) => {
             let frames = message_to_frames(&message, &tag);
+            let result = send_message(&consumer.sink, frames).await?;
 
-            if let Err(e) = send_message(&consumer.sink, frames).await {
-                error!("Error {:?}", e);
+            if let SendResult::MessageSent = result {
+                consumer.delivery_tag_counter += 1;
             }
+
+            Ok(result)
         }
-        Ok(None) => (), // queue is empty
-        Err(e) => {
-            error!("Error {:?}", e);
-        }
+        None => Ok(SendResult::QueueEmpty),
     }
-
-    consumer.delivery_tag_counter += 1;
-
-    Ok(())
 }

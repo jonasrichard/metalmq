@@ -5,7 +5,7 @@ import threading
 import time
 
 LOG = logging.getLogger()
-NUM = 3
+NUM = 100
 end = threading.Condition()
 
 def consumer_thread(channel):
