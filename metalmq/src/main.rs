@@ -4,9 +4,6 @@ mod message;
 mod queue;
 mod restapi;
 
-#[macro_use]
-extern crate lazy_static;
-
 use env_logger::Builder;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
@@ -15,38 +12,17 @@ use std::convert::Infallible;
 use std::fmt;
 use std::io::Write;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::Mutex;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-pub type ConsumerTag = String;
-
-//impl From<&str> for ConsumerTag {
-//    fn from(f: &str) -> ConsumerTag {
-//        f.to_owned()
-//    }
-//}
-
+#[derive(Clone)]
 pub(crate) struct Context {
-    pub(crate) exchanges: exchange::manager::ExchangeManager,
-    pub(crate) queues: queue::manager::QueueManager,
-}
-
-lazy_static! {
-    pub(crate) static ref CONTEXT: Arc<Mutex<Context>> = {
-        let exchanges = exchange::manager::start();
-        let queues = queue::manager::start();
-
-        Arc::new(Mutex::new(Context {
-            exchanges: exchanges,
-            queues: queues,
-        }))
-    };
+    pub(crate) exchange_manager: exchange::manager::ExchangeManagerSink,
+    pub(crate) queue_manager: queue::manager::QueueManagerSink,
 }
 
 #[derive(Debug, PartialEq)]
@@ -123,13 +99,14 @@ fn setup_logger() {
         .init();
 }
 
-async fn start_http() -> Result<()> {
+async fn start_http(context: Context) -> Result<()> {
     let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
     info!("Start HTTP admin API on port 3000");
 
-    let make_svc = make_service_fn(|_conn| async {
-        Ok::<_, Infallible>(service_fn(move |req| restapi::route(req, Arc::clone(&CONTEXT))))
+    let make_svc = make_service_fn(move |_conn| {
+        let context = context.clone();
+        async move { Ok::<_, Infallible>(service_fn(move |req| restapi::route(req, context.clone()))) }
     });
 
     let server = Server::bind(&http_addr).serve(make_svc);
@@ -143,14 +120,17 @@ async fn start_http() -> Result<()> {
     Ok(())
 }
 
-async fn start_amqp(url: &str) -> Result<()> {
+async fn start_amqp(context: Context, url: &str) -> Result<()> {
     info!("Listening on port 5672");
 
     let listener = TcpListener::bind(url).await?;
 
     loop {
         let (socket, _) = listener.accept().await?;
-        let ctx = CONTEXT.clone();
+        let ctx = Context {
+            queue_manager: context.queue_manager.clone(),
+            exchange_manager: context.exchange_manager.clone(),
+        };
 
         tokio::spawn(async move {
             if let Err(e) = client::conn::handle_client(socket, ctx).await {
@@ -166,9 +146,14 @@ async fn start_amqp(url: &str) -> Result<()> {
 pub async fn main() -> Result<()> {
     setup_logger();
 
-    start_http().await?;
+    let context = Context {
+        exchange_manager: exchange::manager::start(),
+        queue_manager: queue::manager::start(),
+    };
 
-    start_amqp("[::1]:5672").await?;
+    start_http(context.clone()).await?;
+
+    start_amqp(context, "[::1]:5672").await?;
 
     signal::ctrl_c().await?;
 

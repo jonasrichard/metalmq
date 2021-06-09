@@ -1,17 +1,17 @@
 use crate::client::{self, ChannelError, ConnectionError};
 // Do we need to expose the messages of a 'process' or hide it in an erlang-style?
+use crate::exchange::manager as em;
 use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
 use crate::message;
 use crate::queue::handler as queue_handler;
+use crate::queue::manager as qm;
 use crate::{Context, ErrorScope, Result, RuntimeError};
 use log::{error, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
-// TODO don't use tokio Mutex!!!
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time;
 use uuid::Uuid;
 
@@ -29,8 +29,8 @@ struct ConsumedQueue {
 pub(crate) struct Connection {
     /// Unique ID of the connection.
     id: String,
-    /// Context servers as a dependency holder, it keeps the references of the services.
-    context: Arc<Mutex<Context>>,
+    qm: qm::QueueManagerSink,
+    em: em::ExchangeManagerSink,
     /// Opened channels by this connection.
     open_channels: Vec<Channel>,
     /// Declared exchanges by this connection.
@@ -56,10 +56,11 @@ struct PublishedContent {
     content: Option<Vec<u8>>,
 }
 
-pub(crate) fn new(context: Arc<Mutex<Context>>, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
+pub(crate) fn new(context: Context, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
     Connection {
         id: Uuid::new_v4().to_hyphenated().to_string(),
-        context,
+        qm: context.queue_manager,
+        em: context.exchange_manager,
         open_channels: vec![],
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
@@ -115,13 +116,10 @@ impl Connection {
         //     no consumers there
         //   - exchange handler -> deregister (auto-delete exchange)
         //   - queues -> delete the exclusive queues
-        let mut ctx = self.context.lock().await;
         for cq in &self.consumed_queues {
             trace!("Cleaning up consumers {:?}", cq);
 
-            ctx.queues
-                .cancel(cq.queue_name.clone(), cq.consumer_tag.clone())
-                .await?;
+            qm::cancel_consume(&self.qm, &cq.queue_name, &cq.consumer_tag);
         }
 
         Ok(Some(Frame::Frame(frame::connection_close_ok(0))))
@@ -143,15 +141,11 @@ impl Connection {
     pub(crate) async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> MaybeFrame {
         // TODO close all exchanges and queues it needs to.
         if !self.auto_delete_exchanges.is_empty() {
-            let mut ctx = self.context.lock().await;
-
             for exchange_name in &self.auto_delete_exchanges {
                 // TODO this is bad here, we hold the locks until the exchanges are not deleted
                 // I don't know if await yield release that locks but I doubt it.
-                ctx.exchanges.delete_exchange(exchange_name).await;
+                em::delete_exchange(&self.em, exchange_name).await;
             }
-
-            drop(ctx);
         }
 
         self.consumed_queues.retain(|cq| cq.channel != channel);
@@ -172,8 +166,7 @@ impl Connection {
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
 
-        let mut ctx = self.context.lock().await;
-        let result = ctx.exchanges.declare(args.into(), passive, &self.id).await;
+        let result = em::declare_exchange(&self.em, args.into(), passive).await;
 
         match result {
             Ok(ch) => {
@@ -185,6 +178,7 @@ impl Connection {
                     Ok(Some(Frame::Frame(frame::exchange_declare_ok(channel))))
                 }
             }
+            // TODO is it automatic now?
             Err(e) => match e.downcast::<RuntimeError>() {
                 Ok(mut rte) => match rte.scope {
                     ErrorScope::Connection => Ok(Some(Frame::Frame(AMQPFrame::from(*rte)))),
@@ -204,21 +198,15 @@ impl Connection {
     }
 
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
-        let mut ctx = self.context.lock().await;
-
-        ctx.queues.declare(args.name.clone()).await?;
+        qm::declare_queue(&self.qm, &args.name).await?;
 
         Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, args.name, 0, 0))))
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
-        let mut ctx = self.context.lock().await;
-
-        match ctx.queues.get_command_sink(&args.queue_name).await {
+        match qm::get_command_sink(&self.qm, &args.queue_name).await {
             Ok(sink) => {
-                ctx.exchanges
-                    .bind_queue(&args.exchange_name, &args.queue_name, &args.routing_key, sink)
-                    .await?;
+                em::bind_queue(&self.em, &args.exchange_name, &args.queue_name, &args.routing_key, sink).await?;
 
                 Ok(Some(Frame::Frame(frame::queue_bind_ok(channel))))
             }
@@ -264,28 +252,28 @@ impl Connection {
     }
 
     pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
-        let mut ctx = self.context.lock().await;
-        ctx.queues
-            .consume(
-                args.queue.clone(),
-                args.consumer_tag.clone(),
-                args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
-                self.outgoing.clone(),
-            )
-            .await?;
+        qm::consume(
+            &self.qm,
+            &args.queue,
+            &args.consumer_tag,
+            args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
+            self.outgoing.clone(),
+        )
+        .await;
 
-        match ctx.queues.get_command_sink(&args.queue).await {
-            Ok(queue_channel) => {
-                self.consumed_queues.push(ConsumedQueue {
-                    channel,
-                    consumer_tag: args.consumer_tag.clone(),
-                    queue_name: args.queue.clone(),
-                    queue_sink: queue_channel,
-                });
-                Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
-            }
-            Err(_) => client::channel_error(channel, frame::BASIC_CONSUME, ChannelError::NotFound, "Queue not found"),
-        }
+        Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
+        //match ctx.queues.get_command_sink(&args.queue).await {
+        //    Ok(queue_channel) => {
+        //        self.consumed_queues.push(ConsumedQueue {
+        //            channel,
+        //            consumer_tag: args.consumer_tag.clone(),
+        //            queue_name: args.queue.clone(),
+        //            queue_sink: queue_channel,
+        //        });
+        //        Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
+        //    }
+        //    Err(_) => client::channel_error(channel, frame::BASIC_CONSUME, ChannelError::NotFound, "Queue not found"),
+        //}
     }
 
     pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
@@ -294,13 +282,9 @@ impl Connection {
             .iter()
             .position(|cq| cq.consumer_tag.cmp(&args.consumer_tag) == std::cmp::Ordering::Equal)
         {
-            let mut ctx = self.context.lock().await;
+            let cq = &self.consumed_queues[pos];
 
-            let cq = self.consumed_queues.get(pos).unwrap();
-
-            ctx.queues
-                .cancel(cq.queue_name.clone(), cq.consumer_tag.clone())
-                .await?;
+            qm::cancel_consume(&self.qm, &cq.queue_name, &args.consumer_tag).await?;
 
             self.consumed_queues
                 .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);

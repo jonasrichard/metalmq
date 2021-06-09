@@ -5,12 +5,11 @@ use futures::SinkExt;
 use log::{error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
-use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
-pub(crate) async fn handle_client(socket: TcpStream, context: Arc<Mutex<Context>>) -> Result<()> {
+pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
     let (consume_sink, mut consume_stream) = mpsc::channel::<AMQPFrame>(1);
     let mut conn = state::new(context, consume_sink);

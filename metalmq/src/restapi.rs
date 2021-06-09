@@ -1,15 +1,12 @@
-use crate::{Context, CONTEXT};
+use crate::exchange::manager as em;
+use crate::Context;
 use hyper::{Body, Request, Response};
 use log::info;
 use serde_json;
 use std::convert::Infallible;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
-pub(crate) async fn route(_req: Request<Body>, _ctx: Arc<Mutex<Context>>) -> Result<Response<Body>, Infallible> {
-    let ctx = CONTEXT.lock().await;
-    let exchanges = ctx.exchanges.exchange_list().await;
-    drop(ctx);
+pub(crate) async fn route(_req: Request<Body>, context: Context) -> Result<Response<Body>, Infallible> {
+    let exchanges = em::get_exchanges(&context.exchange_manager).await;
 
     info!("REST {:?}", exchanges);
 
