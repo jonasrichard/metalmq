@@ -3,7 +3,7 @@ use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::Result;
-use log::{debug, error};
+use log::{debug, error, trace};
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -69,7 +69,8 @@ pub(crate) async fn declare_exchange(
         exchange,
         passive,
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -89,7 +90,8 @@ pub(crate) async fn bind_queue(
         routing_key: routing_key.to_string(),
         queue_sink,
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -100,7 +102,8 @@ pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, exchange_name: &s
     mgr.send(ExchangeManagerCommand::DeleteExchange {
         exchange_name: exchange_name.to_string(),
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -108,7 +111,7 @@ pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, exchange_name: &s
 pub(crate) async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(ExchangeManagerCommand::GetExchanges { result: tx });
+    mgr.send(ExchangeManagerCommand::GetExchanges { result: tx }).await;
 
     match rx.await {
         Ok(exchanges) => exchanges,
@@ -120,7 +123,9 @@ async fn command_loop(stream: &mut mpsc::Receiver<ExchangeManagerCommand>) -> Re
     let mut exchanges = HashMap::<String, ExchangeState>::new();
 
     while let Some(command) = stream.recv().await {
-        handle_command(&mut exchanges, command);
+        trace!("Command {:?}", command);
+
+        handle_command(&mut exchanges, command).await;
     }
 
     Ok(())
