@@ -33,6 +33,7 @@ use tokio::time;
 //      - recover (redeliver unacked messages on that channel) - check the spec
 //        https://www.rabbitmq.com/amqp-0-9-1-reference.html#class.basic
 
+#[derive(Debug)]
 pub(crate) enum QueueManagerCommand {
     Declare {
         name: String,
@@ -76,7 +77,8 @@ pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue_name: &str) -> R
     mgr.send(QueueManagerCommand::Declare {
         name: queue_name.to_string(),
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -96,7 +98,8 @@ pub(crate) async fn consume(
         no_ack,
         outgoing,
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -108,7 +111,8 @@ pub(crate) async fn cancel_consume(mgr: &QueueManagerSink, queue_name: &str, con
         queue_name: queue_name.to_string(),
         consumer_tag: consumer_tag.to_string(),
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -119,7 +123,8 @@ pub(crate) async fn get_command_sink(mgr: &QueueManagerSink, queue_name: &str) -
     mgr.send(QueueManagerCommand::GetQueueSink {
         queue_name: queue_name.to_string(),
         result: tx,
-    });
+    })
+    .await?;
 
     rx.await?
 }
@@ -128,7 +133,7 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
     let mut queues = HashMap::<String, Queue>::new();
 
     while let Some(command) = stream.recv().await {
-        handle_command(&mut queues, command);
+        handle_command(&mut queues, command).await;
     }
 
     Ok(())

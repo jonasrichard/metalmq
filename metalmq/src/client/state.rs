@@ -119,7 +119,9 @@ impl Connection {
         for cq in &self.consumed_queues {
             trace!("Cleaning up consumers {:?}", cq);
 
-            qm::cancel_consume(&self.qm, &cq.queue_name, &cq.consumer_tag);
+            if let Err(e) = qm::cancel_consume(&self.qm, &cq.queue_name, &cq.consumer_tag).await {
+                error!("Err {:?}", e);
+            }
         }
 
         Ok(Some(Frame::Frame(frame::connection_close_ok(0))))

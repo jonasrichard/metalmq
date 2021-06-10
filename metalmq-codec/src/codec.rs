@@ -41,15 +41,15 @@ impl Decoder for AMQPCodec {
 
     // TODO here we can decode more frames until the buffer contains data
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 8 {
-            Ok(None)
-        } else {
-            match src.get_u8() {
+        match full_frame_available(src) {
+            false => Ok(None),
+            true => match src.get_u8() {
                 FRAME_METHOD_FRAME => {
                     let channel = src.get_u16();
                     // TODO amqp frame can be u32 but Buf handles only usize buffes
                     let frame_len = src.get_u32() as usize;
 
+                    // TODO here there is a panic is the frame is not long enough!
                     let mut frame_buf = src.split_to(frame_len);
                     let frame = decode_method_frame(&mut frame_buf, channel);
 
@@ -104,8 +104,27 @@ impl Decoder for AMQPCodec {
                     std::io::ErrorKind::Other,
                     format!("Unknown frame {}", f),
                 )),
-            }
+            },
         }
+    }
+}
+
+fn full_frame_available(src: &BytesMut) -> bool {
+    match src.get(0) {
+        None => false,
+        Some(&FRAME_HEARTBEAT) => true,
+        Some(_) => match src.get(3..7) {
+            None => false,
+            Some(len_bytes) => {
+                let bs: [u8; 4] = [len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+                let len = u32::from_be_bytes(bs);
+
+                // Frame type is 1 byte, channel is 2 and the next 4 is the length
+                // information in big endian format. After these there are 'len'
+                // bytes and then a '0xCE' byte. So 8 + len should be there.
+                src.len() >= 8 + len as usize
+            }
+        },
     }
 }
 
