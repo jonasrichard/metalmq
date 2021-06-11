@@ -41,70 +41,71 @@ impl Decoder for AMQPCodec {
 
     // TODO here we can decode more frames until the buffer contains data
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match full_frame_available(src) {
-            false => Ok(None),
-            true => match src.get_u8() {
-                FRAME_METHOD_FRAME => {
-                    let channel = src.get_u16();
-                    // TODO amqp frame can be u32 but Buf handles only usize buffes
-                    let frame_len = src.get_u32() as usize;
+        if src.len() < 8 {
+            return Ok(None);
+        }
 
-                    // TODO here there is a panic is the frame is not long enough!
-                    let mut frame_buf = src.split_to(frame_len);
-                    let frame = decode_method_frame(&mut frame_buf, channel);
+        match src.get_u8() {
+            FRAME_METHOD_FRAME => {
+                let channel = src.get_u16();
+                // TODO amqp frame can be u32 but Buf handles only usize buffes
+                let frame_len = src.get_u32() as usize;
 
-                    let _frame_separator = src.get_u8();
+                // TODO here there is a panic is the frame is not long enough!
+                let mut frame_buf = src.split_to(frame_len);
+                let frame = decode_method_frame(&mut frame_buf, channel);
 
-                    Ok(Some(Frame::Frame(frame)))
-                }
-                FRAME_CONTENT_HEADER => {
-                    let channel = src.get_u16();
-                    let frame_len = src.get_u32() as usize;
+                let _frame_separator = src.get_u8();
 
-                    let mut frame_buf = src.split_to(frame_len);
-                    let frame = decode_content_header_frame(&mut frame_buf, channel);
+                Ok(Some(Frame::Frame(frame)))
+            }
+            FRAME_CONTENT_HEADER => {
+                let channel = src.get_u16();
+                let frame_len = src.get_u32() as usize;
 
-                    let _frame_separator = src.get_u8();
+                let mut frame_buf = src.split_to(frame_len);
+                let frame = decode_content_header_frame(&mut frame_buf, channel);
 
-                    Ok(Some(Frame::Frame(frame)))
-                }
-                FRAME_CONTENT_BODY => {
-                    let channel = src.get_u16();
-                    let body_len = src.get_u32();
-                    let bytes = src.split_to(body_len as usize);
+                let _frame_separator = src.get_u8();
 
-                    let _frame_separator = src.get_u8();
+                Ok(Some(Frame::Frame(frame)))
+            }
+            FRAME_CONTENT_BODY => {
+                let channel = src.get_u16();
+                let body_len = src.get_u32();
+                let bytes = src.split_to(body_len as usize);
 
-                    // TODO more effective copy
-                    let frame = AMQPFrame::ContentBody(ContentBodyFrame {
-                        channel,
-                        body: bytes.to_vec(),
-                    });
+                let _frame_separator = src.get_u8();
 
-                    Ok(Some(Frame::Frame(frame)))
-                }
-                FRAME_HEARTBEAT => {
-                    let channel = src.get_u16();
-                    let len = src.get_u32();
-                    let _ = src.split_to(len as usize);
+                // TODO more effective copy
+                let frame = AMQPFrame::ContentBody(ContentBodyFrame {
+                    channel,
+                    body: bytes.to_vec(),
+                });
 
-                    let _frame_separator = src.get_u8();
+                Ok(Some(Frame::Frame(frame)))
+            }
+            FRAME_HEARTBEAT => {
+                let channel = src.get_u16();
+                let len = src.get_u32();
+                let _ = src.split_to(len as usize);
 
-                    Ok(Some(Frame::Frame(AMQPFrame::Heartbeat(channel))))
-                }
-                FRAME_AMQP_VERSION => {
-                    let mut head = [0u8; 7];
-                    src.copy_to_slice(&mut head);
+                let _frame_separator = src.get_u8();
 
-                    // TODO check if version is 0091
+                Ok(Some(Frame::Frame(AMQPFrame::Heartbeat(channel))))
+            }
+            FRAME_AMQP_VERSION => {
+                let mut head = [0u8; 7];
+                src.copy_to_slice(&mut head);
 
-                    Ok(Some(Frame::Frame(AMQPFrame::Header)))
-                }
-                f => Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unknown frame {}", f),
-                )),
-            },
+                // TODO check if version is 0091
+
+                Ok(Some(Frame::Frame(AMQPFrame::Header)))
+            }
+            f => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Unknown frame {}", f),
+            )),
         }
     }
 }

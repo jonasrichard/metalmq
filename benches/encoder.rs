@@ -1,16 +1,16 @@
 use bencher::Bencher;
 use bytes::BytesMut;
-use metalmq_codec::frame;
-use metalmq_codec::frame::{AMQPFrame, MethodFrameArgs};
+use metalmq_codec::codec::Frame;
+use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use tokio_util::codec::Encoder;
 
-fn generate_frame() -> AMQPFrame {
+fn generate_frame() -> Frame {
     let args = frame::QueueDeclareArgs {
         name: "test queue".into(),
         ..Default::default()
     };
 
-    AMQPFrame::Method(12, frame::QUEUE_DECLARE, MethodFrameArgs::QueueDeclare(args))
+    Frame::Frame(AMQPFrame::Method(12, frame::QUEUE_DECLARE, MethodFrameArgs::QueueDeclare(args)))
 }
 
 fn method_frame(bench: &mut Bencher) {

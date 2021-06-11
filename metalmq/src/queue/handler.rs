@@ -1,6 +1,7 @@
-use crate::message::Message;
-use crate::queue::consumer_handler::{ConsumerCommand, ConsumerCommandSink};
-use log::{error, trace};
+use crate::logerr;
+use crate::message::{self, Message};
+use crate::queue::consumer_handler::{ConsumerCommand, ConsumerCommandSink, FrameSink, SendResult};
+use log::{error, info, trace};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::time::Instant;
@@ -24,10 +25,10 @@ pub(crate) struct Tag {
 #[derive(Debug)]
 pub(crate) enum QueueCommand {
     PublishMessage(Message),
-    GetMessage {
-        tag: Option<Tag>,
-        // We need to generate a message id not to look for consumer tag, delivery tag
-        result: oneshot::Sender<Option<Message>>,
+    DeliverMessage {
+        tag: Tag,
+        outgoing: FrameSink,
+        result: oneshot::Sender<SendResult>,
     },
     AckMessage {
         consumer_tag: String,
@@ -85,25 +86,26 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
                     error!("Error {:?}", e);
                 };
             }
-            QueueCommand::GetMessage { result, tag } => {
-                trace!("Get message from queue");
-
+            QueueCommand::DeliverMessage { tag, outgoing, result } => {
                 if let Some(message) = messages.pop_front() {
-                    trace!("Giving to consumer handler {:?}", message);
-
                     outbox.on_sent_out(OutgoingMessage {
                         message: message.clone(),
-                        tag,
+                        tag: tag.clone(),
                         sent_at: Instant::now(),
                     });
 
-                    if let Err(e) = result.send(Some(message)) {
-                        error!("Error {:?}", e);
+                    match message::send_message(&message, &tag, outgoing).await {
+                        Ok(()) => {
+                            logerr!(result.send(SendResult::MessageSent));
+                        }
+                        Err(e) => {
+                            error!("Error sending out message {:?}", e);
+
+                            logerr!(result.send(SendResult::ConsumerInvalid));
+                        }
                     }
                 } else {
-                    if let Err(e) = result.send(None) {
-                        error!("Error {:?}", e);
-                    }
+                    logerr!(result.send(SendResult::QueueEmpty));
                 }
             }
             QueueCommand::AckMessage {
@@ -112,15 +114,20 @@ pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, cons
             } => {
                 outbox.on_ack_arrive(consumer_tag, delivery_tag);
             }
-            QueueCommand::ExchangeBound { exchange_name } => {}
-            QueueCommand::ExchangeUnbound { exchange_name } => {}
+            QueueCommand::ExchangeBound { exchange_name } => {
+                info!("Unbound exchange {}", exchange_name);
+            }
+            QueueCommand::ExchangeUnbound { exchange_name } => {
+                info!("Unbound exchange {}", exchange_name);
+            }
         }
     }
 }
 
 struct OutgoingMessage {
+    // TODO we don't need to store the whole message but rather the id
     message: Message,
-    tag: Option<Tag>,
+    tag: Tag,
     sent_at: Instant,
 }
 
@@ -131,11 +138,7 @@ struct Outbox {
 impl Outbox {
     fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64) {
         self.outgoing_messages.retain(|om| {
-            if let Some(tag) = &om.tag {
-                &tag.delivery_tag != &delivery_tag || tag.consumer_tag.cmp(&consumer_tag) != Ordering::Equal
-            } else {
-                true
-            }
+            &om.tag.delivery_tag != &delivery_tag || om.tag.consumer_tag.cmp(&consumer_tag) != Ordering::Equal
         });
     }
 

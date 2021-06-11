@@ -2,7 +2,7 @@ use crate::client::{channel_error, ChannelError};
 use crate::queue::consumer_handler::{self, ConsumerCommand};
 use crate::queue::handler::{self, QueueCommandSink};
 use crate::queue::Queue;
-use crate::Result;
+use crate::{chk, logerr, Result};
 use log::error;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ pub(crate) enum QueueManagerCommand {
         consumer_tag: String,
         no_ack: bool,
         outgoing: mpsc::Sender<AMQPFrame>,
-        result: oneshot::Sender<Result<()>>,
+        result: oneshot::Sender<Result<QueueCommandSink>>,
     },
     CancelConsume {
         queue_name: String,
@@ -89,7 +89,7 @@ pub(crate) async fn consume(
     consumer_tag: &str,
     no_ack: bool,
     outgoing: mpsc::Sender<AMQPFrame>,
-) -> Result<()> {
+) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
     mgr.send(QueueManagerCommand::Consume {
@@ -107,12 +107,14 @@ pub(crate) async fn consume(
 pub(crate) async fn cancel_consume(mgr: &QueueManagerSink, queue_name: &str, consumer_tag: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(QueueManagerCommand::CancelConsume {
-        queue_name: queue_name.to_string(),
-        consumer_tag: consumer_tag.to_string(),
-        result: tx,
-    })
-    .await?;
+    chk!(
+        mgr.send(QueueManagerCommand::CancelConsume {
+            queue_name: queue_name.to_string(),
+            consumer_tag: consumer_tag.to_string(),
+            result: tx,
+        })
+        .await
+    )?;
 
     rx.await?
 }
@@ -144,7 +146,7 @@ async fn handle_command(mut queues: &mut HashMap<String, Queue>, command: QueueM
 
     match command {
         Declare { name, result } => {
-            result.send(handle_declare(&mut queues, &name).await);
+            logerr!(result.send(handle_declare(&mut queues, &name).await));
         }
         Consume {
             queue_name,
@@ -153,17 +155,17 @@ async fn handle_command(mut queues: &mut HashMap<String, Queue>, command: QueueM
             outgoing,
             result,
         } => {
-            result.send(handle_consume(&queues, &queue_name, &consumer_tag, no_ack, outgoing).await);
+            logerr!(result.send(handle_consume(&queues, &queue_name, &consumer_tag, no_ack, outgoing).await));
         }
         CancelConsume {
             queue_name,
             consumer_tag,
             result,
         } => {
-            result.send(handle_cancel(&queues, &queue_name, &consumer_tag).await);
+            logerr!(result.send(handle_cancel(&queues, &queue_name, &consumer_tag).await));
         }
         GetQueueSink { queue_name, result } => {
-            result.send(handle_get_command_sink(&queues, &queue_name));
+            logerr!(result.send(handle_get_command_sink(&queues, &queue_name)));
         }
     }
 }
@@ -173,7 +175,7 @@ async fn handle_command(mut queues: &mut HashMap<String, Queue>, command: QueueM
 async fn handle_declare(queues: &mut HashMap<String, Queue>, name: &str) -> Result<()> {
     // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
     match queues.get(name) {
-        Some(queue) => Ok(()),
+        Some(_) => Ok(()),
         None => {
             let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
             let (cons_tx, mut cons_rx) = mpsc::channel(1);
@@ -212,7 +214,7 @@ async fn handle_consume(
     consumer_tag: &str,
     no_ack: bool,
     outgoing: mpsc::Sender<AMQPFrame>,
-) -> Result<()> {
+) -> Result<QueueCommandSink> {
     match queues.get(name) {
         Some(queue) => {
             let (tx, rx) = oneshot::channel();
@@ -232,7 +234,7 @@ async fn handle_consume(
 
             rx.await?;
 
-            Ok(())
+            Ok(queue.command_sink.clone())
         }
         None => channel_error(0, frame::BASIC_CONSUME, ChannelError::NotFound, "Not found"),
     }

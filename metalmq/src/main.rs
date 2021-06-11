@@ -68,6 +68,29 @@ impl std::fmt::Display for RuntimeError {
 
 impl std::error::Error for RuntimeError {}
 
+#[macro_export]
+macro_rules! chk {
+    ($val:expr) => {
+        match $val {
+            Ok(ok) => Ok(ok),
+            Err(e) => {
+                error!("Error {:?}", e);
+
+                Err(e)
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! logerr {
+    ($val:expr) => {
+        if let Err(e) = $val {
+            error!("Error {:?}", e);
+        }
+    };
+}
+
 fn setup_logger() {
     let mut builder = Builder::from_default_env();
 

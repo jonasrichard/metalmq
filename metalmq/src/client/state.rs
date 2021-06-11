@@ -5,8 +5,8 @@ use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, ha
 use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager as qm;
-use crate::{Context, ErrorScope, Result, RuntimeError};
-use log::{error, trace};
+use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
+use log::{error, trace, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::cmp::Ordering;
@@ -146,7 +146,7 @@ impl Connection {
             for exchange_name in &self.auto_delete_exchanges {
                 // TODO this is bad here, we hold the locks until the exchanges are not deleted
                 // I don't know if await yield release that locks but I doubt it.
-                em::delete_exchange(&self.em, exchange_name).await;
+                logerr!(em::delete_exchange(&self.em, exchange_name).await);
             }
         }
 
@@ -194,7 +194,7 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
+    pub(crate) async fn exchange_delete(&mut self, channel: Channel, _args: frame::ExchangeDeleteArgs) -> MaybeFrame {
         // TODO do the delete here
         Ok(Some(Frame::Frame(frame::exchange_delete_ok(channel))))
     }
@@ -212,16 +212,16 @@ impl Connection {
 
                 Ok(Some(Frame::Frame(frame::queue_bind_ok(channel))))
             }
-            Err(e) => client::channel_error(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Exchange not found"),
+            Err(_) => client::channel_error(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Exchange not found"),
         }
     }
 
-    pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
+    pub(crate) async fn queue_delete(&mut self, channel: Channel, _args: frame::QueueDeleteArgs) -> MaybeFrame {
         // TODO delete the queue
         Ok(Some(Frame::Frame(frame::queue_delete_ok(channel, 0))))
     }
 
-    pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
+    pub(crate) async fn queue_unbind(&mut self, channel: Channel, _args: frame::QueueUnbindArgs) -> MaybeFrame {
         // TODO implement queue unbind
         Ok(Some(Frame::Frame(frame::queue_unbind_ok(channel))))
     }
@@ -254,28 +254,26 @@ impl Connection {
     }
 
     pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
-        qm::consume(
+        match qm::consume(
             &self.qm,
             &args.queue,
             &args.consumer_tag,
             args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
             self.outgoing.clone(),
         )
-        .await;
-
-        Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
-        //match ctx.queues.get_command_sink(&args.queue).await {
-        //    Ok(queue_channel) => {
-        //        self.consumed_queues.push(ConsumedQueue {
-        //            channel,
-        //            consumer_tag: args.consumer_tag.clone(),
-        //            queue_name: args.queue.clone(),
-        //            queue_sink: queue_channel,
-        //        });
-        //        Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
-        //    }
-        //    Err(_) => client::channel_error(channel, frame::BASIC_CONSUME, ChannelError::NotFound, "Queue not found"),
-        //}
+        .await
+        {
+            Ok(queue_sink) => {
+                self.consumed_queues.push(ConsumedQueue {
+                    channel,
+                    consumer_tag: args.consumer_tag.clone(),
+                    queue_name: args.queue.clone(),
+                    queue_sink,
+                });
+                Ok(Some(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag))))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
@@ -298,24 +296,29 @@ impl Connection {
     }
 
     pub(crate) async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> MaybeFrame {
-        if let Some(p) = self.consumed_queues.iter().position(|cq| cq.channel == channel) {
-            let cq = self.consumed_queues.get(p).unwrap();
+        match self.consumed_queues.iter().position(|cq| cq.channel == channel) {
+            Some(p) => {
+                let cq = self.consumed_queues.get(p).unwrap();
 
-            cq.queue_sink
-                .send_timeout(
-                    queue_handler::QueueCommand::AckMessage {
-                        consumer_tag: cq.consumer_tag.clone(),
-                        delivery_tag: args.delivery_tag,
-                    },
-                    time::Duration::from_secs(1),
-                )
-                .await?;
+                cq.queue_sink
+                    .send_timeout(
+                        queue_handler::QueueCommand::AckMessage {
+                            consumer_tag: cq.consumer_tag.clone(),
+                            delivery_tag: args.delivery_tag,
+                        },
+                        time::Duration::from_secs(1),
+                    )
+                    .await?;
+            }
+            None => {
+                warn!("Acking a messages without consuming the queue {}", args.delivery_tag);
+            }
         }
 
         Ok(None)
     }
 
-    pub(crate) async fn confirm_select(&mut self, channel: Channel, args: frame::ConfirmSelectArgs) -> MaybeFrame {
+    pub(crate) async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> MaybeFrame {
         Ok(Some(Frame::Frame(frame::confirm_select_ok(channel))))
     }
 
@@ -372,20 +375,6 @@ impl Connection {
         }
     }
 }
-
-//fn channel_error(channel: Channel, code: u16, text: &str, cm_id: u32) -> MaybeFrame {
-//    let (cid, mid) = frame::split_class_method(cm_id);
-//
-//    Ok(Some(Frame::Frame(frame::channel_close(
-//        channel, code, text, cid, mid,
-//    )))
-//}
-//
-//fn connection_error(code: u16, text: &str, cm_id: u32) -> MaybeFrame {
-//    let (cid, mid) = frame::split_class_method(cm_id);
-//
-//    Ok(Some(Frame::Frame(frame::connection_close(0, code, text, cid, mid)))
-//}
 
 fn send_basic_return(message: message::Message) -> MaybeFrame {
     let mut frames = message::message_to_content_frames(&message);

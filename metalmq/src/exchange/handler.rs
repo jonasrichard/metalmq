@@ -1,6 +1,6 @@
 use crate::message::Message;
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
-use crate::Result;
+use crate::{logerr, Result};
 use log::{debug, error};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -73,12 +73,13 @@ pub(crate) async fn exchange_loop(
                 result,
             } => {
                 queues.insert(routing_key, sink.clone());
-                sink.send(QueueCommand::ExchangeBound {
-                    exchange_name: exchange.name.clone(),
-                })
-                .await;
-                // TODO make macro for error logged send
-                result.send(true);
+                logerr!(
+                    sink.send(QueueCommand::ExchangeBound {
+                        exchange_name: exchange.name.clone(),
+                    })
+                    .await
+                );
+                logerr!(result.send(true));
             }
             ExchangeCommand::QueueUnbind {
                 queue_name,
@@ -86,13 +87,15 @@ pub(crate) async fn exchange_loop(
                 result,
             } => {
                 if let Some(sink) = queues.remove(&routing_key) {
-                    sink.send(QueueCommand::ExchangeUnbound {
-                        exchange_name: exchange.name.clone(),
-                    })
-                    .await;
+                    logerr!(
+                        sink.send(QueueCommand::ExchangeUnbound {
+                            exchange_name: exchange.name.clone(),
+                        })
+                        .await
+                    );
                 }
 
-                result.send(true);
+                logerr!(result.send(true));
             }
         }
     }

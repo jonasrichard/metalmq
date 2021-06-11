@@ -2,7 +2,7 @@ use crate::client::{channel_error, connection_error, ChannelError, ConnectionErr
 use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
-use crate::Result;
+use crate::{logerr, Result};
 use log::{debug, error, trace};
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -111,7 +111,7 @@ pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, exchange_name: &s
 pub(crate) async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(ExchangeManagerCommand::GetExchanges { result: tx }).await;
+    logerr!(mgr.send(ExchangeManagerCommand::GetExchanges { result: tx }).await);
 
     match rx.await {
         Ok(exchanges) => exchanges,
@@ -140,7 +140,7 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
             passive,
             result,
         } => {
-            result.send(handle_declare_exchange(&mut exchanges, exchange, passive));
+            logerr!(result.send(handle_declare_exchange(&mut exchanges, exchange, passive)));
         }
         BindQueue {
             exchange_name,
@@ -149,7 +149,9 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
             queue_sink,
             result,
         } => {
-            result.send(handle_bind_queue(&exchanges, &exchange_name, &queue_name, &routing_key, queue_sink).await);
+            logerr!(
+                result.send(handle_bind_queue(&exchanges, &exchange_name, &queue_name, &routing_key, queue_sink).await)
+            );
         }
         UnbindQueue {
             exchange_name,
@@ -157,13 +159,13 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
             routing_key,
             result,
         } => {
-            result.send(handle_unbind_queue(&exchanges, &exchange_name, &queue_name, &routing_key).await);
+            logerr!(result.send(handle_unbind_queue(&exchanges, &exchange_name, &queue_name, &routing_key).await));
         }
         DeleteExchange { exchange_name, result } => {
-            result.send(handle_delete_exchange(&mut exchanges, &exchange_name).await);
+            logerr!(result.send(handle_delete_exchange(&mut exchanges, &exchange_name).await));
         }
         GetExchanges { result } => {
-            result.send(handle_exchange_list(&exchanges));
+            logerr!(result.send(handle_exchange_list(&exchanges)));
         }
     }
 }
