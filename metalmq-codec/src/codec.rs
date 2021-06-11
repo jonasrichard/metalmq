@@ -110,25 +110,6 @@ impl Decoder for AMQPCodec {
     }
 }
 
-fn full_frame_available(src: &BytesMut) -> bool {
-    match src.get(0) {
-        None => false,
-        Some(&FRAME_HEARTBEAT) => true,
-        Some(_) => match src.get(3..7) {
-            None => false,
-            Some(len_bytes) => {
-                let bs: [u8; 4] = [len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
-                let len = u32::from_be_bytes(bs);
-
-                // Frame type is 1 byte, channel is 2 and the next 4 is the length
-                // information in big endian format. After these there are 'len'
-                // bytes and then a '0xCE' byte. So 8 + len should be there.
-                src.len() >= 8 + len as usize
-            }
-        },
-    }
-}
-
 // TODO have an Error type here, and it should be result<>
 fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class_method = src.get_u32();

@@ -1,6 +1,5 @@
 use crate::client::{channel_error, ChannelError};
-use crate::queue::consumer_handler::{self, ConsumerCommand};
-use crate::queue::handler::{self, QueueCommandSink};
+use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, Result};
 use log::error;
@@ -178,20 +177,16 @@ async fn handle_declare(queues: &mut HashMap<String, Queue>, name: &str) -> Resu
         Some(_) => Ok(()),
         None => {
             let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
-            let (cons_tx, mut cons_rx) = mpsc::channel(1);
 
             let queue = Queue {
                 name: name.to_string(),
                 command_sink: cmd_tx.clone(),
-                consumer_sink: cons_tx.clone(),
             };
 
-            tokio::spawn(async move {
-                handler::queue_loop(&mut cmd_rx, cons_tx).await;
-            });
+            let qname = name.to_string();
 
             tokio::spawn(async move {
-                consumer_handler::consumer_handler_loop(&mut cons_rx, cmd_tx).await;
+                handler::start(qname, &mut cmd_rx).await;
             });
 
             queues.insert(name.to_string(), queue);
@@ -220,9 +215,9 @@ async fn handle_consume(
             let (tx, rx) = oneshot::channel();
 
             queue
-                .consumer_sink
+                .command_sink
                 .send_timeout(
-                    ConsumerCommand::StartConsuming {
+                    QueueCommand::StartConsuming {
                         consumer_tag: consumer_tag.to_string(),
                         no_ack,
                         sink: outgoing,
@@ -246,9 +241,9 @@ async fn handle_cancel(queues: &HashMap<String, Queue>, name: &str, consumer_tag
             let (tx, rx) = oneshot::channel();
 
             queue
-                .consumer_sink
+                .command_sink
                 .send_timeout(
-                    ConsumerCommand::CancelConsuming {
+                    QueueCommand::CancelConsuming {
                         consumer_tag: consumer_tag.to_string(),
                         result: tx,
                     },

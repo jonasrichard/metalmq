@@ -1,20 +1,14 @@
-use crate::logerr;
 use crate::message::{self, Message};
-use crate::queue::consumer_handler::{ConsumerCommand, ConsumerCommandSink, FrameSink, SendResult};
+use crate::{logerr, Result};
 use log::{error, info, trace};
+use metalmq_codec::frame::AMQPFrame;
 use std::cmp::Ordering;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type QueueCommandSink = mpsc::Sender<QueueCommand>;
 //pub(crate) type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
-
-/// Information about the queue instance
-pub(crate) struct QueueInfo {
-    pub name: String,
-    // TODO message metrics, current, current outgoing, etc...
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Tag {
@@ -25,11 +19,6 @@ pub(crate) struct Tag {
 #[derive(Debug)]
 pub(crate) enum QueueCommand {
     PublishMessage(Message),
-    DeliverMessage {
-        tag: Tag,
-        outgoing: FrameSink,
-        result: oneshot::Sender<SendResult>,
-    },
     AckMessage {
         consumer_tag: String,
         delivery_tag: u64,
@@ -40,6 +29,48 @@ pub(crate) enum QueueCommand {
     ExchangeUnbound {
         exchange_name: String,
     },
+    StartConsuming {
+        consumer_tag: String,
+        no_ack: bool,
+        sink: FrameSink,
+        result: oneshot::Sender<()>,
+    },
+    CancelConsuming {
+        consumer_tag: String,
+        result: oneshot::Sender<()>,
+    },
+    MessageRejected,
+    Recover,
+}
+
+#[derive(Debug)]
+pub(crate) enum SendResult {
+    MessageSent,
+    QueueEmpty,
+    NoConsumer,
+    ConsumerInvalid,
+}
+
+pub(crate) type FrameSink = mpsc::Sender<AMQPFrame>;
+
+/// Information about the queue instance
+struct QueueState {
+    name: String,
+    messages: VecDeque<Message>,
+    outbox: Outbox,
+    consumers: HashMap<String, Consumer>,
+    // TODO message metrics, current, current outgoing, etc...
+}
+
+struct Consumer {
+    /// Consumer tag, identifies the consumer
+    consumer_tag: String,
+    /// Consumer doesn't need ack, so we can delete sent-out messages promptly
+    no_ack: bool,
+    /// Consumer network socket abstraction
+    sink: FrameSink,
+    /// The next delivery tag it needs to send out
+    delivery_tag_counter: u64,
 }
 
 // Message delivery
@@ -60,67 +91,112 @@ pub(crate) enum QueueCommand {
 //  Cancel consume
 //    All messages which are outflight needs to be redelivered to the
 //      remaining consumers.
-pub(crate) async fn queue_loop(commands: &mut mpsc::Receiver<QueueCommand>, consumer_sink: ConsumerCommandSink) {
-    // TODO we need to have a variable here to access the queue properties
-    let mut messages = VecDeque::<Message>::new();
-    let mut outbox = Outbox {
-        outgoing_messages: vec![],
-    };
 
-    // TODO we need to store the delivery tags by consumers
-    // Also we need to mark a message that it is sent, so we need to wait
-    // for the ack, until that we cannot send new messages out - or depending
-    // the consuming yes?
+pub(crate) async fn start(name: String, commands: &mut mpsc::Receiver<QueueCommand>) {
+    QueueState {
+        name,
+        messages: VecDeque::new(),
+        outbox: Outbox {
+            outgoing_messages: vec![],
+        },
+        consumers: HashMap::new(),
+    }
+    .queue_loop(commands)
+    .await;
+}
 
-    while let Some(command) = commands.recv().await {
-        match command {
-            QueueCommand::PublishMessage(message) => {
-                trace!("Queue message {:?}", message);
+impl QueueState {
+    pub(crate) async fn queue_loop(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
+        // TODO we need to store the delivery tags by consumers
+        // Also we need to mark a message that it is sent, so we need to wait
+        // for the ack, until that we cannot send new messages out - or depending
+        // the consuming yes?
 
-                messages.push_back(message);
+        while let Some(command) = commands.recv().await {
+            match command {
+                QueueCommand::PublishMessage(message) => {
+                    trace!("Queue message {:?}", message);
 
-                // TODO this only we need to do if there are consumers, otherwise they will
-                // get the message and drop that, if so... we can even send over the message
-                // itself
-                if let Err(e) = consumer_sink.send(ConsumerCommand::MessagePublished).await {
-                    error!("Error {:?}", e);
-                };
-            }
-            QueueCommand::DeliverMessage { tag, outgoing, result } => {
-                if let Some(message) = messages.pop_front() {
-                    outbox.on_sent_out(OutgoingMessage {
-                        message: message.clone(),
-                        tag: tag.clone(),
-                        sent_at: Instant::now(),
-                    });
-
-                    match message::send_message(&message, &tag, outgoing).await {
-                        Ok(()) => {
-                            logerr!(result.send(SendResult::MessageSent));
-                        }
-                        Err(e) => {
-                            error!("Error sending out message {:?}", e);
-
-                            logerr!(result.send(SendResult::ConsumerInvalid));
-                        }
-                    }
-                } else {
-                    logerr!(result.send(SendResult::QueueEmpty));
+                    logerr!(self.send_out_message(message).await);
                 }
-            }
-            QueueCommand::AckMessage {
-                consumer_tag,
-                delivery_tag,
-            } => {
-                outbox.on_ack_arrive(consumer_tag, delivery_tag);
-            }
-            QueueCommand::ExchangeBound { exchange_name } => {
-                info!("Unbound exchange {}", exchange_name);
-            }
-            QueueCommand::ExchangeUnbound { exchange_name } => {
-                info!("Unbound exchange {}", exchange_name);
+                QueueCommand::AckMessage {
+                    consumer_tag,
+                    delivery_tag,
+                } => {
+                    self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
+                }
+                QueueCommand::ExchangeBound { exchange_name } => {
+                    info!("Unbound exchange {}", exchange_name);
+                }
+                QueueCommand::ExchangeUnbound { exchange_name } => {
+                    info!("Unbound exchange {}", exchange_name);
+                }
+                QueueCommand::StartConsuming {
+                    consumer_tag,
+                    no_ack,
+                    sink,
+                    result,
+                } => {}
+                QueueCommand::CancelConsuming { consumer_tag, result } => {}
+                QueueCommand::MessageRejected => {}
+                QueueCommand::Recover => {}
             }
         }
+    }
+
+    fn choose_consumer(&self) -> Option<&Consumer> {
+        match self.consumers.iter().next() {
+            Some((_, v)) => Some(v),
+            None => None,
+        }
+    }
+
+    async fn send_out_message(&mut self, message: Message) -> Result<SendResult> {
+        let mut chosen_ctag = None;
+
+        let res = match self.consumers.iter().next() {
+            None => {
+                self.messages.push_back(message);
+
+                Ok(SendResult::NoConsumer)
+            }
+            Some((_, consumer)) => {
+                let tag = Tag {
+                    consumer_tag: consumer.consumer_tag.clone(),
+                    delivery_tag: consumer.delivery_tag_counter,
+                };
+
+                chosen_ctag = Some(consumer.consumer_tag.clone());
+
+                let res = message::send_message(&message, &tag, &consumer.sink).await;
+                match res {
+                    Ok(()) => {
+                        self.outbox.on_sent_out(OutgoingMessage {
+                            message,
+                            tag,
+                            sent_at: Instant::now(),
+                        });
+
+                        Ok(SendResult::MessageSent)
+                    }
+                    Err(_) => Ok(SendResult::ConsumerInvalid),
+                }
+            }
+        };
+
+        match res {
+            Ok(SendResult::MessageSent) => {
+                if let Some(c) = self.consumers.get_mut(&chosen_ctag.unwrap()) {
+                    c.delivery_tag_counter += 1;
+                }
+            }
+            Ok(SendResult::ConsumerInvalid) => {
+                self.consumers.remove(&chosen_ctag.unwrap());
+            }
+            _ => (),
+        }
+
+        res
     }
 }
 

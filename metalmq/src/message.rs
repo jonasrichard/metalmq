@@ -1,6 +1,6 @@
 //! Messages are sent to exhchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
-use crate::queue::consumer_handler::FrameSink;
+use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
 use crate::Result;
 use metalmq_codec::frame;
@@ -43,7 +43,7 @@ pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFra
     ]
 }
 
-pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: FrameSink) -> Result<()> {
+pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
     let mut frames = message_to_content_frames(&message);
 
     let basic_deliver = frame::basic_deliver(
