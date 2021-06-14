@@ -200,9 +200,11 @@ impl Connection {
     }
 
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
-        qm::declare_queue(&self.qm, &args.name).await?;
+        let queue_name = args.name.clone();
 
-        Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, args.name, 0, 0))))
+        qm::declare_queue(&self.qm, args.into(), self.id.clone()).await?;
+
+        Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0))))
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {

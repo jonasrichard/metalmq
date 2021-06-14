@@ -1,9 +1,10 @@
 use crate::message::{self, Message};
+use crate::queue::Queue;
 use crate::{logerr, Result};
-use log::{error, info, trace};
+use log::{error, trace};
 use metalmq_codec::frame::AMQPFrame;
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
@@ -55,10 +56,12 @@ pub(crate) type FrameSink = mpsc::Sender<AMQPFrame>;
 
 /// Information about the queue instance
 struct QueueState {
-    name: String,
+    queue: Queue,
+    declaring_connection: String,
     messages: VecDeque<Message>,
     outbox: Outbox,
     consumers: HashMap<String, Consumer>,
+    bound_exchanges: HashSet<String>,
     // TODO message metrics, current, current outgoing, etc...
 }
 
@@ -92,14 +95,16 @@ struct Consumer {
 //    All messages which are outflight needs to be redelivered to the
 //      remaining consumers.
 
-pub(crate) async fn start(name: String, commands: &mut mpsc::Receiver<QueueCommand>) {
+pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: &mut mpsc::Receiver<QueueCommand>) {
     QueueState {
-        name,
+        queue,
+        declaring_connection,
         messages: VecDeque::new(),
         outbox: Outbox {
             outgoing_messages: vec![],
         },
         consumers: HashMap::new(),
+        bound_exchanges: HashSet::new(),
     }
     .queue_loop(commands)
     .await;
@@ -128,10 +133,10 @@ impl QueueState {
                     self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
                 }
                 QueueCommand::ExchangeBound { exchange_name } => {
-                    info!("Bind exchange {}", exchange_name);
+                    self.bound_exchanges.insert(exchange_name);
                 }
                 QueueCommand::ExchangeUnbound { exchange_name } => {
-                    info!("Unbound exchange {}", exchange_name);
+                    self.bound_exchanges.remove(&exchange_name);
                 }
                 QueueCommand::StartConsuming {
                     consumer_tag,

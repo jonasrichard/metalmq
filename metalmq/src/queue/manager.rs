@@ -33,9 +33,16 @@ use tokio::time;
 //        https://www.rabbitmq.com/amqp-0-9-1-reference.html#class.basic
 
 #[derive(Debug)]
+struct QueueState {
+    queue: Queue,
+    command_sink: QueueCommandSink,
+}
+
+#[derive(Debug)]
 pub(crate) enum QueueManagerCommand {
     Declare {
-        name: String,
+        queue: Queue,
+        conn_id: String,
         result: oneshot::Sender<Result<()>>,
     },
     Consume {
@@ -70,11 +77,12 @@ pub(crate) fn start() -> QueueManagerSink {
     sink
 }
 
-pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue_name: &str) -> Result<()> {
+pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: String) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     mgr.send(QueueManagerCommand::Declare {
-        name: queue_name.to_string(),
+        queue,
+        conn_id,
         result: tx,
     })
     .await?;
@@ -131,7 +139,7 @@ pub(crate) async fn get_command_sink(mgr: &QueueManagerSink, queue_name: &str) -
 }
 
 async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result<()> {
-    let mut queues = HashMap::<String, Queue>::new();
+    let mut queues = HashMap::<String, QueueState>::new();
 
     while let Some(command) = stream.recv().await {
         trace!("Manager command {:?}", command);
@@ -141,12 +149,12 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
     Ok(())
 }
 
-async fn handle_command(mut queues: &mut HashMap<String, Queue>, command: QueueManagerCommand) {
+async fn handle_command(mut queues: &mut HashMap<String, QueueState>, command: QueueManagerCommand) {
     use QueueManagerCommand::*;
 
     match command {
-        Declare { name, result } => {
-            logerr!(result.send(handle_declare(&mut queues, &name).await));
+        Declare { queue, conn_id, result } => {
+            logerr!(result.send(handle_declare(&mut queues, queue, conn_id).await));
         }
         Consume {
             queue_name,
@@ -172,32 +180,30 @@ async fn handle_command(mut queues: &mut HashMap<String, Queue>, command: QueueM
 
 /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
 /// creates that.
-async fn handle_declare(queues: &mut HashMap<String, Queue>, name: &str) -> Result<()> {
+async fn handle_declare(queues: &mut HashMap<String, QueueState>, queue: Queue, conn_id: String) -> Result<()> {
     // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
-    match queues.get(name) {
+    match queues.get(&queue.name) {
         Some(_) => Ok(()),
         None => {
             let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
-
-            let queue = Queue {
-                name: name.to_string(),
+            let queue_name = queue.name.clone();
+            let queue_state = QueueState {
+                queue: queue.clone(),
                 command_sink: cmd_tx.clone(),
             };
 
-            let qname = name.to_string();
-
             tokio::spawn(async move {
-                handler::start(qname, &mut cmd_rx).await;
+                handler::start(queue, conn_id, &mut cmd_rx).await;
             });
 
-            queues.insert(name.to_string(), queue);
+            queues.insert(queue_name.to_string(), queue_state);
 
             Ok(())
         }
     }
 }
 
-fn handle_get_command_sink(queues: &HashMap<String, Queue>, name: &str) -> Result<QueueCommandSink> {
+fn handle_get_command_sink(queues: &HashMap<String, QueueState>, name: &str) -> Result<QueueCommandSink> {
     match queues.get(name) {
         Some(queue) => Ok(queue.command_sink.clone()),
         None => channel_error(0, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found"),
@@ -205,7 +211,7 @@ fn handle_get_command_sink(queues: &HashMap<String, Queue>, name: &str) -> Resul
 }
 
 async fn handle_consume(
-    queues: &HashMap<String, Queue>,
+    queues: &HashMap<String, QueueState>,
     name: &str,
     consumer_tag: &str,
     no_ack: bool,
@@ -236,7 +242,7 @@ async fn handle_consume(
     }
 }
 
-async fn handle_cancel(queues: &HashMap<String, Queue>, name: &str, consumer_tag: &str) -> Result<()> {
+async fn handle_cancel(queues: &HashMap<String, QueueState>, name: &str, consumer_tag: &str) -> Result<()> {
     match queues.get(name) {
         Some(queue) => {
             let (tx, rx) = oneshot::channel();
