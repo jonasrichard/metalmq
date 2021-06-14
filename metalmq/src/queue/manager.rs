@@ -2,7 +2,7 @@ use crate::client::{channel_error, ChannelError};
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, Result};
-use log::error;
+use log::{error, trace};
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -134,6 +134,7 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
     let mut queues = HashMap::<String, Queue>::new();
 
     while let Some(command) = stream.recv().await {
+        trace!("Manager command {:?}", command);
         handle_command(&mut queues, command).await;
     }
 

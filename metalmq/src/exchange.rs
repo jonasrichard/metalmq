@@ -19,6 +19,18 @@ pub(crate) struct Exchange {
     internal: bool,
 }
 
+impl Default for Exchange {
+    fn default() -> Exchange {
+        Exchange {
+            name: "default".to_string(),
+            exchange_type: "direct".to_string(),
+            durable: false,
+            auto_delete: false,
+            internal: false,
+        }
+    }
+}
+
 impl From<ExchangeDeclareArgs> for Exchange {
     fn from(f: ExchangeDeclareArgs) -> Self {
         Exchange {

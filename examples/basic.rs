@@ -1,5 +1,4 @@
 use anyhow::Result;
-use metalmq_client::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -8,7 +7,7 @@ async fn main() -> Result<()> {
 
     metalmq_client::setup_logger();
 
-    let client = metalmq_client::connect("127.0.0.1:5672", "guest", "pwd").await?;
+    let client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     client.open("/").await?;
     client.channel_open(1).await?;
 

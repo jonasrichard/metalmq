@@ -4,7 +4,7 @@ mod helper {
     pub mod conn;
 }
 
-use crate::metalmq_client as client;
+// use crate::metalmq_client as client;
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]

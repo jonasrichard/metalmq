@@ -4,9 +4,9 @@ mod helper {
     pub mod conn;
 }
 
-use crate::metalmq_client as client;
-use helper::conn::default_connection;
-use tokio::sync::{oneshot};
+// use crate::metalmq_client as client;
+// use helper::conn::default_connection;
+// use tokio::sync::{oneshot};
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]

@@ -29,7 +29,7 @@ impl cucumber::World for MyWorld {
 
     async fn new() -> Result<Self, Infallible> {
         Ok(Self {
-            client: metalmq_client::connect("127.0.0.1:5672", "guest", "guest")
+            client: metalmq_client::connect("localhost:5672", "guest", "guest")
                 .await
                 .unwrap(),
             last_result: Ok(()),
@@ -46,7 +46,7 @@ mod steps {
         builder
             .given_async(
                 "a client",
-                t!(|mut world, step| {
+                t!(|mut world, _step| {
                     world.client.open("/").await.unwrap();
                     world.client.channel_open(1).await.unwrap();
                     world
@@ -54,21 +54,21 @@ mod steps {
             )
             .when_regex_async(
                 "declare an exchange (.*)",
-                t!(|mut world, matches, step| {
+                t!(|mut world, matches, _step| {
                     world.last_result = world.client.exchange_declare(1, &matches[1], "fanout", None).await;
                     world
                 }),
             )
             .then_async(
                 "it succeeds",
-                t!(|mut world, step| {
+                t!(|mut world, _step| {
                     assert!(world.last_result.is_ok());
                     world
                 }),
             )
             .when_regex_async(
                 "passive declare an exchange (.*)",
-                t!(|mut world, matches, step| {
+                t!(|mut world, matches, _step| {
                     let mut flags = metalmq_codec::frame::ExchangeDeclareFlags::empty();
                     flags |= metalmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
 
@@ -81,7 +81,7 @@ mod steps {
             )
             .then_regex_async(
                 "it closes the channel with error code (.*)",
-                t!(|mut world, matches, step| {
+                t!(|mut world, matches, _step| {
                     let res = world.take_err();
 
                     assert!(res.is_some());
@@ -95,14 +95,14 @@ mod steps {
             )
             .when_regex_async(
                 "an exchange is declared with name (.*)",
-                t!(|mut world, matches, step| {
+                t!(|mut world, matches, _step| {
                     world.last_result = world.client.exchange_declare(1, &matches[1], "fanout", None).await;
                     world
                 }),
             )
             .then_regex_async(
                 "passively declare exchange (.*) succeeds",
-                t!(|mut world, matches, step| {
+                t!(|mut world, matches, _step| {
                     let mut flags = metalmq_codec::frame::ExchangeDeclareFlags::empty();
                     flags |= metalmq_codec::frame::ExchangeDeclareFlags::PASSIVE;
 

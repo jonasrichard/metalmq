@@ -1,11 +1,11 @@
-use anyhow::Result;
-use metalmq_client as client;
-use metalmq_client::{bdd::Steps, init, step};
+// use anyhow::Result;
+// use metalmq_client as client;
+//use metalmq_client::{bdd::Steps, init, step};
 
-struct World {
-    conn: client::Client,
-    result: Result<()>,
-}
+// struct World {
+//     conn: client::Client,
+//     result: Result<()>,
+// }
 
 #[cfg(feature = "integration-tests")]
 #[tokio::test]

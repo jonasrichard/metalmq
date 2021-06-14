@@ -323,41 +323,45 @@ fn validate_exchange_type(exchange_type: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{ErrorScope, RuntimeError};
-    use metalmq_codec::frame::{ExchangeDeclareArgs, ExchangeDeclareFlags};
+    use std::cmp::Ordering;
 
     #[tokio::test]
     async fn passive_declare_exchange_does_not_exists_channel_error() {
-        let mut exchanges = start();
-        let mut args = ExchangeDeclareArgs::default();
-
-        args.exchange_name = "new exchange".to_string();
-        args.flags |= ExchangeDeclareFlags::PASSIVE;
-
-        let result = exchanges.declare(args.into(), true, "").await;
+        let mut exchanges = HashMap::new();
+        let exchange = Exchange {
+            name: "passive-exchg".into(),
+            ..Default::default()
+        };
+        let result = handle_declare_exchange(&mut exchanges, exchange, true);
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
-        assert_eq!(err.code, ChannelError::PreconditionFailed as u16);
+        assert_eq!(err.code, ChannelError::NotFound as u16);
     }
 
     #[tokio::test]
     async fn declare_exchange_exists_fields_different_error() {
-        let exchange_name = "orders".to_string();
-        let exchange_type = "fanout".to_string();
+        let (tx, _) = mpsc::channel(1);
+        let mut exchanges = HashMap::new();
+        exchanges.insert(
+            "temp-changes".into(),
+            ExchangeState {
+                exchange: Exchange {
+                    name: "temp-changes".to_string(),
+                    exchange_type: "topic".to_string(),
+                    ..Default::default()
+                },
+                command_sink: tx,
+            },
+        );
 
-        let mut exchanges = start();
+        let exchange = Exchange {
+            name: "temp-changes".into(),
+            exchange_type: "direct".to_string(),
+            ..Default::default()
+        };
 
-        let mut args = ExchangeDeclareArgs::default();
-        args.exchange_name = exchange_name.clone();
-        args.exchange_type = exchange_type.clone();
-
-        let _ = exchanges.declare(args.into(), false, "").await;
-
-        let mut args2 = ExchangeDeclareArgs::default();
-        args2.exchange_name = exchange_name.clone();
-        args2.exchange_type = "topic".to_string();
-
-        let result = exchanges.declare(args2.into(), false, "").await;
+        let result = handle_declare_exchange(&mut exchanges, exchange, false);
 
         assert!(result.is_err());
 
@@ -368,23 +372,22 @@ mod tests {
 
     #[tokio::test]
     async fn declare_exchange_does_not_exist_created() {
-        let mut exchanges = start();
-        let exchange_name = "orders".to_string();
-
-        let mut args = ExchangeDeclareArgs::default();
-        args.exchange_name = exchange_name.clone();
-        args.flags |= ExchangeDeclareFlags::DURABLE;
-        args.flags |= ExchangeDeclareFlags::AUTO_DELETE;
-
-        let result = exchanges.declare(args.into(), false, "").await;
+        let mut exchanges = HashMap::new();
+        let exchange = Exchange {
+            name: "transactions".into(),
+            exchange_type: "direct".to_string(),
+            durable: true,
+            auto_delete: true,
+            internal: true,
+        };
+        let result = handle_declare_exchange(&mut exchanges, exchange, false);
 
         assert!(result.is_ok());
 
-        let ex = exchanges.exchanges.lock().await;
-        let state = ex.get(&exchange_name).unwrap();
-        assert_eq!(state.exchange.name, exchange_name);
+        let state = exchanges.get("transactions").unwrap();
+        assert_eq!(state.exchange.exchange_type.cmp(&"direct".to_string()), Ordering::Equal);
         assert_eq!(state.exchange.durable, true);
         assert_eq!(state.exchange.auto_delete, true);
-        assert_eq!(state.exchange.internal, false);
+        assert_eq!(state.exchange.internal, true);
     }
 }

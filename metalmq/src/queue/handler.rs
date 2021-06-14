@@ -113,6 +113,8 @@ impl QueueState {
         // the consuming yes?
 
         while let Some(command) = commands.recv().await {
+            trace!("Queue command {:?}", command);
+
             match command {
                 QueueCommand::PublishMessage(message) => {
                     trace!("Queue message {:?}", message);
@@ -126,7 +128,7 @@ impl QueueState {
                     self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
                 }
                 QueueCommand::ExchangeBound { exchange_name } => {
-                    info!("Unbound exchange {}", exchange_name);
+                    info!("Bind exchange {}", exchange_name);
                 }
                 QueueCommand::ExchangeUnbound { exchange_name } => {
                     info!("Unbound exchange {}", exchange_name);
@@ -136,8 +138,22 @@ impl QueueState {
                     no_ack,
                     sink,
                     result,
-                } => {}
-                QueueCommand::CancelConsuming { consumer_tag, result } => {}
+                } => {
+                    let consumer = Consumer {
+                        consumer_tag: consumer_tag.clone(),
+                        no_ack,
+                        sink,
+                        delivery_tag_counter: 1u64,
+                    };
+                    self.consumers.insert(consumer_tag, consumer);
+                    logerr!(result.send(()));
+
+                    logerr!(self.send_out_all_messages().await);
+                }
+                QueueCommand::CancelConsuming { consumer_tag, result } => {
+                    self.consumers.remove(&consumer_tag);
+                    logerr!(result.send(()));
+                }
                 QueueCommand::MessageRejected => {}
                 QueueCommand::Recover => {}
             }
@@ -149,6 +165,22 @@ impl QueueState {
             Some((_, v)) => Some(v),
             None => None,
         }
+    }
+
+    async fn send_out_all_messages(&mut self) -> Result<()> {
+        while let Some(message) = self.messages.pop_front() {
+            match self.send_out_message(message).await {
+                Ok(SendResult::QueueEmpty) => {
+                    break;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+                _ => (),
+            }
+        }
+
+        Ok(())
     }
 
     async fn send_out_message(&mut self, message: Message) -> Result<SendResult> {
