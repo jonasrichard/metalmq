@@ -46,6 +46,7 @@ pub(crate) enum QueueManagerCommand {
         result: oneshot::Sender<Result<()>>,
     },
     Consume {
+        conn_id: String,
         queue_name: String,
         consumer_tag: String,
         no_ack: bool,
@@ -77,12 +78,12 @@ pub(crate) fn start() -> QueueManagerSink {
     sink
 }
 
-pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: String) -> Result<()> {
+pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     mgr.send(QueueManagerCommand::Declare {
         queue,
-        conn_id,
+        conn_id: conn_id.to_string(),
         result: tx,
     })
     .await?;
@@ -92,6 +93,7 @@ pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id:
 
 pub(crate) async fn consume(
     mgr: &QueueManagerSink,
+    conn_id: &str,
     queue_name: &str,
     consumer_tag: &str,
     no_ack: bool,
@@ -100,6 +102,7 @@ pub(crate) async fn consume(
     let (tx, rx) = oneshot::channel();
 
     mgr.send(QueueManagerCommand::Consume {
+        conn_id: conn_id.to_string(),
         queue_name: queue_name.to_string(),
         consumer_tag: consumer_tag.to_string(),
         no_ack,
@@ -139,43 +142,56 @@ pub(crate) async fn get_command_sink(mgr: &QueueManagerSink, queue_name: &str) -
 }
 
 async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result<()> {
+    use QueueManagerCommand::*;
+
     let mut queues = HashMap::<String, QueueState>::new();
 
     while let Some(command) = stream.recv().await {
         trace!("Manager command {:?}", command);
-        handle_command(&mut queues, command).await;
+        match command {
+            Declare { queue, conn_id, result } => {
+                logerr!(result.send(handle_declare(&mut queues, queue, conn_id).await));
+            }
+            Consume {
+                conn_id,
+                queue_name,
+                consumer_tag,
+                no_ack,
+                outgoing,
+                result,
+            } => {
+                logerr!(
+                    result.send(handle_consume(&queues, &conn_id, &queue_name, &consumer_tag, no_ack, outgoing).await)
+                );
+            }
+            CancelConsume {
+                queue_name,
+                consumer_tag,
+                result,
+            } => {
+                match handle_cancel(&queues, &queue_name, &consumer_tag).await {
+                    Ok(still_alive) => {
+                        result.send(Ok(()));
+
+                        if !still_alive {
+                            // Queue is auto delete and the last consumer has cancelled.
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error {:?}", e);
+
+                        result.send(Ok(()));
+                    }
+                }
+            }
+            GetQueueSink { queue_name, result } => {
+                logerr!(result.send(handle_get_command_sink(&queues, &queue_name)));
+            }
+        }
     }
 
     Ok(())
-}
-
-async fn handle_command(mut queues: &mut HashMap<String, QueueState>, command: QueueManagerCommand) {
-    use QueueManagerCommand::*;
-
-    match command {
-        Declare { queue, conn_id, result } => {
-            logerr!(result.send(handle_declare(&mut queues, queue, conn_id).await));
-        }
-        Consume {
-            queue_name,
-            consumer_tag,
-            no_ack,
-            outgoing,
-            result,
-        } => {
-            logerr!(result.send(handle_consume(&queues, &queue_name, &consumer_tag, no_ack, outgoing).await));
-        }
-        CancelConsume {
-            queue_name,
-            consumer_tag,
-            result,
-        } => {
-            logerr!(result.send(handle_cancel(&queues, &queue_name, &consumer_tag).await));
-        }
-        GetQueueSink { queue_name, result } => {
-            logerr!(result.send(handle_get_command_sink(&queues, &queue_name)));
-        }
-    }
 }
 
 /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
@@ -212,6 +228,7 @@ fn handle_get_command_sink(queues: &HashMap<String, QueueState>, name: &str) -> 
 
 async fn handle_consume(
     queues: &HashMap<String, QueueState>,
+    conn_id: &str,
     name: &str,
     consumer_tag: &str,
     no_ack: bool,
@@ -225,6 +242,7 @@ async fn handle_consume(
                 .command_sink
                 .send_timeout(
                     QueueCommand::StartConsuming {
+                        conn_id: conn_id.to_string(),
                         consumer_tag: consumer_tag.to_string(),
                         no_ack,
                         sink: outgoing,
@@ -242,7 +260,7 @@ async fn handle_consume(
     }
 }
 
-async fn handle_cancel(queues: &HashMap<String, QueueState>, name: &str, consumer_tag: &str) -> Result<()> {
+async fn handle_cancel(queues: &HashMap<String, QueueState>, name: &str, consumer_tag: &str) -> Result<bool> {
     match queues.get(name) {
         Some(queue) => {
             let (tx, rx) = oneshot::channel();
@@ -258,10 +276,8 @@ async fn handle_cancel(queues: &HashMap<String, QueueState>, name: &str, consume
                 )
                 .await?;
 
-            rx.await?;
-
-            Ok(())
+            Ok(rx.await?)
         }
-        None => Ok(()),
+        None => Ok(true),
     }
 }

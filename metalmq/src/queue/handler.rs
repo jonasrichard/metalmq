@@ -1,8 +1,9 @@
+use crate::client::{channel_error, ChannelError};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
 use log::{error, trace};
-use metalmq_codec::frame::AMQPFrame;
+use metalmq_codec::frame::{AMQPFrame, BASIC_CONSUME};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -31,14 +32,15 @@ pub(crate) enum QueueCommand {
         exchange_name: String,
     },
     StartConsuming {
+        conn_id: String,
         consumer_tag: String,
         no_ack: bool,
         sink: FrameSink,
-        result: oneshot::Sender<()>,
+        result: oneshot::Sender<Result<()>>,
     },
     CancelConsuming {
         consumer_tag: String,
-        result: oneshot::Sender<()>,
+        result: oneshot::Sender<bool>,
     },
     MessageRejected,
     Recover,
@@ -139,25 +141,42 @@ impl QueueState {
                     self.bound_exchanges.remove(&exchange_name);
                 }
                 QueueCommand::StartConsuming {
+                    conn_id,
                     consumer_tag,
                     no_ack,
                     sink,
                     result,
                 } => {
-                    let consumer = Consumer {
-                        consumer_tag: consumer_tag.clone(),
-                        no_ack,
-                        sink,
-                        delivery_tag_counter: 1u64,
-                    };
-                    self.consumers.insert(consumer_tag, consumer);
-                    logerr!(result.send(()));
+                    if self.queue.exclusive && self.declaring_connection.cmp(&conn_id) != Ordering::Equal {
+                        logerr!(result.send(channel_error(
+                            0,
+                            BASIC_CONSUME,
+                            ChannelError::ResourceLocked,
+                            "Cannot consume exclusive queue"
+                        )));
+                    } else {
+                        let consumer = Consumer {
+                            consumer_tag: consumer_tag.clone(),
+                            no_ack,
+                            sink,
+                            delivery_tag_counter: 1u64,
+                        };
+                        self.consumers.insert(consumer_tag, consumer);
+                        logerr!(result.send(Ok(())));
 
-                    logerr!(self.send_out_all_messages().await);
+                        logerr!(self.send_out_all_messages().await);
+                    }
                 }
                 QueueCommand::CancelConsuming { consumer_tag, result } => {
                     self.consumers.remove(&consumer_tag);
-                    logerr!(result.send(()));
+
+                    if self.queue.auto_delete && self.consumers.len() == 0 {
+                        logerr!(result.send(false));
+
+                        break;
+                    } else {
+                        logerr!(result.send(true));
+                    }
                 }
                 QueueCommand::MessageRejected => {}
                 QueueCommand::Recover => {}

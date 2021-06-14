@@ -202,7 +202,7 @@ impl Connection {
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let queue_name = args.name.clone();
 
-        qm::declare_queue(&self.qm, args.into(), self.id.clone()).await?;
+        qm::declare_queue(&self.qm, args.into(), &self.id).await?;
 
         Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0))))
     }
@@ -258,6 +258,7 @@ impl Connection {
     pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
         match qm::consume(
             &self.qm,
+            &self.id,
             &args.queue,
             &args.consumer_tag,
             args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
