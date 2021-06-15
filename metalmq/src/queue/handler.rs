@@ -6,6 +6,7 @@ use log::{error, trace};
 use metalmq_codec::frame::{AMQPFrame, BASIC_CONSUME};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::task::Poll;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
@@ -113,12 +114,17 @@ pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: 
 }
 
 impl QueueState {
-    pub(crate) async fn other(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
+    pub(crate) async fn other(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
         loop {
             if self.messages.len() > 0 {
                 let message = self.messages.pop_front().unwrap();
-                self.send_out_message(message);
+                self.send_out_message(message).await;
 
+                match poll_command_chan(&mut commands) {
+                    Poll::Pending => (),              // no commands, so we can keep sending out messages
+                    Poll::Ready(Some(command)) => (), // TODO handle the command
+                    Poll::Ready(None) => (),          // TODO break the loop and cleanup
+                }
             } else {
                 match commands.recv().await {
                     Some(command) => (),
@@ -127,15 +133,6 @@ impl QueueState {
                     }
                 }
             }
-        }
-    }
-
-    fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Result<QueueCommand> {
-        use std::task::Context;
-        use futures_util::task::noop_waker_ref;
-
-        let mux cx = Context::from_waker(noop_waker_ref());
-        match commands.poll_recv(&cx) {
         }
     }
 
@@ -284,6 +281,14 @@ impl QueueState {
 
         res
     }
+}
+
+fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option<QueueCommand>> {
+    use futures_util::task::noop_waker_ref;
+    use std::task::Context;
+
+    let mut cx = Context::from_waker(noop_waker_ref());
+    commands.poll_recv(&mut cx)
 }
 
 struct OutgoingMessage {
