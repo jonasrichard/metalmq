@@ -284,7 +284,7 @@ impl QueueState {
 }
 
 fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option<QueueCommand>> {
-    use futures_util::task::noop_waker_ref;
+    use futures::task::noop_waker_ref;
     use std::task::Context;
 
     let mut cx = Context::from_waker(noop_waker_ref());
