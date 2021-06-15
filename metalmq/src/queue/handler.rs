@@ -113,6 +113,32 @@ pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: 
 }
 
 impl QueueState {
+    pub(crate) async fn other(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
+        loop {
+            if self.messages.len() > 0 {
+                let message = self.messages.pop_front().unwrap();
+                self.send_out_message(message);
+
+            } else {
+                match commands.recv().await {
+                    Some(command) => (),
+                    None => {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Result<QueueCommand> {
+        use std::task::Context;
+        use futures_util::task::noop_waker_ref;
+
+        let mux cx = Context::from_waker(noop_waker_ref());
+        match commands.poll_recv(&cx) {
+        }
+    }
+
     pub(crate) async fn queue_loop(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
         // TODO we need to store the delivery tags by consumers
         // Also we need to mark a message that it is sent, so we need to wait
@@ -194,13 +220,17 @@ impl QueueState {
     async fn send_out_all_messages(&mut self) -> Result<()> {
         while let Some(message) = self.messages.pop_front() {
             match self.send_out_message(message).await {
+                Ok(SendResult::MessageSent) => (),
                 Ok(SendResult::QueueEmpty) => {
                     break;
                 }
+                Ok(SendResult::NoConsumer) => {
+                    break;
+                }
+                Ok(SendResult::ConsumerInvalid) => (), // TODO remove consumer and get back message
                 Err(e) => {
                     return Err(e);
                 }
-                _ => (),
             }
         }
 

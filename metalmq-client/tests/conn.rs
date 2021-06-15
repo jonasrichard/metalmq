@@ -1,7 +1,3 @@
-use metalmq_client::*;
-
-const URL: &str = "127.0.0.1:5672";
-
 #[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn can_connect() -> Result<()> {

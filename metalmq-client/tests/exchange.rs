@@ -35,7 +35,7 @@ mod steps {
 
         builder.given_regex_async(
             "an exchange declared as (.*)",
-            t!(|mut world, matches, step| {
+            t!(|mut world, _matches, _step| {
                 world.sender.open("/").await.unwrap();
                 world.sender.channel_open(1).await.unwrap();
                 world

@@ -43,10 +43,10 @@ mod steps {
         let mut builder: Steps<super::MyWorld> = Steps::new();
 
         builder
-            .given_async("a user", t!(|mut world, step| world))
+            .given_async("a user", t!(|mut world, _step| world))
             .when_regex_async(
                 "connects as (.*)/(.*)",
-                t!(|mut world, matches, step| {
+                t!(|mut world, matches, _step| {
                     match metalmq_client::connect("127.0.0.1:5672", &matches[1], &matches[2]).await {
                         Ok(c) => world.client = Some(c),
                         Err(e) => world.last_result = Err(e),
@@ -57,7 +57,7 @@ mod steps {
             )
             .then_async(
                 "it has been connected",
-                t!(|mut world, step| {
+                t!(|mut world, _step| {
                     if world.client.is_none() {
                         log::error!("Error {:?}", world.last_result);
                     }
@@ -67,7 +67,7 @@ mod steps {
             )
             .then_async(
                 "it gets connection closed error",
-                t!(|mut world, step| {
+                t!(|mut world, _step| {
                     let maybe_err = world.take_err();
 
                     assert!(maybe_err.is_some());
