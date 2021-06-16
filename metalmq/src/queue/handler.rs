@@ -114,20 +114,31 @@ pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: 
 }
 
 impl QueueState {
-    pub(crate) async fn other(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
+    pub(crate) async fn queue_loop(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
         loop {
             if self.messages.len() > 0 {
                 let message = self.messages.pop_front().unwrap();
-                self.send_out_message(message).await;
+
+                logerr!(self.send_out_message(message).await);
 
                 match poll_command_chan(&mut commands) {
-                    Poll::Pending => (),              // no commands, so we can keep sending out messages
-                    Poll::Ready(Some(command)) => (), // TODO handle the command
-                    Poll::Ready(None) => (),          // TODO break the loop and cleanup
+                    Poll::Pending => (), // no commands, so we can keep sending out messages
+                    Poll::Ready(Some(command)) => {
+                        if let Ok(false) = self.handle_command(command).await {
+                            break;
+                        }
+                    }
+                    Poll::Ready(None) => {
+                        break;
+                    } // TODO break the loop and cleanup
                 }
             } else {
                 match commands.recv().await {
-                    Some(command) => (),
+                    Some(command) => {
+                        if let Ok(false) = self.handle_command(command).await {
+                            break;
+                        }
+                    }
                     None => {
                         break;
                     }
@@ -136,7 +147,7 @@ impl QueueState {
         }
     }
 
-    pub(crate) async fn queue_loop(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
+    pub(crate) async fn queue_loop2(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
         // TODO we need to store the delivery tags by consumers
         // Also we need to mark a message that it is sent, so we need to wait
         // for the ack, until that we cannot send new messages out - or depending
@@ -145,65 +156,76 @@ impl QueueState {
         while let Some(command) = commands.recv().await {
             trace!("Queue command {:?}", command);
 
-            match command {
-                QueueCommand::PublishMessage(message) => {
-                    trace!("Queue message {:?}", message);
-
-                    logerr!(self.send_out_message(message).await);
-                }
-                QueueCommand::AckMessage {
-                    consumer_tag,
-                    delivery_tag,
-                } => {
-                    self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
-                }
-                QueueCommand::ExchangeBound { exchange_name } => {
-                    self.bound_exchanges.insert(exchange_name);
-                }
-                QueueCommand::ExchangeUnbound { exchange_name } => {
-                    self.bound_exchanges.remove(&exchange_name);
-                }
-                QueueCommand::StartConsuming {
-                    conn_id,
-                    consumer_tag,
-                    no_ack,
-                    sink,
-                    result,
-                } => {
-                    if self.queue.exclusive && self.declaring_connection.cmp(&conn_id) != Ordering::Equal {
-                        logerr!(result.send(channel_error(
-                            0,
-                            BASIC_CONSUME,
-                            ChannelError::ResourceLocked,
-                            "Cannot consume exclusive queue"
-                        )));
-                    } else {
-                        let consumer = Consumer {
-                            consumer_tag: consumer_tag.clone(),
-                            no_ack,
-                            sink,
-                            delivery_tag_counter: 1u64,
-                        };
-                        self.consumers.insert(consumer_tag, consumer);
-                        logerr!(result.send(Ok(())));
-
-                        logerr!(self.send_out_all_messages().await);
-                    }
-                }
-                QueueCommand::CancelConsuming { consumer_tag, result } => {
-                    self.consumers.remove(&consumer_tag);
-
-                    if self.queue.auto_delete && self.consumers.len() == 0 {
-                        logerr!(result.send(false));
-
-                        break;
-                    } else {
-                        logerr!(result.send(true));
-                    }
-                }
-                QueueCommand::MessageRejected => {}
-                QueueCommand::Recover => {}
+            if let Ok(false) = self.handle_command(command).await {
+                break;
             }
+        }
+    }
+
+    async fn handle_command(&mut self, command: QueueCommand) -> Result<bool> {
+        match command {
+            QueueCommand::PublishMessage(message) => {
+                trace!("Queue message {:?}", message);
+
+                logerr!(self.send_out_message(message).await);
+                Ok(true)
+            }
+            QueueCommand::AckMessage {
+                consumer_tag,
+                delivery_tag,
+            } => {
+                self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
+                Ok(true)
+            }
+            QueueCommand::ExchangeBound { exchange_name } => {
+                self.bound_exchanges.insert(exchange_name);
+                Ok(true)
+            }
+            QueueCommand::ExchangeUnbound { exchange_name } => {
+                self.bound_exchanges.remove(&exchange_name);
+                Ok(true)
+            }
+            QueueCommand::StartConsuming {
+                conn_id,
+                consumer_tag,
+                no_ack,
+                sink,
+                result,
+            } => {
+                if self.queue.exclusive && self.declaring_connection.cmp(&conn_id) != Ordering::Equal {
+                    logerr!(result.send(channel_error(
+                        0,
+                        BASIC_CONSUME,
+                        ChannelError::ResourceLocked,
+                        "Cannot consume exclusive queue"
+                    )));
+                } else {
+                    let consumer = Consumer {
+                        consumer_tag: consumer_tag.clone(),
+                        no_ack,
+                        sink,
+                        delivery_tag_counter: 1u64,
+                    };
+                    self.consumers.insert(consumer_tag, consumer);
+                    logerr!(result.send(Ok(())));
+
+                    logerr!(self.send_out_all_messages().await);
+                }
+                Ok(true)
+            }
+            QueueCommand::CancelConsuming { consumer_tag, result } => {
+                self.consumers.remove(&consumer_tag);
+
+                if self.queue.auto_delete && self.consumers.len() == 0 {
+                    logerr!(result.send(false));
+                    Ok(false)
+                } else {
+                    logerr!(result.send(true));
+                    Ok(true)
+                }
+            }
+            QueueCommand::MessageRejected => Ok(true),
+            QueueCommand::Recover => Ok(true),
         }
     }
 
