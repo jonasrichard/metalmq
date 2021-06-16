@@ -115,6 +115,10 @@ pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: 
 
 impl QueueState {
     pub(crate) async fn queue_loop(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
+        // TODO we need to store the delivery tags by consumers
+        // Also we need to mark a message that it is sent, so we need to wait
+        // for the ack, until that we cannot send new messages out - or depending
+        // the consuming yes?
         loop {
             if self.messages.len() > 0 {
                 let message = self.messages.pop_front().unwrap();
@@ -143,21 +147,6 @@ impl QueueState {
                         break;
                     }
                 }
-            }
-        }
-    }
-
-    pub(crate) async fn queue_loop2(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
-        // TODO we need to store the delivery tags by consumers
-        // Also we need to mark a message that it is sent, so we need to wait
-        // for the ack, until that we cannot send new messages out - or depending
-        // the consuming yes?
-
-        while let Some(command) = commands.recv().await {
-            trace!("Queue command {:?}", command);
-
-            if let Ok(false) = self.handle_command(command).await {
-                break;
             }
         }
     }
