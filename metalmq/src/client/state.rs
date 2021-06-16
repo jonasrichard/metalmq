@@ -6,7 +6,7 @@ use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager as qm;
 use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
-use log::{error, trace, warn};
+use log::{error, info, trace, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::cmp::Ordering;
@@ -57,8 +57,12 @@ struct PublishedContent {
 }
 
 pub(crate) fn new(context: Context, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
+    let conn_id = Uuid::new_v4().to_hyphenated().to_string();
+
+    info!("Client connected id = {}", conn_id);
+
     Connection {
-        id: Uuid::new_v4().to_hyphenated().to_string(),
+        id: conn_id,
         qm: context.queue_manager,
         em: context.exchange_manager,
         open_channels: vec![],
@@ -194,8 +198,11 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn exchange_delete(&mut self, channel: Channel, _args: frame::ExchangeDeleteArgs) -> MaybeFrame {
-        // TODO do the delete here
+    pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
+        em::delete_exchange(&self.em, &args.exchange_name).await?;
+
+        self.exchanges.remove(&args.exchange_name);
+
         Ok(Some(Frame::Frame(frame::exchange_delete_ok(channel))))
     }
 
@@ -218,13 +225,14 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn queue_delete(&mut self, channel: Channel, _args: frame::QueueDeleteArgs) -> MaybeFrame {
+    pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
         // TODO delete the queue
         Ok(Some(Frame::Frame(frame::queue_delete_ok(channel, 0))))
     }
 
-    pub(crate) async fn queue_unbind(&mut self, channel: Channel, _args: frame::QueueUnbindArgs) -> MaybeFrame {
-        // TODO implement queue unbind
+    pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
+        em::unbind_queue(&self.em, &args.exchange_name, &args.queue_name, &args.routing_key).await?;
+
         Ok(Some(Frame::Frame(frame::queue_unbind_ok(channel))))
     }
 

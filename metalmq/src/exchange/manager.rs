@@ -3,7 +3,7 @@ use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
-use log::{debug, error, trace};
+use log::{debug, error};
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -96,6 +96,25 @@ pub(crate) async fn bind_queue(
     rx.await?
 }
 
+pub(crate) async fn unbind_queue(
+    mgr: &ExchangeManagerSink,
+    exchange_name: &str,
+    queue_name: &str,
+    routing_key: &str,
+) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+
+    mgr.send(ExchangeManagerCommand::UnbindQueue {
+        exchange_name: exchange_name.to_string(),
+        queue_name: queue_name.to_string(),
+        routing_key: routing_key.to_string(),
+        result: tx,
+    })
+    .await?;
+
+    rx.await?
+}
+
 pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, exchange_name: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
@@ -123,7 +142,7 @@ async fn command_loop(stream: &mut mpsc::Receiver<ExchangeManagerCommand>) -> Re
     let mut exchanges = HashMap::<String, ExchangeState>::new();
 
     while let Some(command) = stream.recv().await {
-        trace!("Command {:?}", command);
+        debug!("Command {:?}", command);
 
         handle_command(&mut exchanges, command).await;
     }

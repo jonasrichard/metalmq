@@ -2,7 +2,7 @@ use crate::client::{channel_error, ChannelError};
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, Result};
-use log::{error, trace};
+use log::{debug, error};
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -147,7 +147,8 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
     let mut queues = HashMap::<String, QueueState>::new();
 
     while let Some(command) = stream.recv().await {
-        trace!("Manager command {:?}", command);
+        debug!("Manager command {:?}", command);
+
         match command {
             Declare { queue, conn_id, result } => {
                 logerr!(result.send(handle_declare(&mut queues, queue, conn_id).await));
@@ -171,7 +172,7 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
             } => {
                 match handle_cancel(&queues, &queue_name, &consumer_tag).await {
                     Ok(still_alive) => {
-                        result.send(Ok(()));
+                        logerr!(result.send(Ok(())));
 
                         if !still_alive {
                             // Queue is auto delete and the last consumer has cancelled.
@@ -181,7 +182,7 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
                     Err(e) => {
                         error!("Error {:?}", e);
 
-                        result.send(Ok(()));
+                        logerr!(result.send(Ok(())));
                     }
                 }
             }
@@ -252,7 +253,7 @@ async fn handle_consume(
                 )
                 .await?;
 
-            rx.await?;
+            logerr!(rx.await?);
 
             Ok(queue.command_sink.clone())
         }
