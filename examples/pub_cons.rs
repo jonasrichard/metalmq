@@ -17,6 +17,8 @@ async fn main() -> Result<()> {
     client.queue_declare(1, queue).await?;
     client.queue_bind(1, queue, exchange, "").await?;
 
+    let message_count = 10;
+
     let (otx, orx) = oneshot::channel();
 
     let (tx, mut rx) = mpsc::channel(1);
@@ -27,8 +29,9 @@ async fn main() -> Result<()> {
 
         while let Some(msg) = rx.recv().await {
             info!("{:?}", msg);
+            // FIXME here I cannot move client because we have only one
             count += 1;
-            if count == 1 {
+            if count == message_count {
                 break;
             }
         }
@@ -36,7 +39,12 @@ async fn main() -> Result<()> {
     });
 
     client.basic_consume(1, queue, "ctag", tx).await?;
-    client.basic_publish(1, exchange, "", "Hey man".into()).await?;
+
+    let message = "This will be the test message what we send over multiple times";
+
+    for _ in 0..message_count {
+        client.basic_publish(1, exchange, "", message.to_string()).await?;
+    }
 
     orx.await.unwrap();
 

@@ -186,6 +186,10 @@ impl ClientState {
         Ok(None)
     }
 
+    pub(crate) async fn basic_ack(&mut self, channel: Channel, args: &frame::BasicAckArgs) -> MaybeFrame {
+        Ok(Some(frame::basic_ack(channel, args.delivery_tag, args.multiple)))
+    }
+
     pub(crate) async fn basic_consume(
         &mut self,
         channel: Channel,
@@ -203,7 +207,7 @@ impl ClientState {
 
     pub(crate) async fn basic_deliver(&mut self, channel: Channel, args: &frame::BasicDeliverArgs) -> MaybeFrame {
         let dc = DeliveredContent {
-            channel: channel,
+            channel,
             consumer_tag: args.consumer_tag.clone(),
             delivery_tag: args.delivery_tag,
             exchange_name: args.exchange_name.clone(),

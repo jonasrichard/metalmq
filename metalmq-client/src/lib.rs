@@ -86,6 +86,10 @@ pub struct Client {
     server_channel: mpsc::Sender<client::Request>,
 }
 
+pub struct ClientChannel {
+    server_channel: mpsc::Sender<client::Request>,
+}
+
 /// Connect to an AMQP server.
 ///
 /// This is async code and wait for the [`metalmq_codec::frame::ConnectionTuneOkArgs`] message.
@@ -145,8 +149,12 @@ impl Client {
         client::sync_call(&self, frame::connection_close(0, 200, "Normal close", 0, 0)).await
     }
 
-    pub async fn channel_open(&self, channel: u16) -> Result<()> {
-        client::sync_call(&self, frame::channel_open(channel)).await
+    pub async fn channel_open(&self, channel: u16) -> Result<ClientChannel> {
+        client::sync_call(&self, frame::channel_open(channel)).await?;
+
+        Ok(ClientChannel {
+            server_channel: self.server_channel.clone(),
+        })
     }
 
     pub async fn channel_close(&self, channel: Channel) -> Result<()> {
@@ -183,6 +191,13 @@ impl Client {
         let frame = frame::queue_declare(channel, queue_name.into());
 
         client::sync_call(&self, frame).await
+    }
+
+    // TODO make a channel struct and put channel specific operations there
+    pub async fn basic_ack(&self, channel: Channel, delivery_tag: u64) -> Result<()> {
+        let frame = frame::basic_ack(channel, delivery_tag, false);
+
+        client::call(&self, frame).await
     }
 
     pub async fn basic_consume(

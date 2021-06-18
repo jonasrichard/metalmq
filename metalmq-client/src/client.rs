@@ -216,6 +216,7 @@ async fn handle_in_method_frame(
         MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
+        MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
         MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
         MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(channel, args).await,
         MethodFrameArgs::ChannelClose(args) => cs.handle_channel_close(channel, args).await,
