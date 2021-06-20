@@ -9,27 +9,31 @@ async fn main() -> Result<()> {
 
     metalmq_client::setup_logger();
 
-    let client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
+    let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     client.open("/").await?;
-    client.channel_open(1).await?;
 
-    client.exchange_declare(1, exchange, "fanout", None).await?;
-    client.queue_declare(1, queue).await?;
-    client.queue_bind(1, queue, exchange, "").await?;
+    let channel = client.channel_open(1).await?;
 
-    let message_count = 10;
+    channel.exchange_declare(exchange, "direct", None).await?;
+    channel.queue_declare(queue).await?;
+    channel.queue_bind(queue, exchange, "").await?;
+
+    let message_count = 10u32;
 
     let (otx, orx) = oneshot::channel();
 
-    let (tx, mut rx) = mpsc::channel(1);
+    let (tx, mut rx) = mpsc::channel::<metalmq_client::Message>(1);
+    let consumer = channel.consumer();
+
     tokio::spawn(async move {
-        let mut count = 0;
+        let mut count = 0u32;
 
         info!("Waiting for incoming messages...");
 
         while let Some(msg) = rx.recv().await {
             info!("{:?}", msg);
-            // FIXME here I cannot move client because we have only one
+            consumer.basic_ack(msg.delivery_tag).await;
+
             count += 1;
             if count == message_count {
                 break;
@@ -38,17 +42,17 @@ async fn main() -> Result<()> {
         otx.send(()).unwrap();
     });
 
-    client.basic_consume(1, queue, "ctag", tx).await?;
+    channel.basic_consume(queue, "ctag", tx).await?;
 
     let message = "This will be the test message what we send over multiple times";
 
     for _ in 0..message_count {
-        client.basic_publish(1, exchange, "", message.to_string()).await?;
+        channel.basic_publish(exchange, "", message.to_string()).await?;
     }
 
     orx.await.unwrap();
 
-    client.channel_close(1).await?;
+    channel.close().await?;
     client.close().await?;
 
     Ok(())

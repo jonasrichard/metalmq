@@ -1,7 +1,7 @@
 use crate::message::Message;
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
-use crate::{logerr, Result};
-use log::{debug, error};
+use crate::{logerr, send, Result};
+use log::{debug, error, trace};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -36,6 +36,8 @@ pub(crate) async fn exchange_loop(
     let mut queues = HashMap::<String, QueueCommandSink>::new();
 
     while let Some(command) = commands.recv().await {
+        trace!("Command {:?}", command);
+
         match command {
             ExchangeCommand::Message(message, result) => {
                 match choose_queue_by_routing_key(&queues, &exchange.exchange_type, &message.routing_key) {
@@ -49,7 +51,8 @@ pub(crate) async fn exchange_loop(
                             String::from_utf8(message.content.clone()).unwrap()
                         );
 
-                        if let Err(e) = queue.send(QueueCommand::PublishMessage(message.clone())).await {
+                        // FIXME this causes deadlock
+                        if let Err(e) = send!(queue, QueueCommand::PublishMessage(message.clone())) {
                             error!("Send error {:?}", e);
                         }
 
@@ -73,12 +76,12 @@ pub(crate) async fn exchange_loop(
                 result,
             } => {
                 queues.insert(routing_key, sink.clone());
-                logerr!(
-                    sink.send(QueueCommand::ExchangeBound {
+                logerr!(send!(
+                    sink,
+                    QueueCommand::ExchangeBound {
                         exchange_name: exchange.name.clone(),
-                    })
-                    .await
-                );
+                    }
+                ));
                 logerr!(result.send(true));
             }
             ExchangeCommand::QueueUnbind {
@@ -87,12 +90,12 @@ pub(crate) async fn exchange_loop(
                 result,
             } => {
                 if let Some(sink) = queues.remove(&routing_key) {
-                    logerr!(
-                        sink.send(QueueCommand::ExchangeUnbound {
+                    logerr!(send!(
+                        sink,
+                        QueueCommand::ExchangeUnbound {
                             exchange_name: exchange.name.clone(),
-                        })
-                        .await
-                    );
+                        }
+                    ));
                 }
 
                 logerr!(result.send(true));

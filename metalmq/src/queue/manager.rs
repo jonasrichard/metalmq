@@ -1,7 +1,7 @@
 use crate::client::{channel_error, ChannelError};
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
-use crate::{chk, logerr, Result};
+use crate::{chk, logerr, send, Result};
 use log::{debug, error};
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
@@ -81,12 +81,14 @@ pub(crate) fn start() -> QueueManagerSink {
 pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(QueueManagerCommand::Declare {
-        queue,
-        conn_id: conn_id.to_string(),
-        result: tx,
-    })
-    .await?;
+    send!(
+        mgr,
+        QueueManagerCommand::Declare {
+            queue,
+            conn_id: conn_id.to_string(),
+            result: tx,
+        }
+    )?;
 
     rx.await?
 }
@@ -101,15 +103,17 @@ pub(crate) async fn consume(
 ) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(QueueManagerCommand::Consume {
-        conn_id: conn_id.to_string(),
-        queue_name: queue_name.to_string(),
-        consumer_tag: consumer_tag.to_string(),
-        no_ack,
-        outgoing,
-        result: tx,
-    })
-    .await?;
+    send!(
+        mgr,
+        QueueManagerCommand::Consume {
+            conn_id: conn_id.to_string(),
+            queue_name: queue_name.to_string(),
+            consumer_tag: consumer_tag.to_string(),
+            no_ack,
+            outgoing,
+            result: tx,
+        }
+    )?;
 
     rx.await?
 }
@@ -117,14 +121,14 @@ pub(crate) async fn consume(
 pub(crate) async fn cancel_consume(mgr: &QueueManagerSink, queue_name: &str, consumer_tag: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    chk!(
-        mgr.send(QueueManagerCommand::CancelConsume {
+    chk!(send!(
+        mgr,
+        QueueManagerCommand::CancelConsume {
             queue_name: queue_name.to_string(),
             consumer_tag: consumer_tag.to_string(),
             result: tx,
-        })
-        .await
-    )?;
+        }
+    ))?;
 
     rx.await?
 }
@@ -132,11 +136,13 @@ pub(crate) async fn cancel_consume(mgr: &QueueManagerSink, queue_name: &str, con
 pub(crate) async fn get_command_sink(mgr: &QueueManagerSink, queue_name: &str) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(QueueManagerCommand::GetQueueSink {
-        queue_name: queue_name.to_string(),
-        result: tx,
-    })
-    .await?;
+    send!(
+        mgr,
+        QueueManagerCommand::GetQueueSink {
+            queue_name: queue_name.to_string(),
+            result: tx,
+        }
+    )?;
 
     rx.await?
 }
@@ -239,19 +245,16 @@ async fn handle_consume(
         Some(queue) => {
             let (tx, rx) = oneshot::channel();
 
-            queue
-                .command_sink
-                .send_timeout(
-                    QueueCommand::StartConsuming {
-                        conn_id: conn_id.to_string(),
-                        consumer_tag: consumer_tag.to_string(),
-                        no_ack,
-                        sink: outgoing,
-                        result: tx,
-                    },
-                    time::Duration::from_secs(1),
-                )
-                .await?;
+            send!(
+                queue.command_sink,
+                QueueCommand::StartConsuming {
+                    conn_id: conn_id.to_string(),
+                    consumer_tag: consumer_tag.to_string(),
+                    no_ack,
+                    sink: outgoing,
+                    result: tx,
+                }
+            )?;
 
             logerr!(rx.await?);
 
@@ -266,16 +269,13 @@ async fn handle_cancel(queues: &HashMap<String, QueueState>, name: &str, consume
         Some(queue) => {
             let (tx, rx) = oneshot::channel();
 
-            queue
-                .command_sink
-                .send_timeout(
-                    QueueCommand::CancelConsuming {
-                        consumer_tag: consumer_tag.to_string(),
-                        result: tx,
-                    },
-                    time::Duration::from_secs(1),
-                )
-                .await?;
+            send!(
+                queue.command_sink,
+                QueueCommand::CancelConsuming {
+                    consumer_tag: consumer_tag.to_string(),
+                    result: tx,
+                }
+            )?;
 
             Ok(rx.await?)
         }

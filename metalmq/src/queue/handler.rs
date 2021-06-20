@@ -1,7 +1,7 @@
 use crate::client::{channel_error, ChannelError};
 use crate::message::{self, Message};
 use crate::queue::Queue;
-use crate::{logerr, Result};
+use crate::{logerr, send, Result};
 use log::{error, trace};
 use metalmq_codec::frame::{AMQPFrame, BASIC_CONSUME};
 use std::cmp::Ordering;
@@ -120,7 +120,14 @@ impl QueueState {
         // for the ack, until that we cannot send new messages out - or depending
         // the consuming yes?
         loop {
+            // TODO here we need to check if there are messages what we can send out,
+            // if yes but there is no consumer yet, we need to remember that we already
+            // tried and we don't go into an infinite loop. So in this case we can
+            // safely go to the other branch doing blocking wait.
+            // If we get a message we can clear this 'state flag'.
             if self.messages.len() > 0 {
+                trace!("There are queued messages, sending out one...");
+
                 let message = self.messages.pop_front().unwrap();
 
                 logerr!(self.send_out_message(message).await);
@@ -152,11 +159,12 @@ impl QueueState {
     }
 
     async fn handle_command(&mut self, command: QueueCommand) -> Result<bool> {
-        match command {
-            QueueCommand::PublishMessage(message) => {
-                trace!("Queue message {:?}", message);
+        trace!("Command {:?}", command);
 
+        let r = match command {
+            QueueCommand::PublishMessage(message) => {
                 logerr!(self.send_out_message(message).await);
+
                 Ok(true)
             }
             QueueCommand::AckMessage {
@@ -196,10 +204,10 @@ impl QueueState {
                         delivery_tag_counter: 1u64,
                     };
                     self.consumers.insert(consumer_tag, consumer);
-                    logerr!(result.send(Ok(())));
 
-                    logerr!(self.send_out_all_messages().await);
+                    logerr!(result.send(Ok(())));
                 }
+
                 Ok(true)
             }
             QueueCommand::CancelConsuming { consumer_tag, result } => {
@@ -215,7 +223,11 @@ impl QueueState {
             }
             QueueCommand::MessageRejected => Ok(true),
             QueueCommand::Recover => Ok(true),
-        }
+        };
+
+        trace!("End");
+
+        r
     }
 
     fn choose_consumer(&self) -> Option<&Consumer> {
@@ -250,6 +262,8 @@ impl QueueState {
 
         let res = match self.consumers.iter().next() {
             None => {
+                trace!("No consumers, pushing message back to the queue");
+
                 self.messages.push_back(message);
 
                 Ok(SendResult::NoConsumer)

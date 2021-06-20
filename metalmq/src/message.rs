@@ -2,7 +2,7 @@
 //! possibility to state that a message is processed via an oneshot channel.
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
-use crate::Result;
+use crate::{send, Result};
 use metalmq_codec::frame;
 use std::fmt;
 use tokio::sync::mpsc;
@@ -57,7 +57,7 @@ pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameS
     frames.insert(0, basic_deliver);
 
     for frame in frames {
-        outgoing.send(frame).await?;
+        send!(outgoing, frame)?;
     }
 
     Ok(())

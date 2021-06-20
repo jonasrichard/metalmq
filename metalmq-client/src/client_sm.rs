@@ -252,8 +252,10 @@ impl ClientState {
             if let Some(sink) = self.consumers.get(&dc.channel) {
                 let msg = Message {
                     channel: dc.channel,
-                    body: cb.body.clone(),
+                    consumer_tag: dc.consumer_tag.clone(),
+                    delivery_tag: dc.delivery_tag,
                     length: dc.body_size.unwrap() as usize,
+                    body: cb.body.clone(),
                 };
 
                 sink.send(msg).await?

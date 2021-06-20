@@ -91,6 +91,15 @@ macro_rules! logerr {
     };
 }
 
+#[macro_export]
+macro_rules! send {
+    ($channel:expr, $message:expr) => {
+        $channel
+            .send_timeout($message, tokio::time::Duration::from_secs(1))
+            .await
+    };
+}
+
 fn setup_logger() {
     let mut builder = Builder::from_default_env();
 

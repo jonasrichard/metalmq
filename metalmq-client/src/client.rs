@@ -12,6 +12,8 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::Framed;
 
+pub(crate) type RequestSink = mpsc::Sender<Request>;
+
 pub(crate) enum Param {
     Frame(AMQPFrame),
     Consume(AMQPFrame, MessageSink),
@@ -37,7 +39,7 @@ impl fmt::Debug for Request {
     }
 }
 
-pub(crate) async fn create_connection(url: String) -> Result<Client> {
+pub(crate) async fn create_connection(url: String) -> Result<RequestSink> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
             let (sender, receiver) = mpsc::channel(16);
@@ -48,7 +50,7 @@ pub(crate) async fn create_connection(url: String) -> Result<Client> {
                 }
             });
 
-            Ok(Client { server_channel: sender })
+            Ok(sender)
         }
         Err(e) => Err(anyhow!("Connection error {:?}", e)),
     }
@@ -242,6 +244,7 @@ async fn handle_out_frame(
         MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, &args).await,
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, &args).await,
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, &args).await,
+        MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, &args).await,
         MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, &args).await,
         _ => unimplemented!(),
     }
@@ -263,26 +266,24 @@ async fn handle_publish(
     }
 }
 
-pub(crate) async fn call(conn: &Client, frame: AMQPFrame) -> Result<()> {
-    conn.server_channel
-        .send(Request {
-            param: Param::Frame(frame),
-            response: None,
-        })
-        .await?;
+pub(crate) async fn call(sink: &RequestSink, frame: AMQPFrame) -> Result<()> {
+    sink.send(Request {
+        param: Param::Frame(frame),
+        response: None,
+    })
+    .await?;
 
     Ok(())
 }
 
-pub(crate) async fn sync_call(conn: &Client, frame: AMQPFrame) -> Result<()> {
+pub(crate) async fn sync_call(sink: &RequestSink, frame: AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    conn.server_channel
-        .send(Request {
-            param: Param::Frame(frame),
-            response: Some(tx),
-        })
-        .await?;
+    sink.send(Request {
+        param: Param::Frame(frame),
+        response: Some(tx),
+    })
+    .await?;
 
     match rx.await {
         Ok(Ok(())) => Ok(()),
