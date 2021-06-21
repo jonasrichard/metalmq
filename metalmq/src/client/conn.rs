@@ -10,40 +10,45 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
-    let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let (consume_sink, mut consume_stream) = mpsc::channel::<AMQPFrame>(1);
-    let mut conn = state::new(context, consume_sink);
+    let (sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
+    let (mut consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
+    let mut conn = state::new(context, consume_sink.clone());
 
-    loop {
-        tokio::select! {
-            data = stream.next() => {
-                trace!("Incoming {:?}", data);
+    tokio::spawn(async move {
+        if let Err(e) = outgoing_loop(sink, &mut consume_stream).await {
+            error!("Error {:?}", e);
+        }
+    });
 
-                if !handle_in_stream_data(&mut conn, &mut sink, data).await? {
-                    sink.close().await?;
+    while let Some(data) = stream.next().await {
+        trace!("Incoming {:?}", data);
 
-                    return Ok(())
-                }
-            }
-            push = consume_stream.recv() => {
-                match push {
-                    Some(outgoing) =>
-                        sink.send(Frame::Frame(outgoing)).await?,
-                    None =>
-                        ()  // TODO is it closed? what to do?
-                }
-            }
+        if !handle_in_stream_data(&mut conn, &mut consume_sink, data).await? {
+            return Ok(());
         }
     }
+
+    Ok(())
+}
+
+async fn outgoing_loop(
+    mut socket_sink: SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
+    frame_stream: &mut mpsc::Receiver<Frame>,
+) -> Result<()> {
+    while let Some(frame) = frame_stream.recv().await {
+        socket_sink.send(frame).await?;
+    }
+
+    Ok(())
 }
 
 async fn handle_in_stream_data(
     mut conn: &mut Connection,
-    mut sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
-    data: Option<std::result::Result<Frame, std::io::Error>>,
+    mut sink: &mut mpsc::Sender<Frame>,
+    data: std::result::Result<Frame, std::io::Error>,
 ) -> Result<bool> {
     match data {
-        Some(Ok(Frame::Frame(frame))) => {
+        Ok(Frame::Frame(frame)) => {
             match handle_client_frame(&mut conn, frame).await? {
                 Some(response) => {
                     let closed = !send_out_frame_response(&mut sink, response).await?;
@@ -59,7 +64,7 @@ async fn handle_in_stream_data(
                 None => Ok(true),
             }
         }
-        Some(Ok(Frame::Frames(frames))) => {
+        Ok(Frame::Frames(frames)) => {
             for frame in frames {
                 match handle_client_frame(&mut conn, frame).await? {
                     Some(response) => {
@@ -77,17 +82,13 @@ async fn handle_in_stream_data(
 
             Ok(true)
         }
-        Some(Err(e)) => Err(Box::new(e)),
-        None => Ok(false),
+        Err(e) => Err(Box::new(e)),
     }
 }
 
 /// Send out response frames and returns false if the connection needs to be closed
 /// because the reponse contains a connection close ok frame.
-async fn send_out_frame_response(
-    sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
-    response: Frame,
-) -> Result<bool> {
+async fn send_out_frame_response(sink: &mut mpsc::Sender<Frame>, response: Frame) -> Result<bool> {
     match response {
         Frame::Frame(frame) => {
             trace!("Outgoing {:?}", frame);

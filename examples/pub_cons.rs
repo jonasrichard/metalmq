@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::info;
+use log::{error, info};
 use tokio::sync::{mpsc, oneshot};
 
 #[tokio::main]
@@ -32,7 +32,9 @@ async fn main() -> Result<()> {
 
         while let Some(msg) = rx.recv().await {
             info!("{:?}", msg);
-            consumer.basic_ack(msg.delivery_tag).await;
+            if let Err(e) = consumer.basic_ack(msg.delivery_tag).await {
+                error!("Error during sending basic.ack {:?}", e);
+            }
 
             count += 1;
             if count == message_count {

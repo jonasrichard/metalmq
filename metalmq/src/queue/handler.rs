@@ -1,9 +1,10 @@
 use crate::client::{channel_error, ChannelError};
 use crate::message::{self, Message};
 use crate::queue::Queue;
-use crate::{logerr, send, Result};
+use crate::{logerr, Result};
 use log::{error, trace};
-use metalmq_codec::frame::{AMQPFrame, BASIC_CONSUME};
+use metalmq_codec::codec::Frame;
+use metalmq_codec::frame::BASIC_CONSUME;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::task::Poll;
@@ -55,7 +56,7 @@ pub(crate) enum SendResult {
     ConsumerInvalid,
 }
 
-pub(crate) type FrameSink = mpsc::Sender<AMQPFrame>;
+pub(crate) type FrameSink = mpsc::Sender<Frame>;
 
 /// Information about the queue instance
 struct QueueState {
@@ -125,7 +126,7 @@ impl QueueState {
             // tried and we don't go into an infinite loop. So in this case we can
             // safely go to the other branch doing blocking wait.
             // If we get a message we can clear this 'state flag'.
-            if self.messages.len() > 0 {
+            if self.messages.len() > 0 && self.consumers.len() > 0 {
                 trace!("There are queued messages, sending out one...");
 
                 let message = self.messages.pop_front().unwrap();
@@ -159,6 +160,8 @@ impl QueueState {
     }
 
     async fn handle_command(&mut self, command: QueueCommand) -> Result<bool> {
+        let start = Instant::now();
+
         trace!("Command {:?}", command);
 
         let r = match command {
@@ -225,7 +228,7 @@ impl QueueState {
             QueueCommand::Recover => Ok(true),
         };
 
-        trace!("End");
+        trace!("End {:?}", Instant::elapsed(&start));
 
         r
     }
@@ -287,7 +290,11 @@ impl QueueState {
 
                         Ok(SendResult::MessageSent)
                     }
-                    Err(_) => Ok(SendResult::ConsumerInvalid),
+                    Err(e) => {
+                        error!("Consumer sink seems to be invalid {:?}", e);
+
+                        Ok(SendResult::ConsumerInvalid)
+                    }
                 }
             }
         };

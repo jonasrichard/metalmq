@@ -74,7 +74,7 @@ macro_rules! chk {
         match $val {
             Ok(ok) => Ok(ok),
             Err(e) => {
-                error!("Error {:?}", e);
+                log::error!("Error {:?}", e);
 
                 Err(e)
             }

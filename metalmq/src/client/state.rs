@@ -42,7 +42,7 @@ pub(crate) struct Connection {
     /// Incoming messages come in different messages, we need to collect their properties
     in_flight_contents: HashMap<Channel, PublishedContent>,
     /// Sink for AMQP frames toward the client
-    outgoing: mpsc::Sender<AMQPFrame>,
+    outgoing: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ struct PublishedContent {
     content: Option<Vec<u8>>,
 }
 
-pub(crate) fn new(context: Context, outgoing: mpsc::Sender<AMQPFrame>) -> Connection {
+pub(crate) fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
     let conn_id = Uuid::new_v4().to_hyphenated().to_string();
 
     info!("Client connected id = {}", conn_id);

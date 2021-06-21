@@ -3,10 +3,10 @@ use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, send, Result};
 use log::{debug, error};
-use metalmq_codec::frame::{self, AMQPFrame};
+use metalmq_codec::codec::Frame;
+use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time;
 
 // QueueManager thread
 //   handles:
@@ -50,7 +50,7 @@ pub(crate) enum QueueManagerCommand {
         queue_name: String,
         consumer_tag: String,
         no_ack: bool,
-        outgoing: mpsc::Sender<AMQPFrame>,
+        outgoing: mpsc::Sender<Frame>,
         result: oneshot::Sender<Result<QueueCommandSink>>,
     },
     CancelConsume {
@@ -99,7 +99,7 @@ pub(crate) async fn consume(
     queue_name: &str,
     consumer_tag: &str,
     no_ack: bool,
-    outgoing: mpsc::Sender<AMQPFrame>,
+    outgoing: mpsc::Sender<Frame>,
 ) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
@@ -239,7 +239,7 @@ async fn handle_consume(
     name: &str,
     consumer_tag: &str,
     no_ack: bool,
-    outgoing: mpsc::Sender<AMQPFrame>,
+    outgoing: mpsc::Sender<Frame>,
 ) -> Result<QueueCommandSink> {
     match queues.get(name) {
         Some(queue) => {
