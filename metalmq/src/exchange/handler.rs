@@ -1,7 +1,7 @@
 use crate::message::Message;
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
-use log::{debug, error, trace};
+use log::{error, info, trace};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -46,7 +46,7 @@ pub(crate) async fn exchange_loop(
                         // if routing key will send this message to a queue.
                         //   If not, we need to check if the message is mandatory, we need to
                         //   send back a basic-return with an error.
-                        debug!(
+                        info!(
                             "Publish message {}",
                             String::from_utf8(message.content.clone()).unwrap()
                         );

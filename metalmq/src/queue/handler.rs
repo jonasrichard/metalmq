@@ -240,26 +240,6 @@ impl QueueState {
         }
     }
 
-    async fn send_out_all_messages(&mut self) -> Result<()> {
-        while let Some(message) = self.messages.pop_front() {
-            match self.send_out_message(message).await {
-                Ok(SendResult::MessageSent) => (),
-                Ok(SendResult::QueueEmpty) => {
-                    break;
-                }
-                Ok(SendResult::NoConsumer) => {
-                    break;
-                }
-                Ok(SendResult::ConsumerInvalid) => (), // TODO remove consumer and get back message
-                Err(e) => {
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     async fn send_out_message(&mut self, message: Message) -> Result<SendResult> {
         let mut chosen_ctag = None;
 

@@ -4,6 +4,7 @@
 //! the encoding and the decoding.
 pub mod codec;
 pub mod frame;
+mod t;
 
 #[macro_use]
 extern crate bitflags;

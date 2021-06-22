@@ -5,19 +5,19 @@ async fn main() -> Result<()> {
     let exchange = "test-xchg";
     let queue = "test-queue";
 
-    metalmq_client::setup_logger();
+    metalmq_client::setup_logger(log::LevelFilter::Debug);
 
-    let client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
+    let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     client.open("/").await?;
-    client.channel_open(1).await?;
+    let channel = client.channel_open(1).await?;
 
-    client.exchange_declare(1, exchange, "fanout", None).await?;
-    client.queue_declare(1, queue).await?;
-    client.queue_bind(1, queue, exchange, "").await?;
+    channel.exchange_declare(exchange, "fanout", None).await?;
+    channel.queue_declare(queue).await?;
+    channel.queue_bind(queue, exchange, "").await?;
 
-    client.basic_publish(1, exchange, "no-key", "Hey man".into()).await?;
+    channel.basic_publish(exchange, "no-key", "Hey man".into()).await?;
 
-    client.channel_close(1).await?;
+    channel.close().await?;
     client.close().await?;
 
     Ok(())

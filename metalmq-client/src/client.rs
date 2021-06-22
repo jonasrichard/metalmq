@@ -1,5 +1,5 @@
 use crate::client_sm::{self, ClientState};
-use crate::{client_error, Client, MessageSink};
+use crate::{client_error, MessageSink};
 use anyhow::{anyhow, Result};
 use futures::stream::StreamExt;
 use futures::SinkExt;

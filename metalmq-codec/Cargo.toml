@@ -12,4 +12,8 @@ description = "MetalMQ codec library"
 bitflags = "1.2"
 bytes = "1"
 futures = "0.3"
+tokio-stream = "0.1"
 tokio-util = { version = "0.6", features = ["codec"] }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt"] }

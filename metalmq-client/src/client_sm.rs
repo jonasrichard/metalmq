@@ -230,7 +230,7 @@ impl ClientState {
     }
 
     pub(crate) async fn content_header(&mut self, ch: &frame::ContentHeaderFrame) -> MaybeFrame {
-        info!("Content header arrived {:?}", ch);
+        debug!("Content header arrived {:?}", ch);
 
         if let Some(dc) = self.in_delivery.get_mut(&ch.channel) {
             dc.body_size = Some(ch.body_size);
@@ -242,7 +242,7 @@ impl ClientState {
     }
 
     pub(crate) async fn content_body(&mut self, cb: &frame::ContentBodyFrame) -> MaybeFrame {
-        info!("Content body arrived {:?}", cb);
+        debug!("Content body arrived {:?}", cb);
 
         if let Some(dc) = self.in_delivery.get(&cb.channel) {
             debug!("Delivered content is {:?} so far", dc);

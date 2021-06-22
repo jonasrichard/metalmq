@@ -35,13 +35,19 @@ impl Encoder<Frame> for AMQPCodec {
     }
 }
 
+// FIXME
+// thread 'tokio-runtime-worker' panicked at 'split_to out of bounds: 21 <= 2',
+//     /Users/richardjonas/.cargo/registry/src/github.com-1ecc6299db9ec823/bytes-1.0.1/src/bytes_mut.rs:362:9
+// ...
+//    3: <metalmq_codec::codec::AMQPCodec as tokio_util::codec::decoder::Decoder>::decode
+//           at ./metalmq-codec/src/codec.rs:55:37
 impl Decoder for AMQPCodec {
     type Item = Frame;
     type Error = std::io::Error;
 
     // TODO here we can decode more frames until the buffer contains data
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 8 {
+        if src.len() < 7 || !is_full_frame(&src) {
             return Ok(None);
         }
 
@@ -52,6 +58,9 @@ impl Decoder for AMQPCodec {
                 let frame_len = src.get_u32() as usize;
 
                 // TODO here there is a panic is the frame is not long enough!
+                if src.len() < frame_len + 1 {
+                    return Ok(None);
+                }
                 let mut frame_buf = src.split_to(frame_len);
                 let frame = decode_method_frame(&mut frame_buf, channel);
 
@@ -106,6 +115,20 @@ impl Decoder for AMQPCodec {
                 std::io::ErrorKind::Other,
                 format!("Unknown frame {}", f),
             )),
+        }
+    }
+}
+
+fn is_full_frame(src: &BytesMut) -> bool {
+    match src[0] {
+        FRAME_AMQP_VERSION => src.len() >= 8,
+        _ => {
+            let mut bs = [0u8; 4];
+            bs.copy_from_slice(&src[3..7]);
+
+            let len = u32::from_be_bytes(bs) as usize;
+
+            src.len() >= len + 8
         }
     }
 }

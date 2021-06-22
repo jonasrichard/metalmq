@@ -96,7 +96,7 @@ mod steps {
 
 #[tokio::main]
 async fn main() {
-    metalmq_client::setup_logger();
+    metalmq_client::setup_logger(log::LevelFilter::Debug);
 
     cucumber::Cucumber::<MyWorld>::new()
         .features(&["./features"])

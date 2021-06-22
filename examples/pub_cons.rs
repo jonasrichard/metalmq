@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::{error, info};
+use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 #[tokio::main]
@@ -7,7 +8,7 @@ async fn main() -> Result<()> {
     let exchange = "x_pubsub";
     let queue = "q_pubsub";
 
-    metalmq_client::setup_logger();
+    metalmq_client::setup_logger(log::LevelFilter::Info);
 
     let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     client.open("/").await?;
@@ -18,7 +19,7 @@ async fn main() -> Result<()> {
     channel.queue_declare(queue).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
-    let message_count = 10u32;
+    let message_count = 64u32;
 
     let (otx, orx) = oneshot::channel();
 
@@ -31,7 +32,8 @@ async fn main() -> Result<()> {
         info!("Waiting for incoming messages...");
 
         while let Some(msg) = rx.recv().await {
-            info!("{:?}", msg);
+            info!("count = {}, delivery_tag = {}", count, msg.delivery_tag);
+
             if let Err(e) = consumer.basic_ack(msg.delivery_tag).await {
                 error!("Error during sending basic.ack {:?}", e);
             }
@@ -48,11 +50,19 @@ async fn main() -> Result<()> {
 
     let message = "This will be the test message what we send over multiple times";
 
+    let start = Instant::now();
+
     for _ in 0..message_count {
         channel.basic_publish(exchange, "", message.to_string()).await?;
     }
 
     orx.await.unwrap();
+
+    info!(
+        "Send and receive {} messages: {:?}",
+        message_count,
+        Instant::elapsed(&start)
+    );
 
     channel.close().await?;
     client.close().await?;

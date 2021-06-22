@@ -258,7 +258,7 @@ impl Consumer {
 }
 
 /// Convenience function for setting up `env_logger` to see log messages.
-pub fn setup_logger() {
+pub fn setup_logger(lvl: log::LevelFilter) {
     let stdout = ConsoleAppender::builder().build();
 
     let clientlog = FileAppender::builder()
@@ -275,7 +275,7 @@ pub fn setup_logger() {
                 .additive(false)
                 .build("client", log::LevelFilter::Info),
         )
-        .build(Root::builder().appender("stdout").build(log::LevelFilter::Debug))
+        .build(Root::builder().appender("stdout").build(lvl))
         .unwrap();
 
     log4rs::init_config(config).unwrap();

@@ -2,7 +2,7 @@ use super::state::{self, Connection, MaybeFrame};
 use crate::{Context, Result, RuntimeError};
 use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;
-use log::{error, trace};
+use log::{error, info, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use tokio::net::TcpStream;
@@ -36,6 +36,8 @@ async fn outgoing_loop(
     frame_stream: &mut mpsc::Receiver<Frame>,
 ) -> Result<()> {
     while let Some(frame) = frame_stream.recv().await {
+        info!("Outgoing {:?}", frame);
+
         socket_sink.send(frame).await?;
     }
 
