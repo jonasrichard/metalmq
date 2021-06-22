@@ -59,7 +59,7 @@ impl Decoder for AMQPCodec {
 
                 // TODO here there is a panic is the frame is not long enough!
                 if src.len() < frame_len + 1 {
-                    return Ok(None);
+                    unreachable!();
                 }
                 let mut frame_buf = src.split_to(frame_len);
                 let frame = decode_method_frame(&mut frame_buf, channel);
@@ -762,6 +762,7 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
 }
 
 fn encode_content_body_frame(buf: &mut BytesMut, bf: &ContentBodyFrame) {
+    // TODO buf.reserve()
     buf.put_u8(3u8);
     buf.put_u16(bf.channel);
 
