@@ -35,12 +35,6 @@ impl Encoder<Frame> for AMQPCodec {
     }
 }
 
-// FIXME
-// thread 'tokio-runtime-worker' panicked at 'split_to out of bounds: 21 <= 2',
-//     /Users/richardjonas/.cargo/registry/src/github.com-1ecc6299db9ec823/bytes-1.0.1/src/bytes_mut.rs:362:9
-// ...
-//    3: <metalmq_codec::codec::AMQPCodec as tokio_util::codec::decoder::Decoder>::decode
-//           at ./metalmq-codec/src/codec.rs:55:37
 impl Decoder for AMQPCodec {
     type Item = Frame;
     type Error = std::io::Error;
@@ -119,6 +113,8 @@ impl Decoder for AMQPCodec {
     }
 }
 
+/// Check if the buffer contains the full frame. We can do that easily since
+/// most of the time the frame contains the length information.
 fn is_full_frame(src: &BytesMut) -> bool {
     match src[0] {
         FRAME_AMQP_VERSION => src.len() >= 8,
@@ -830,34 +826,4 @@ fn encode_field_table2(buf: &mut BytesMut, ft: &HashMap<String, AMQPFieldValue>)
 
     buf.put_u32(ft_buf.len() as u32);
     buf.put(ft_buf);
-}
-
-#[allow(dead_code)]
-fn dump(buf: &BytesMut) {
-    let mut cloned = buf.clone();
-    let mut i: usize = 0;
-    let mut text: Vec<u8> = Vec::new();
-
-    println!("---");
-
-    while cloned.has_remaining() {
-        let b = cloned.get_u8();
-
-        print!("{:02X} ", b);
-
-        if (b as char).is_alphanumeric() {
-            text.push(b);
-        } else {
-            text.push(b'.');
-        }
-
-        i += 1;
-
-        if i % 16 == 0 {
-            println!("{}", std::str::from_utf8(&text).unwrap_or_default());
-            text.clear();
-        }
-    }
-
-    println!("---");
 }

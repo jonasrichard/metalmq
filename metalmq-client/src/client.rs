@@ -1,21 +1,27 @@
 use crate::client_sm::{self, ClientState};
 use crate::{client_error, MessageSink};
 use anyhow::{anyhow, Result};
-use futures::stream::StreamExt;
+use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;
 use log::{debug, error};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::Framed;
 
 pub(crate) type RequestSink = mpsc::Sender<Request>;
 
+pub(crate) type MethodFrameCallback = dyn Fn(AMQPFrame) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
+
 pub(crate) enum Param {
     Frame(AMQPFrame),
+    FrameCallback(AMQPFrame, Box<MethodFrameCallback>),
     Consume(AMQPFrame, MessageSink),
     Publish(AMQPFrame, Vec<u8>),
 }
@@ -33,6 +39,7 @@ impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.param {
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
+            Param::FrameCallback(frame, _) => write!(f, "Request{{FrameCallback={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
             Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
         }
@@ -56,63 +63,125 @@ pub(crate) async fn create_connection(url: String) -> Result<RequestSink> {
     }
 }
 
-async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -> Result<()> {
+async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -> Result<()> {
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let mut client = client_sm::new();
-    let mut feedback: HashMap<u16, Response> = HashMap::new();
+    let (out_tx, mut out_rx) = mpsc::channel(1);
+    let mut client = client_sm::new(out_tx.clone());
+    let feedback = Arc::new(Mutex::new(HashMap::<u16, Response>::new()));
 
     // TODO if server closes the stream, we need to notify all the async fns who are waiting
     // check what is the related error
+
+    // TODO only feedback should be ArcMutex and client should register callbacks.
+    // But if from those callback it wants to send messages, it will cause deadlock,
+    // so probably the thread which executes the callbacks, should be a separated
+    // thread.
+    // TODO how to share client-state?
+    //
+    //   Incoming Frames              Client state             Outgoing Frames
+    //         |                          |                          |
+    //   ----->|     Decoded frame        |                          |
+    //         |------------------------->|                          |
+    //         |                          |Handle state changes      |
+    //         |                          |                          |
+    //         |                          |    Outgoing frames       |
+    //         |                          |------------------------->|
+    //         |                          |                          |
+    //         |                          |                          |Register waiter
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+    //         |                          |                          |
+
+    tokio::spawn(async move {
+        if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
+            error!("Error {:?}", e);
+        }
+    });
+
     loop {
         tokio::select! {
-            result = stream.next() => {
-                match result {
+            incoming = stream.next() => {
+                match incoming {
                     Some(Ok(Frame::Frame(frame))) => {
-                        notify_waiter(&frame, &mut feedback)?;
-
-                        if let Ok(Some(response)) = handle_in_frame(&frame, &mut client).await {
-                            sink.send(Frame::Frame(response)).await?
+                        notify_waiter(&frame, &feedback)?;
+                        if let Err(e) = handle_in_frame(&frame, &mut client).await {
+                            error!("Error {:?}", e);
                         }
+                    }
+                    Some(Ok(Frame::Frames(_))) => unimplemented!(),
+                    Some(Err(e)) => {
+                        error!("Error {:?}", e);
                     },
-                    Some(Ok(Frame::Frames(_))) =>
-                        unimplemented!(),
-                    Some(Err(e)) =>
-                        error!("Handle errors {:?}", e),
                     None => {
-                        debug!("Stream is closed normally");
-
-                        return Ok(())
+                        break;
                     }
                 }
             }
-            Some(request) = receiver.recv() => {
-                match request.param {
-                    Param::Frame(AMQPFrame::Header) => {
-                        register_waiter(&mut feedback, Some(0), request.response);
-                        sink.send(Frame::Frame(AMQPFrame::Header)).await?;
+            req = requests.recv() => {
+                match req {
+                    Some(request) => {
+                        handle_request(request, &mut client, &feedback, &out_tx).await;
+                        ()
                     },
-                    Param::Frame(AMQPFrame::Method(ch, _, ma)) =>
-                        if let Some(response) = handle_out_frame(ch, ma, &mut client).await? {
-                            let resp_channel = channel(&response);
-                            sink.send(Frame::Frame(response)).await?;
-                            register_waiter(&mut feedback, resp_channel, request.response);
-                        },
-                    Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) =>
-                        if let Some(response) = client.basic_consume(ch, &args, msg_sink).await? {
-                            let resp_channel = channel(&response);
-                            sink.send(Frame::Frame(response)).await?;
-                            register_waiter(&mut feedback, resp_channel, request.response);
-                        },
-                    Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) =>
-                        for response in handle_publish(ch, args, content, &mut client).await? {
-                            sink.send(Frame::Frame(response)).await?;
-                        },
-                    _ =>
-                        unreachable!("{:?}", request)
+                    None => {
+                        // TODO client closed the stream, cleanup!
+                        break;
+                    }
                 }
             }
         }
     }
+
+    Ok(())
+}
+
+async fn handle_outgoing(
+    sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
+    outgoing: &mut mpsc::Receiver<Frame>,
+) -> Result<()> {
+    while let Some(f) = outgoing.recv().await {
+        if let Err(e) = sink.send(f).await {
+            error!("Error {:?}", e);
+        }
+    }
+
+    Ok(())
+}
+
+// TODO we shouldn't register waiter always, only when the client wants blocking call
+async fn handle_request(
+    request: Request,
+    mut client: &mut ClientState,
+    mut feedback: &Arc<Mutex<HashMap<u16, Response>>>,
+    outgoing: &mpsc::Sender<Frame>,
+) -> Result<()> {
+    match request.param {
+        Param::Frame(AMQPFrame::Header) => {
+            register_waiter(&feedback, Some(0), request.response);
+            outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
+        }
+        Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
+            handle_out_frame(ch, ma, &mut client).await?;
+            register_waiter(&mut feedback, Some(ch), request.response);
+        }
+        Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
+            client.basic_consume(ch, &args, msg_sink).await?;
+
+            register_waiter(&mut feedback, Some(ch), request.response);
+        }
+        Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
+            client.basic_publish(ch, &args, content).await?;
+        }
+        _ => unreachable!("{:?}", request),
+    }
+
+    Ok(())
 }
 
 /// Unblock the client by sending a `Response`. If there is no error on the channel or
@@ -121,7 +190,7 @@ async fn socket_loop(socket: TcpStream, mut receiver: mpsc::Receiver<Request>) -
 /// will receive the `ClientError`. If there is a connection error, it notifies all
 /// the calls who are waiting on channels (otherwise the client API would remain blocked)
 /// and sends back the error to a random waiter. (Sorry, if I have a better idea, I fix this.)
-fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Result<()> {
+fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>>) -> Result<()> {
     match frame {
         AMQPFrame::Method(_, frame::CONNECTION_CLOSE, MethodFrameArgs::ConnectionClose(args)) => {
             let err = crate::ClientError {
@@ -131,7 +200,7 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Re
                 class_method: frame::unify_class_method(args.class_id, args.method_id),
             };
 
-            for (_, fb) in feedback.drain() {
+            for (_, fb) in feedback.lock().unwrap().drain() {
                 if let Err(_) = fb.send(Err(anyhow::Error::new(err.clone()))) {
                     // TODO what to do here?
                 }
@@ -147,7 +216,7 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Re
                 frame::unify_class_method(args.class_id, args.method_id)
             );
 
-            if let Some(fb) = feedback.remove(&channel) {
+            if let Some(fb) = feedback.lock().unwrap().remove(&channel) {
                 if let Err(_) = fb.send(err) {
                     return client_error!(None, 501, "Cannot unblock client", 0);
                 }
@@ -155,7 +224,7 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Re
             Ok(())
         }
         AMQPFrame::Method(channel, _, _) => {
-            if let Some(fb) = feedback.remove(&channel) {
+            if let Some(fb) = feedback.lock().unwrap().remove(&channel) {
                 if let Err(_) = fb.send(Ok(())) {
                     return client_error!(None, 501, "Cannot unblock client", 0);
                 }
@@ -167,13 +236,13 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &mut HashMap<u16, Response>) -> Re
 }
 
 fn register_waiter(
-    feedback: &mut HashMap<u16, Response>,
+    feedback: &Arc<Mutex<HashMap<u16, Response>>>,
     channel: Option<frame::Channel>,
     response_channel: Option<Response>,
 ) {
     if let Some(ch) = channel {
         if let Some(chan) = response_channel {
-            feedback.insert(ch, chan);
+            feedback.lock().unwrap().insert(ch, chan);
         }
     }
 }
@@ -186,18 +255,18 @@ fn channel(f: &AMQPFrame) -> Option<u16> {
     }
 }
 
-async fn handle_in_frame(f: &AMQPFrame, cs: &mut ClientState) -> Result<Option<AMQPFrame>> {
+async fn handle_in_frame(f: &AMQPFrame, cs: &mut ClientState) -> Result<()> {
     debug!("Incoming frame {:?}", f);
 
     match f {
-        AMQPFrame::Header => Ok(None),
+        AMQPFrame::Header => Ok(()),
         AMQPFrame::Method(ch, _, args) => {
             // TODO copy happens? check with a small poc
             handle_in_method_frame(*ch, args, cs).await
         }
         AMQPFrame::ContentHeader(ch) => cs.content_header(ch).await,
         AMQPFrame::ContentBody(cb) => cs.content_body(cb).await,
-        AMQPFrame::Heartbeat(_) => Ok(None),
+        AMQPFrame::Heartbeat(_) => Ok(()),
     }
 }
 
@@ -206,7 +275,7 @@ async fn handle_in_method_frame(
     channel: frame::Channel,
     ma: &frame::MethodFrameArgs,
     cs: &mut ClientState,
-) -> Result<Option<AMQPFrame>> {
+) -> Result<()> {
     match ma {
         MethodFrameArgs::ConnectionStart(args) => cs.connection_start(args).await,
         MethodFrameArgs::ConnectionTune(args) => cs.connection_tune(args).await,
@@ -227,11 +296,7 @@ async fn handle_in_method_frame(
     }
 }
 
-async fn handle_out_frame(
-    channel: frame::Channel,
-    ma: MethodFrameArgs,
-    cs: &mut ClientState,
-) -> Result<Option<AMQPFrame>> {
+async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut ClientState) -> Result<()> {
     debug!("Outgoing frame {:?}", ma);
 
     match ma {
@@ -245,7 +310,6 @@ async fn handle_out_frame(
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, &args).await,
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, &args).await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, &args).await,
-        MethodFrameArgs::BasicPublish(args) => cs.basic_publish(channel, &args).await,
         _ => unimplemented!(),
     }
 }
@@ -255,15 +319,10 @@ async fn handle_publish(
     args: frame::BasicPublishArgs,
     content: Vec<u8>,
     cs: &mut ClientState,
-) -> Result<Vec<AMQPFrame>> {
-    match cs.basic_publish(channel, &args).await? {
-        Some(publish_frame) => Ok(vec![
-            publish_frame,
-            AMQPFrame::ContentHeader(frame::content_header(channel, content.len() as u64)),
-            AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice())),
-        ]),
-        None => unreachable!(),
-    }
+) -> Result<()> {
+    cs.basic_publish(channel, &args, content).await?;
+
+    Ok(())
 }
 
 pub(crate) async fn call(sink: &RequestSink, frame: AMQPFrame) -> Result<()> {
