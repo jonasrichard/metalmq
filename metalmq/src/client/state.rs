@@ -86,9 +86,8 @@ impl Connection {
 
             trace!("User {:?} Pass {:?}", username, password);
 
-            match (username, password) {
-                (Some(b"guest"), Some(b"guest")) => authenticated = true,
-                _ => (),
+            if let (Some(b"guest"), Some(b"guest")) = (username, password) {
+                authenticated = true;
             }
         }
 
@@ -132,7 +131,7 @@ impl Connection {
     }
 
     pub(crate) async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
-        if self.open_channels.iter().position(|c| c == &channel).is_some() {
+        if self.open_channels.iter().any(|&c| c == channel) {
             client::connection_error(
                 frame::CHANNEL_OPEN,
                 ConnectionError::ChannelError,

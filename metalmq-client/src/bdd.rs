@@ -117,7 +117,7 @@ fn write<W>(step: &Step<W>) {
     };
 
     if new_line {
-        write!(&mut stdout, "\n").unwrap();
+        writeln!(&mut stdout).unwrap();
     }
     stdout.set_color(ColorSpec::new().set_fg(Some(color))).unwrap();
     write!(&mut stdout, "{}{} ", "  ".repeat(indent), pre).unwrap();

@@ -128,7 +128,10 @@ pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client
     //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
     //caps.insert("publisher_confirms".to_string(), AMQPFieldValue::Bool(true));
 
-    if let Err(_) = client::sync_call(&sink, frame::connection_start_ok(username, password, caps)).await {
+    if client::sync_call(&sink, frame::connection_start_ok(username, password, caps))
+        .await
+        .is_err()
+    {
         return client_error!(
             None,
             503,

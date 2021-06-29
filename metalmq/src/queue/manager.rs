@@ -212,14 +212,14 @@ async fn handle_declare(queues: &mut HashMap<String, QueueState>, queue: Queue, 
             let queue_name = queue.name.clone();
             let queue_state = QueueState {
                 queue: queue.clone(),
-                command_sink: cmd_tx.clone(),
+                command_sink: cmd_tx,
             };
 
             tokio::spawn(async move {
                 handler::start(queue, conn_id, &mut cmd_rx).await;
             });
 
-            queues.insert(queue_name.to_string(), queue_state);
+            queues.insert(queue_name, queue_state);
 
             Ok(())
         }

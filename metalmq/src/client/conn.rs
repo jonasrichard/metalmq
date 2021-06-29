@@ -68,17 +68,14 @@ async fn handle_in_stream_data(
         }
         Ok(Frame::Frames(frames)) => {
             for frame in frames {
-                match handle_client_frame(&mut conn, frame).await? {
-                    Some(response) => {
-                        let closed = !send_out_frame_response(&mut sink, response).await?;
+                if let Some(response) = handle_client_frame(&mut conn, frame).await? {
+                    let closed = !send_out_frame_response(&mut sink, response).await?;
 
-                        if closed {
-                            // TODO cleanup
+                    if closed {
+                        // TODO cleanup
 
-                            return Ok(false);
-                        }
+                        return Ok(false);
                     }
-                    None => (),
                 }
             }
 
@@ -116,15 +113,12 @@ async fn send_out_frame_response(sink: &mut mpsc::Sender<Frame>, response: Frame
 fn has_connection_close_ok(frame: &Frame) -> bool {
     match frame {
         Frame::Frame(f) => is_connection_close_ok(f),
-        Frame::Frames(fs) => fs.iter().position(|f| is_connection_close_ok(&f)).is_some(),
+        Frame::Frames(fs) => fs.iter().any(|f| is_connection_close_ok(&f)),
     }
 }
 
 fn is_connection_close_ok(frame: &AMQPFrame) -> bool {
-    match frame {
-        &AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _) => true,
-        _ => false,
-    }
+    matches!(frame, &AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _))
 }
 
 async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> MaybeFrame {

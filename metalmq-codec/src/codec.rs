@@ -175,12 +175,14 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
 }
 
 fn decode_connection_start(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ConnectionStartArgs::default();
-    args.version_major = src.get_u8();
-    args.version_minor = src.get_u8();
-    args.properties = decode_field_table(&mut src);
-    args.mechanisms = decode_long_string(&mut src);
-    args.locales = decode_long_string(&mut src);
+    let args = ConnectionStartArgs {
+        version_major: src.get_u8(),
+        version_minor: src.get_u8(),
+        properties: decode_field_table(&mut src),
+        mechanisms: decode_long_string(&mut src),
+        locales: decode_long_string(&mut src),
+        ..Default::default()
+    };
 
     //if let Some(ref table) = args.properties {
     //    if let Some(AMQPFieldValue::FieldTable(cap)) = table.get("capabilities".into()) {
@@ -192,11 +194,13 @@ fn decode_connection_start(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_connection_start_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ConnectionStartOkArgs::default();
-    args.properties = decode_field_table(&mut src);
-    args.mechanism = decode_short_string(&mut src);
-    args.response = decode_long_string(&mut src);
-    args.locale = decode_short_string(&mut src);
+    let args = ConnectionStartOkArgs {
+        properties: decode_field_table(&mut src),
+        mechanism: decode_short_string(&mut src),
+        response: decode_long_string(&mut src),
+        locale: decode_short_string(&mut src),
+        ..Default::default()
+    };
 
     // TODO init capabilities!
 
@@ -204,19 +208,21 @@ fn decode_connection_start_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_connection_tune(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ConnectionTuneArgs::default();
-    args.channel_max = src.get_u16();
-    args.frame_max = src.get_u32();
-    args.heartbeat = src.get_u16();
+    let args = ConnectionTuneArgs {
+        channel_max: src.get_u16(),
+        frame_max: src.get_u32(),
+        heartbeat: src.get_u16(),
+    };
 
     MethodFrameArgs::ConnectionTune(args)
 }
 
 fn decode_connection_tune_ok(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ConnectionTuneOkArgs::default();
-    args.channel_max = src.get_u16();
-    args.frame_max = src.get_u32();
-    args.heartbeat = src.get_u16();
+    let args = ConnectionTuneOkArgs {
+        channel_max: src.get_u16(),
+        frame_max: src.get_u32(),
+        heartbeat: src.get_u16(),
+    };
 
     MethodFrameArgs::ConnectionTuneOk(args)
 }
@@ -239,11 +245,12 @@ fn decode_connection_open_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_connection_close(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ConnectionCloseArgs::default();
-    args.code = src.get_u16();
-    args.text = decode_short_string(&mut src);
-    args.class_id = src.get_u16();
-    args.method_id = src.get_u16();
+    let args = ConnectionCloseArgs {
+        code: src.get_u16(),
+        text: decode_short_string(&mut src),
+        class_id: src.get_u16(),
+        method_id: src.get_u16(),
+    };
 
     MethodFrameArgs::ConnectionClose(args)
 }
@@ -261,11 +268,12 @@ fn decode_channel_open_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_channel_close(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ChannelCloseArgs::default();
-    args.code = src.get_u16();
-    args.text = decode_short_string(&mut src);
-    args.class_id = src.get_u16();
-    args.method_id = src.get_u16();
+    let args = ChannelCloseArgs {
+        code: src.get_u16(),
+        text: decode_short_string(&mut src),
+        class_id: src.get_u16(),
+        method_id: src.get_u16(),
+    };
 
     MethodFrameArgs::ChannelClose(args)
 }
@@ -301,10 +309,11 @@ fn decode_queue_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_queue_declare_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = QueueDeclareOkArgs::default();
-    args.name = decode_short_string(&mut src);
-    args.message_count = src.get_u32();
-    args.consumer_count = src.get_u32();
+    let args = QueueDeclareOkArgs {
+        name: decode_short_string(&mut src),
+        message_count: src.get_u32(),
+        consumer_count: src.get_u32(),
+    };
 
     MethodFrameArgs::QueueDeclareOk(args)
 }
@@ -332,8 +341,9 @@ fn decode_queue_delete(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_queue_delete_ok(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = QueueDeleteOkArgs::default();
-    args.message_count = src.get_u32();
+    let args = QueueDeleteOkArgs {
+        message_count: src.get_u32(),
+    };
 
     MethodFrameArgs::QueueDeleteOk(args)
 }
@@ -361,23 +371,26 @@ fn decode_basic_consume(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_basic_consume_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicConsumeOkArgs::default();
-    args.consumer_tag = decode_short_string(&mut src);
+    let args = BasicConsumeOkArgs {
+        consumer_tag: decode_short_string(&mut src),
+    };
 
     MethodFrameArgs::BasicConsumeOk(args)
 }
 
 fn decode_basic_cancel(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicCancelArgs::default();
-    args.consumer_tag = decode_short_string(&mut src);
-    args.no_wait = src.get_u8() != 0;
+    let args = BasicCancelArgs {
+        consumer_tag: decode_short_string(&mut src),
+        no_wait: src.get_u8() != 0,
+    };
 
     MethodFrameArgs::BasicCancel(args)
 }
 
 fn decode_basic_cancel_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicCancelOkArgs::default();
-    args.consumer_tag = decode_short_string(&mut src);
+    let args = BasicCancelOkArgs {
+        consumer_tag: decode_short_string(&mut src),
+    };
 
     MethodFrameArgs::BasicCancelOk(args)
 }
@@ -393,37 +406,41 @@ fn decode_basic_publish(mut src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_basic_return(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicReturnArgs::default();
-    args.reply_code = src.get_u16();
-    args.reply_text = decode_short_string(&mut src);
-    args.exchange_name = decode_short_string(&mut src);
-    args.routing_key = decode_short_string(&mut src);
+    let args = BasicReturnArgs {
+        reply_code: src.get_u16(),
+        reply_text: decode_short_string(&mut src),
+        exchange_name: decode_short_string(&mut src),
+        routing_key: decode_short_string(&mut src),
+    };
 
     MethodFrameArgs::BasicReturn(args)
 }
 
 fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicDeliverArgs::default();
-    args.consumer_tag = decode_short_string(&mut src);
-    args.delivery_tag = src.get_u64();
-    args.redelivered = src.get_u8() != 0;
-    args.exchange_name = decode_short_string(&mut src);
-    args.routing_key = decode_short_string(&mut src);
+    let args = BasicDeliverArgs {
+        consumer_tag: decode_short_string(&mut src),
+        delivery_tag: src.get_u64(),
+        redelivered: src.get_u8() != 0,
+        exchange_name: decode_short_string(&mut src),
+        routing_key: decode_short_string(&mut src),
+    };
 
     MethodFrameArgs::BasicDeliver(args)
 }
 
 fn decode_basic_ack(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicAckArgs::default();
-    args.delivery_tag = src.get_u64();
-    args.multiple = src.get_u8() != 0;
+    let args = BasicAckArgs {
+        delivery_tag: src.get_u64(),
+        multiple: src.get_u8() != 0,
+    };
 
     MethodFrameArgs::BasicAck(args)
 }
 
 fn decode_confirm_select(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = ConfirmSelectArgs::default();
-    args.no_wait = src.get_u8() != 0;
+    let args = ConfirmSelectArgs {
+        no_wait: src.get_u8() != 0,
+    };
 
     MethodFrameArgs::ConfirmSelect(args)
 }

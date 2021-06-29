@@ -126,7 +126,7 @@ impl QueueState {
             // tried and we don't go into an infinite loop. So in this case we can
             // safely go to the other branch doing blocking wait.
             // If we get a message we can clear this 'state flag'.
-            if self.messages.len() > 0 && self.consumers.len() > 0 {
+            if !self.messages.is_empty() && !self.consumers.is_empty() {
                 trace!("There are queued messages, sending out one...");
 
                 let message = self.messages.pop_front().unwrap();
@@ -216,7 +216,7 @@ impl QueueState {
             QueueCommand::CancelConsuming { consumer_tag, result } => {
                 self.consumers.remove(&consumer_tag);
 
-                if self.queue.auto_delete && self.consumers.len() == 0 {
+                if self.queue.auto_delete && self.consumers.is_empty() {
                     logerr!(result.send(false));
                     Ok(false)
                 } else {
@@ -234,10 +234,7 @@ impl QueueState {
     }
 
     fn choose_consumer(&self) -> Option<&Consumer> {
-        match self.consumers.iter().next() {
-            Some((_, v)) => Some(v),
-            None => None,
-        }
+        self.consumers.iter().next().map(|(_, v)| v)
     }
 
     async fn send_out_message(&mut self, message: Message) -> Result<SendResult> {
@@ -317,7 +314,7 @@ struct Outbox {
 impl Outbox {
     fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64) {
         self.outgoing_messages.retain(|om| {
-            &om.tag.delivery_tag != &delivery_tag || om.tag.consumer_tag.cmp(&consumer_tag) != Ordering::Equal
+            om.tag.delivery_tag != delivery_tag || om.tag.consumer_tag.cmp(&consumer_tag) != Ordering::Equal
         });
     }
 

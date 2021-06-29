@@ -159,7 +159,7 @@ async fn handle_outgoing(
 async fn handle_request(
     request: Request,
     mut client: &mut ClientState,
-    mut feedback: &Arc<Mutex<HashMap<u16, Response>>>,
+    feedback: &Arc<Mutex<HashMap<u16, Response>>>,
     outgoing: &mpsc::Sender<Frame>,
 ) -> Result<()> {
     match request.param {
@@ -169,12 +169,12 @@ async fn handle_request(
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, &mut client).await?;
-            register_waiter(&mut feedback, Some(ch), request.response);
+            register_waiter(&feedback, Some(ch), request.response);
         }
         Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
             client.basic_consume(ch, &args, msg_sink).await?;
 
-            register_waiter(&mut feedback, Some(ch), request.response);
+            register_waiter(&feedback, Some(ch), request.response);
         }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
             client.basic_publish(ch, &args, content).await?;
@@ -204,7 +204,7 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>
             };
 
             for (_, fb) in feedback.lock().unwrap().drain() {
-                if let Err(_) = fb.send(Err(anyhow::Error::new(err.clone()))) {
+                if fb.send(Err(anyhow::Error::new(err.clone()))).is_err() {
                     // TODO what to do here?
                 }
             }
@@ -220,7 +220,7 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>
             );
 
             if let Some(fb) = feedback.lock().unwrap().remove(&channel) {
-                if let Err(_) = fb.send(err) {
+                if fb.send(err).is_err() {
                     return client_error!(None, 501, "Cannot unblock client", 0);
                 }
             }
@@ -228,7 +228,7 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>
         }
         AMQPFrame::Method(channel, _, _) => {
             if let Some(fb) = feedback.lock().unwrap().remove(&channel) {
-                if let Err(_) = fb.send(Ok(())) {
+                if fb.send(Ok(())).is_err() {
                     return client_error!(None, 501, "Cannot unblock client", 0);
                 }
             }

@@ -496,8 +496,7 @@ pub fn connection_start_ok(username: &str, password: &str, capabilities: FieldTa
     // TODO get the version from the build vars or an external file
     client_properties.insert("version".into(), AMQPFieldValue::LongString("0.1.0".into()));
 
-    let mut auth = Vec::<u8>::new();
-    auth.push(0x00);
+    let mut auth = vec![0x00];
     auth.extend_from_slice(username.as_bytes());
     auth.push(0x00);
     auth.extend_from_slice(password.as_bytes());
