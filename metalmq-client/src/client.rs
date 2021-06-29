@@ -49,7 +49,7 @@ impl fmt::Debug for Request {
 pub(crate) async fn create_connection(url: String) -> Result<RequestSink> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
-            let (sender, receiver) = mpsc::channel(16);
+            let (sender, receiver) = mpsc::channel(1);
 
             tokio::spawn(async move {
                 if let Err(e) = socket_loop(socket, receiver).await {
@@ -87,7 +87,6 @@ async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -
     //         |                          |    Outgoing frames       |
     //         |                          |------------------------->|
     //         |                          |                          |
-    //         |                          |                          |Register waiter
     //         |                          |                          |
     //         |                          |                          |
     //         |                          |                          |
@@ -110,6 +109,7 @@ async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -
                 match incoming {
                     Some(Ok(Frame::Frame(frame))) => {
                         notify_waiter(&frame, &feedback)?;
+
                         if let Err(e) = handle_in_frame(&frame, &mut client).await {
                             error!("Error {:?}", e);
                         }
@@ -126,8 +126,9 @@ async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -
             req = requests.recv() => {
                 match req {
                     Some(request) => {
-                        handle_request(request, &mut client, &feedback, &out_tx).await;
-                        ()
+                        if let Err(e) = handle_request(request, &mut client, &feedback, &out_tx).await {
+                            error!("Error {:?}", e);
+                        }
                     },
                     None => {
                         // TODO client closed the stream, cleanup!
@@ -193,7 +194,7 @@ async fn handle_request(
 fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>>) -> Result<()> {
     trace!("Notify waiter by {:?}", frame);
 
-    match frame {
+    let r = match frame {
         AMQPFrame::Method(_, frame::CONNECTION_CLOSE, MethodFrameArgs::ConnectionClose(args)) => {
             let err = crate::ClientError {
                 channel: None,
@@ -234,7 +235,11 @@ fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>
             Ok(())
         }
         _ => Ok(()),
-    }
+    };
+
+    trace!("End of notify block");
+
+    r
 }
 
 fn register_waiter(
@@ -318,23 +323,22 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
     }
 }
 
-async fn handle_publish(
-    channel: frame::Channel,
-    args: frame::BasicPublishArgs,
-    content: Vec<u8>,
-    cs: &mut ClientState,
-) -> Result<()> {
-    cs.basic_publish(channel, &args, content).await?;
-
-    Ok(())
-}
-
 pub(crate) async fn call(sink: &RequestSink, frame: AMQPFrame) -> Result<()> {
-    sink.send(Request {
-        param: Param::Frame(frame),
-        response: None,
-    })
-    .await?;
+    let r = sink
+        .send_timeout(
+            Request {
+                param: Param::Frame(frame),
+                response: None,
+            },
+            tokio::time::Duration::from_secs(1),
+        )
+        .await;
+
+    if let Err(e) = r {
+        error!("Error {:?}", e);
+
+        return Err(anyhow!(e));
+    }
 
     Ok(())
 }
@@ -342,11 +346,21 @@ pub(crate) async fn call(sink: &RequestSink, frame: AMQPFrame) -> Result<()> {
 pub(crate) async fn sync_call(sink: &RequestSink, frame: AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    sink.send(Request {
-        param: Param::Frame(frame),
-        response: Some(tx),
-    })
-    .await?;
+    let r = sink
+        .send_timeout(
+            Request {
+                param: Param::Frame(frame),
+                response: Some(tx),
+            },
+            tokio::time::Duration::from_secs(1),
+        )
+        .await;
+
+    if let Err(e) = r {
+        error!("Error {:?}", e);
+
+        return Err(anyhow!(e));
+    }
 
     match rx.await {
         Ok(Ok(())) => Ok(()),

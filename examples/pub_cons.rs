@@ -19,21 +19,24 @@ async fn main() -> Result<()> {
     channel.queue_declare(queue).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
-    let message_count = 64u32;
+    let message_count = 1024u32;
 
     let (otx, orx) = oneshot::channel();
 
-    let (tx, mut rx) = mpsc::channel::<metalmq_client::Message>(1);
+    let (tx, mut rx) = mpsc::channel::<metalmq_client::Message>(512);
     let consumer = channel.consumer();
 
     tokio::spawn(async move {
         let mut count = 0u32;
 
-        info!("Waiting for incoming messages...");
+        //info!("Waiting for incoming messages...");
 
         while let Some(msg) = rx.recv().await {
-            info!("count = {}, delivery_tag = {}", count, msg.delivery_tag);
+            //info!("count = {}, delivery_tag = {}", count, msg.delivery_tag);
 
+            // FIXME here we have a deadlock. When we are waiting here, the client_sm
+            // wants to send a message to this rx channel and we are waiting here, so
+            // it also blocks.
             if let Err(e) = consumer.basic_ack(msg.delivery_tag).await {
                 error!("Error during sending basic.ack {:?}", e);
             }
@@ -58,7 +61,7 @@ async fn main() -> Result<()> {
 
     orx.await.unwrap();
 
-    info!(
+    println!(
         "Send and receive {} messages: {:?}",
         message_count,
         Instant::elapsed(&start)
