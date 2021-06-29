@@ -38,10 +38,7 @@ mod steps {
             t!(|mut world, _matches, _step| {
                 world.sender.open("/").await.unwrap();
                 let ch = world.sender.channel_open(1).await.unwrap();
-                ch
-                    .exchange_declare("message-exchange", "topic", None)
-                    .await
-                    .unwrap();
+                ch.exchange_declare("message-exchange", "topic", None).await.unwrap();
 
                 world
             }),
@@ -52,7 +49,7 @@ mod steps {
 }
 
 async fn main() {
-    metalmq_client::setup_logger(log::LevelFilter::Debug);
+    metalmq_client::setup_logger();
 
     cucumber::Cucumber::<MyWorld>::new()
         .features(&["./features"])

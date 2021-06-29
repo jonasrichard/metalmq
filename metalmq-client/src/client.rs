@@ -3,7 +3,7 @@ use crate::{client_error, MessageSink};
 use anyhow::{anyhow, Result};
 use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;
-use log::{debug, error};
+use log::{debug, error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use std::collections::HashMap;
@@ -191,6 +191,8 @@ async fn handle_request(
 /// the calls who are waiting on channels (otherwise the client API would remain blocked)
 /// and sends back the error to a random waiter. (Sorry, if I have a better idea, I fix this.)
 fn notify_waiter(frame: &AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Response>>>) -> Result<()> {
+    trace!("Notify waiter by {:?}", frame);
+
     match frame {
         AMQPFrame::Method(_, frame::CONNECTION_CLOSE, MethodFrameArgs::ConnectionClose(args)) => {
             let err = crate::ClientError {
@@ -240,6 +242,8 @@ fn register_waiter(
     channel: Option<frame::Channel>,
     response_channel: Option<Response>,
 ) {
+    trace!("Register waiter on channel {:?}", channel);
+
     if let Some(ch) = channel {
         if let Some(chan) = response_channel {
             feedback.lock().unwrap().insert(ch, chan);

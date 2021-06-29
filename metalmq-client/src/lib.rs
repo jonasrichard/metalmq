@@ -5,11 +5,12 @@
 //! ```no_run
 //! use metalmq_client::*;
 //!
-//! async fn client() -> Result<()> {
-//!     let client = connect("127.0.0.1:5672").await?;
+//! async fn client() -> anyhow::Result<()> {
+//!     let mut client = connect("127.0.0.1:5672", "guest", "guest").await?;
 //!     client.open("/").await?;
-//!     client.channel_open(1).await?;
-//!     client.basic_publish(1, "exchange", "routing", "Hello".to_string()).await?;
+//!     let channel = client.channel_open(1).await?;
+//!     channel.basic_publish("exchange", "routing", "Hello".to_string()).await?;
+//!     channel.close().await?;
 //!     client.close().await?;
 //!
 //!     Ok(())
@@ -21,12 +22,10 @@ mod client_sm;
 
 use crate::client::RequestSink;
 use anyhow::Result;
-use log4rs::append::console::ConsoleAppender;
-use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config, Logger, Root};
-use log4rs::encode::pattern::PatternEncoder;
+use env_logger::Builder;
 use metalmq_codec::frame;
 use std::fmt;
+use std::io::Write;
 use tokio::sync::{mpsc, oneshot};
 
 /// AMQP channel number
@@ -84,16 +83,19 @@ macro_rules! client_error {
 
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
 /// are not yet supported.
+#[derive(Debug)]
 pub struct Client {
     sink: RequestSink,
     channels: Vec<Channel>,
 }
 
+#[derive(Debug)]
 pub struct ClientChannel {
     channel: Channel,
     sink: RequestSink,
 }
 
+#[derive(Debug)]
 pub struct Consumer {
     channel: Channel,
     sink: RequestSink,
@@ -104,8 +106,8 @@ pub struct Consumer {
 /// This is async code and wait for the [`metalmq_codec::frame::ConnectionTuneOkArgs`] message.
 ///
 /// ```no_run
-/// async fn connect() -> metalmq_client::Result<()> {
-///     let conn = metalmq_client::connect("127.0.0.1:5672", "guest", "guest").await?;
+/// async fn connect() -> anyhow::Result<()> {
+///     let conn = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
 ///     Ok(())
 /// }
 /// ```
@@ -258,62 +260,36 @@ impl Consumer {
 }
 
 /// Convenience function for setting up `env_logger` to see log messages.
-pub fn setup_logger(lvl: log::LevelFilter) {
-    let stdout = ConsoleAppender::builder().build();
+pub fn setup_logger() {
+    let mut builder = Builder::from_default_env();
 
-    let clientlog = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build("client.log")
-        .unwrap();
+    builder
+        .format_timestamp_millis()
+        .format(|buf, record| {
+            let mut lvl = buf.style();
+            lvl.set_bold(true);
 
-    let config = Config::builder()
-        .appender(Appender::builder().build("stdout", Box::new(stdout)))
-        .appender(Appender::builder().build("clientlog", Box::new(clientlog)))
-        .logger(
-            Logger::builder()
-                .appender("clientlog")
-                .additive(false)
-                .build("client", log::LevelFilter::Info),
-        )
-        .build(Root::builder().appender("stdout").build(lvl))
-        .unwrap();
+            match record.level() {
+                log::Level::Error => lvl.set_color(env_logger::fmt::Color::Red),
+                log::Level::Warn => lvl.set_color(env_logger::fmt::Color::Yellow),
+                log::Level::Info => lvl.set_color(env_logger::fmt::Color::Green),
+                log::Level::Debug => lvl.set_color(env_logger::fmt::Color::Rgb(160, 160, 160)),
+                log::Level::Trace => lvl.set_color(env_logger::fmt::Color::Rgb(96, 96, 96)),
+            };
 
-    log4rs::init_config(config).unwrap();
-
-    //let mut builder = Builder::from_default_env();
-
-    //builder
-    //    .format_timestamp_millis()
-    //    .format(|buf, record| {
-    //        writeln!(
-    //            buf,
-    //            "{} - [{}] {}:{} {}",
-    //            buf.timestamp_millis(),
-    //            record.level(),
-    //            record.file().unwrap_or_default(),
-    //            record.line().unwrap_or_default(),
-    //            record.args()
-    //        )
-    //    })
-    //    .init();
+            writeln!(
+                buf,
+                "{} - [{:5}] {}:{} - {}",
+                buf.timestamp_millis(),
+                lvl.value(record.level()),
+                record.file().unwrap_or_default(),
+                record.line().unwrap_or_default(),
+                record.args()
+            )
+        })
+        .write_style(env_logger::WriteStyle::Always)
+        .init();
 }
-
-//#[allow(dead_code)]
-//async fn publish_bench(client: &Client) -> Result<()> {
-//    let now = Instant::now();
-//    let mut total = 0u32;
-//
-//    for _ in 0..100_000u32 {
-//        client
-//            .basic_publish(1, "test".to_string(), "no-key".to_string(), "Hello, world".to_string())
-//            .await?;
-//        total += 1;
-//    }
-//
-//    println!("{}/100,000 publish takes {} us", total, now.elapsed().as_micros());
-//
-//    Ok(())
-//}
 
 #[cfg(test)]
 mod tests {

@@ -4,6 +4,7 @@ use std::convert::Infallible;
 
 pub struct MyWorld {
     client: Option<metalmq_client::Client>,
+    channel: Option<metalmq_client::Channel>,
     last_result: Result<()>,
 }
 
@@ -30,6 +31,7 @@ impl cucumber::World for MyWorld {
     async fn new() -> Result<Self, Infallible> {
         Ok(Self {
             client: None,
+            channel: None,
             last_result: Ok(()),
         })
     }
@@ -47,7 +49,7 @@ mod steps {
             .when_regex_async(
                 "connects as (.*)/(.*)",
                 t!(|mut world, matches, _step| {
-                    match metalmq_client::connect("127.0.0.1:5672", &matches[1], &matches[2]).await {
+                    match metalmq_client::connect("localhost:5672", &matches[1], &matches[2]).await {
                         Ok(c) => world.client = Some(c),
                         Err(e) => world.last_result = Err(e),
                     }
@@ -96,7 +98,7 @@ mod steps {
 
 #[tokio::main]
 async fn main() {
-    metalmq_client::setup_logger(log::LevelFilter::Debug);
+    metalmq_client::setup_logger();
 
     cucumber::Cucumber::<MyWorld>::new()
         .features(&["./features"])

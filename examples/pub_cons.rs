@@ -8,7 +8,7 @@ async fn main() -> Result<()> {
     let exchange = "x_pubsub";
     let queue = "q_pubsub";
 
-    metalmq_client::setup_logger(log::LevelFilter::Info);
+    metalmq_client::setup_logger();
 
     let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     client.open("/").await?;
