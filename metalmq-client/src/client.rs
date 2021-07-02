@@ -256,14 +256,6 @@ fn register_waiter(
     }
 }
 
-fn channel(f: &AMQPFrame) -> Option<u16> {
-    match f {
-        AMQPFrame::Header => Some(0),
-        AMQPFrame::Method(channel, _, _) => Some(*channel),
-        _ => None,
-    }
-}
-
 async fn handle_in_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<()> {
     debug!("Incoming frame {:?}", f);
 
