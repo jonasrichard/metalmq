@@ -10,7 +10,11 @@ fn generate_frame() -> Frame {
         ..Default::default()
     };
 
-    Frame::Frame(AMQPFrame::Method(12, frame::QUEUE_DECLARE, MethodFrameArgs::QueueDeclare(args)))
+    Frame::Frame(AMQPFrame::Method(
+        12,
+        frame::QUEUE_DECLARE,
+        MethodFrameArgs::QueueDeclare(args),
+    ))
 }
 
 fn method_frame(bench: &mut Bencher) {

@@ -110,7 +110,7 @@ async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -
                     Some(Ok(Frame::Frame(frame))) => {
                         notify_waiter(&frame, &feedback)?;
 
-                        if let Err(e) = handle_in_frame(&frame, &mut client).await {
+                        if let Err(e) = handle_in_frame(frame, &mut client).await {
                             error!("Error {:?}", e);
                         }
                     }
@@ -172,12 +172,12 @@ async fn handle_request(
             register_waiter(&feedback, Some(ch), request.response);
         }
         Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
-            client.basic_consume(ch, &args, msg_sink).await?;
+            client.basic_consume(ch, args, msg_sink).await?;
 
             register_waiter(&feedback, Some(ch), request.response);
         }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
-            client.basic_publish(ch, &args, content).await?;
+            client.basic_publish(ch, args, content).await?;
         }
         _ => unreachable!("{:?}", request),
     }
@@ -264,15 +264,12 @@ fn channel(f: &AMQPFrame) -> Option<u16> {
     }
 }
 
-async fn handle_in_frame(f: &AMQPFrame, cs: &mut ClientState) -> Result<()> {
+async fn handle_in_frame(f: AMQPFrame, cs: &mut ClientState) -> Result<()> {
     debug!("Incoming frame {:?}", f);
 
     match f {
         AMQPFrame::Header => Ok(()),
-        AMQPFrame::Method(ch, _, args) => {
-            // TODO copy happens? check with a small poc
-            handle_in_method_frame(*ch, args, cs).await
-        }
+        AMQPFrame::Method(ch, _, args) => handle_in_method_frame(ch, args, cs).await,
         AMQPFrame::ContentHeader(ch) => cs.content_header(ch).await,
         AMQPFrame::ContentBody(cb) => cs.content_body(cb).await,
         AMQPFrame::Heartbeat(_) => Ok(()),
@@ -282,7 +279,7 @@ async fn handle_in_frame(f: &AMQPFrame, cs: &mut ClientState) -> Result<()> {
 /// Handle AMQP frames coming from the server side
 async fn handle_in_method_frame(
     channel: frame::Channel,
-    ma: &frame::MethodFrameArgs,
+    ma: frame::MethodFrameArgs,
     cs: &mut ClientState,
 ) -> Result<()> {
     match ma {
@@ -309,16 +306,16 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
     debug!("Outgoing frame {:?}", ma);
 
     match ma {
-        MethodFrameArgs::ConnectionStartOk(args) => cs.connection_start_ok(&args).await,
-        MethodFrameArgs::ConnectionTuneOk(args) => cs.connection_tune_ok(&args).await,
-        MethodFrameArgs::ConnectionOpen(args) => cs.connection_open(&args).await,
-        MethodFrameArgs::ConnectionClose(args) => cs.connection_close(&args).await,
+        MethodFrameArgs::ConnectionStartOk(args) => cs.connection_start_ok(args).await,
+        MethodFrameArgs::ConnectionTuneOk(args) => cs.connection_tune_ok(args).await,
+        MethodFrameArgs::ConnectionOpen(args) => cs.connection_open(args).await,
+        MethodFrameArgs::ConnectionClose(args) => cs.connection_close(args).await,
         MethodFrameArgs::ChannelOpen => cs.channel_open(channel).await,
-        MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, &args).await,
-        MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, &args).await,
-        MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, &args).await,
-        MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, &args).await,
-        MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, &args).await,
+        MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, args).await,
+        MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args).await,
+        MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args).await,
+        MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args).await,
+        MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
         _ => unimplemented!(),
     }
 }
