@@ -149,7 +149,7 @@ impl Connection {
             for exchange_name in &self.auto_delete_exchanges {
                 // TODO this is bad here, we hold the locks until the exchanges are not deleted
                 // I don't know if await yield release that locks but I doubt it.
-                logerr!(em::delete_exchange(&self.em, exchange_name).await);
+                logerr!(em::delete_exchange(&self.em, channel, exchange_name).await);
             }
         }
 
@@ -171,7 +171,7 @@ impl Connection {
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
 
-        let result = em::declare_exchange(&self.em, args.into(), passive).await;
+        let result = em::declare_exchange(&self.em, channel, args.into(), passive).await;
 
         match result {
             Ok(ch) => {
@@ -198,7 +198,7 @@ impl Connection {
     }
 
     pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
-        em::delete_exchange(&self.em, &args.exchange_name).await?;
+        em::delete_exchange(&self.em, channel, &args.exchange_name).await?;
 
         self.exchanges.remove(&args.exchange_name);
 
@@ -216,7 +216,15 @@ impl Connection {
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
         match qm::get_command_sink(&self.qm, channel, &args.queue_name).await {
             Ok(sink) => {
-                em::bind_queue(&self.em, &args.exchange_name, &args.queue_name, &args.routing_key, sink).await?;
+                em::bind_queue(
+                    &self.em,
+                    channel,
+                    &args.exchange_name,
+                    &args.queue_name,
+                    &args.routing_key,
+                    sink,
+                )
+                .await?;
 
                 Ok(Some(Frame::Frame(frame::queue_bind_ok(channel))))
             }
@@ -230,7 +238,14 @@ impl Connection {
     }
 
     pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
-        em::unbind_queue(&self.em, &args.exchange_name, &args.queue_name, &args.routing_key).await?;
+        em::unbind_queue(
+            &self.em,
+            channel,
+            &args.exchange_name,
+            &args.queue_name,
+            &args.routing_key,
+        )
+        .await?;
 
         Ok(Some(Frame::Frame(frame::queue_unbind_ok(channel))))
     }

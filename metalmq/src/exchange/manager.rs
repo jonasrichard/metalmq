@@ -16,11 +16,13 @@ struct ExchangeState {
 #[derive(Debug)]
 pub(crate) enum ExchangeManagerCommand {
     DeclareExchange {
+        channel: u16,
         exchange: Exchange,
         passive: bool,
         result: oneshot::Sender<Result<ExchangeCommandSink>>,
     },
     BindQueue {
+        channel: u16,
         exchange_name: String,
         queue_name: String,
         routing_key: String,
@@ -28,12 +30,14 @@ pub(crate) enum ExchangeManagerCommand {
         result: oneshot::Sender<Result<()>>,
     },
     UnbindQueue {
+        channel: u16,
         exchange_name: String,
         queue_name: String,
         routing_key: String,
         result: oneshot::Sender<Result<()>>,
     },
     DeleteExchange {
+        channel: u16,
         exchange_name: String,
         result: oneshot::Sender<Result<()>>,
     },
@@ -60,12 +64,14 @@ pub(crate) fn start() -> ExchangeManagerSink {
 
 pub(crate) async fn declare_exchange(
     mgr: &ExchangeManagerSink,
+    channel: u16,
     exchange: Exchange,
     passive: bool,
 ) -> Result<ExchangeCommandSink> {
     let (tx, rx) = oneshot::channel();
 
     mgr.send(ExchangeManagerCommand::DeclareExchange {
+        channel,
         exchange,
         passive,
         result: tx,
@@ -77,6 +83,7 @@ pub(crate) async fn declare_exchange(
 
 pub(crate) async fn bind_queue(
     mgr: &ExchangeManagerSink,
+    channel: u16,
     exchange_name: &str,
     queue_name: &str,
     routing_key: &str,
@@ -85,6 +92,7 @@ pub(crate) async fn bind_queue(
     let (tx, rx) = oneshot::channel();
 
     mgr.send(ExchangeManagerCommand::BindQueue {
+        channel,
         exchange_name: exchange_name.to_string(),
         queue_name: queue_name.to_string(),
         routing_key: routing_key.to_string(),
@@ -98,6 +106,7 @@ pub(crate) async fn bind_queue(
 
 pub(crate) async fn unbind_queue(
     mgr: &ExchangeManagerSink,
+    channel: u16,
     exchange_name: &str,
     queue_name: &str,
     routing_key: &str,
@@ -105,6 +114,7 @@ pub(crate) async fn unbind_queue(
     let (tx, rx) = oneshot::channel();
 
     mgr.send(ExchangeManagerCommand::UnbindQueue {
+        channel,
         exchange_name: exchange_name.to_string(),
         queue_name: queue_name.to_string(),
         routing_key: routing_key.to_string(),
@@ -115,10 +125,11 @@ pub(crate) async fn unbind_queue(
     rx.await?
 }
 
-pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, exchange_name: &str) -> Result<()> {
+pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, channel: u16, exchange_name: &str) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     mgr.send(ExchangeManagerCommand::DeleteExchange {
+        channel,
         exchange_name: exchange_name.to_string(),
         result: tx,
     })
@@ -155,33 +166,50 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
 
     match command {
         DeclareExchange {
+            channel,
             exchange,
             passive,
             result,
         } => {
-            logerr!(result.send(handle_declare_exchange(&mut exchanges, exchange, passive)));
+            logerr!(result.send(handle_declare_exchange(&mut exchanges, channel, exchange, passive)));
         }
         BindQueue {
+            channel,
             exchange_name,
             queue_name,
             routing_key,
             queue_sink,
             result,
         } => {
-            logerr!(
-                result.send(handle_bind_queue(&exchanges, &exchange_name, &queue_name, &routing_key, queue_sink).await)
-            );
+            logerr!(result.send(
+                handle_bind_queue(
+                    &exchanges,
+                    channel,
+                    &exchange_name,
+                    &queue_name,
+                    &routing_key,
+                    queue_sink
+                )
+                .await
+            ));
         }
         UnbindQueue {
+            channel,
             exchange_name,
             queue_name,
             routing_key,
             result,
         } => {
-            logerr!(result.send(handle_unbind_queue(&exchanges, &exchange_name, &queue_name, &routing_key).await));
+            logerr!(
+                result.send(handle_unbind_queue(&exchanges, channel, &exchange_name, &queue_name, &routing_key).await)
+            );
         }
-        DeleteExchange { exchange_name, result } => {
-            logerr!(result.send(handle_delete_exchange(&mut exchanges, &exchange_name).await));
+        DeleteExchange {
+            channel,
+            exchange_name,
+            result,
+        } => {
+            logerr!(result.send(handle_delete_exchange(&mut exchanges, channel, &exchange_name).await));
         }
         GetExchanges { result } => {
             logerr!(result.send(handle_exchange_list(&exchanges)));
@@ -193,17 +221,18 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
 /// check if the exchange exists.
 fn handle_declare_exchange(
     exchanges: &mut HashMap<String, ExchangeState>,
+    channel: u16,
     exchange: Exchange,
     passive: bool,
 ) -> Result<ExchangeCommandSink> {
     debug!("Declare exchange {:?}", exchange);
 
-    validate_exchange_name(&exchange.name)?;
+    validate_exchange_name(channel, &exchange.name)?;
     validate_exchange_type(&exchange.exchange_type)?;
 
     match exchanges.get(&exchange.name) {
         None if passive => channel_error(
-            0,
+            channel,
             frame::EXCHANGE_DECLARE,
             ChannelError::NotFound,
             &format!("NOT_FOUND - no exchange '{}' in vhost '/'", exchange.name),
@@ -211,7 +240,7 @@ fn handle_declare_exchange(
         Some(exchg) => {
             if exchg.exchange != exchange {
                 channel_error(
-                    0,
+                    channel,
                     frame::EXCHANGE_DECLARE,
                     ChannelError::PreconditionFailed,
                     "PRECONDITION_FAILED - Exchange exists but properties are different",
@@ -246,6 +275,7 @@ fn handle_declare_exchange(
 
 async fn handle_bind_queue(
     exchanges: &HashMap<String, ExchangeState>,
+    channel: u16,
     exchange_name: &str,
     queue_name: &str,
     routing_key: &str,
@@ -267,12 +297,13 @@ async fn handle_bind_queue(
 
             Ok(())
         }
-        None => channel_error(0, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
+        None => channel_error(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
     }
 }
 
 async fn handle_unbind_queue(
     exchanges: &HashMap<String, ExchangeState>,
+    channel: u16,
     exchange_name: &str,
     queue_name: &str,
     routing_key: &str,
@@ -292,14 +323,23 @@ async fn handle_unbind_queue(
 
             Ok(())
         }
-        None => channel_error(0, frame::QUEUE_UNBIND, ChannelError::NotFound, "Exchange not found"),
+        None => channel_error(
+            channel,
+            frame::QUEUE_UNBIND,
+            ChannelError::NotFound,
+            "Exchange not found",
+        ),
     }
 
     // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
     // and channel belonging to them)
 }
 
-async fn handle_delete_exchange(exchanges: &mut HashMap<String, ExchangeState>, exchange_name: &str) -> Result<()> {
+async fn handle_delete_exchange(
+    exchanges: &mut HashMap<String, ExchangeState>,
+    channel: u16,
+    exchange_name: &str,
+) -> Result<()> {
     Ok(())
 }
 
@@ -307,13 +347,13 @@ fn handle_exchange_list(exchanges: &HashMap<String, ExchangeState>) -> Vec<Excha
     exchanges.values().map(|e| e.exchange.clone()).collect()
 }
 
-fn validate_exchange_name(exchange_name: &str) -> Result<()> {
+fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
     let spec = String::from("_-:.");
 
     for c in exchange_name.chars() {
         if !c.is_alphanumeric() && spec.find(c).is_none() {
             return channel_error(
-                0,
+                channel,
                 frame::EXCHANGE_DECLARE,
                 ChannelError::PreconditionFailed,
                 "PRECONDITION_FAILED - Exchange contains invalid character",
@@ -351,7 +391,7 @@ mod tests {
             name: "passive-exchg".into(),
             ..Default::default()
         };
-        let result = handle_declare_exchange(&mut exchanges, exchange, true);
+        let result = handle_declare_exchange(&mut exchanges, 1, exchange, true);
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
@@ -380,7 +420,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = handle_declare_exchange(&mut exchanges, exchange, false);
+        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false);
 
         assert!(result.is_err());
 
@@ -399,7 +439,7 @@ mod tests {
             auto_delete: true,
             internal: true,
         };
-        let result = handle_declare_exchange(&mut exchanges, exchange, false);
+        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false);
 
         assert!(result.is_ok());
 
