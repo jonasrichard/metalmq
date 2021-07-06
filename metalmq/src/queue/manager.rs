@@ -52,6 +52,7 @@ pub(crate) enum QueueManagerCommand {
         queue_name: String,
         consumer_tag: String,
         no_ack: bool,
+        exclusive: bool,
         outgoing: mpsc::Sender<Frame>,
         result: oneshot::Sender<Result<QueueCommandSink>>,
     },
@@ -105,6 +106,7 @@ pub(crate) async fn consume(
     queue_name: &str,
     consumer_tag: &str,
     no_ack: bool,
+    exclusive: bool,
     outgoing: mpsc::Sender<Frame>,
 ) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
@@ -117,6 +119,7 @@ pub(crate) async fn consume(
             queue_name: queue_name.to_string(),
             consumer_tag: consumer_tag.to_string(),
             no_ack,
+            exclusive,
             outgoing,
             result: tx,
         }
@@ -188,11 +191,22 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
                 queue_name,
                 consumer_tag,
                 no_ack,
+                exclusive,
                 outgoing,
                 result,
             } => {
                 logerr!(result.send(
-                    handle_consume(&queues, &conn_id, channel, &queue_name, &consumer_tag, no_ack, outgoing).await
+                    handle_consume(
+                        &queues,
+                        &conn_id,
+                        channel,
+                        &queue_name,
+                        &consumer_tag,
+                        no_ack,
+                        exclusive,
+                        outgoing
+                    )
+                    .await
                 ));
             }
             CancelConsume {
@@ -274,6 +288,7 @@ async fn handle_consume(
     name: &str,
     consumer_tag: &str,
     no_ack: bool,
+    exclusive: bool,
     outgoing: mpsc::Sender<Frame>,
 ) -> Result<QueueCommandSink> {
     match queues.get(name) {
@@ -284,8 +299,10 @@ async fn handle_consume(
                 queue.command_sink,
                 QueueCommand::StartConsuming {
                     conn_id: conn_id.to_string(),
+                    channel,
                     consumer_tag: consumer_tag.to_string(),
                     no_ack,
+                    exclusive,
                     sink: outgoing,
                     result: tx,
                 }

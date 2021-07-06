@@ -285,6 +285,7 @@ impl Connection {
             &args.queue,
             &args.consumer_tag,
             args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
+            args.flags.contains(frame::BasicConsumeFlags::EXCLUSIVE),
             self.outgoing.clone(),
         )
         .await

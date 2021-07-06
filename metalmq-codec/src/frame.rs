@@ -686,13 +686,13 @@ pub fn queue_unbind_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, QUEUE_UNBIND_OK, MethodFrameArgs::QueueUnbindOk)
 }
 
-pub fn queue_declare(channel: u16, queue_name: &str) -> AMQPFrame {
+pub fn queue_declare(channel: u16, queue_name: &str, flags: Option<QueueDeclareFlags>) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE,
         MethodFrameArgs::QueueDeclare(QueueDeclareArgs {
             name: queue_name.to_string(),
-            flags: QueueDeclareFlags::empty(),
+            flags: flags.unwrap_or_default(),
             args: None,
         }),
     )
@@ -710,14 +710,19 @@ pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, co
     )
 }
 
-pub fn basic_consume(channel: u16, queue_name: &str, consumer_tag: &str) -> AMQPFrame {
+pub fn basic_consume(
+    channel: u16,
+    queue_name: &str,
+    consumer_tag: &str,
+    flags: Option<BasicConsumeFlags>,
+) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CONSUME,
         MethodFrameArgs::BasicConsume(BasicConsumeArgs {
             queue: queue_name.to_string(),
             consumer_tag: consumer_tag.to_string(),
-            flags: BasicConsumeFlags::default(),
+            flags: flags.unwrap_or_default(),
             args: None,
         }),
     )

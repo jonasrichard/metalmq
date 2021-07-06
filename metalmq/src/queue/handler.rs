@@ -35,8 +35,10 @@ pub(crate) enum QueueCommand {
     },
     StartConsuming {
         conn_id: String,
+        channel: u16,
         consumer_tag: String,
         no_ack: bool,
+        exclusive: bool,
         sink: FrameSink,
         result: oneshot::Sender<Result<()>>,
     },
@@ -74,6 +76,8 @@ struct Consumer {
     consumer_tag: String,
     /// Consumer doesn't need ack, so we can delete sent-out messages promptly
     no_ack: bool,
+    /// If consumer is exclusive consumer
+    exclusive: bool,
     /// Consumer network socket abstraction
     sink: FrameSink,
     /// The next delivery tag it needs to send out
@@ -187,22 +191,32 @@ impl QueueState {
             }
             QueueCommand::StartConsuming {
                 conn_id,
+                channel,
                 consumer_tag,
                 no_ack,
+                exclusive,
                 sink,
                 result,
             } => {
                 if self.queue.exclusive && self.declaring_connection.cmp(&conn_id) != Ordering::Equal {
                     logerr!(result.send(channel_error(
-                        0,
+                        channel,
                         BASIC_CONSUME,
                         ChannelError::ResourceLocked,
                         "Cannot consume exclusive queue"
+                    )));
+                } else if exclusive && !self.consumers.is_empty() {
+                    logerr!(result.send(channel_error(
+                        channel,
+                        BASIC_CONSUME,
+                        ChannelError::AccessRefused,
+                        "Queue is already consumed, cannot consume exclusively"
                     )));
                 } else {
                     let consumer = Consumer {
                         consumer_tag: consumer_tag.clone(),
                         no_ack,
+                        exclusive,
                         sink,
                         delivery_tag_counter: 1u64,
                     };

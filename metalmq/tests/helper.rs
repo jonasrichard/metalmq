@@ -1,6 +1,6 @@
 use anyhow::Result;
 use metalmq_client::*;
-use metalmq_codec::frame::ExchangeDeclareFlags;
+use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -62,7 +62,7 @@ pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, q
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
 
     ch.exchange_declare(exchange, "direct", Some(ex_flags)).await?;
-    ch.queue_declare(queue).await?;
+    ch.queue_declare(queue, None).await?;
 
     ch.queue_bind(queue, exchange, "").await?;
 
@@ -79,6 +79,7 @@ pub(crate) async fn consume_messages<'a>(
     client_channel: &'a ClientChannel,
     queue: &'a str,
     ctag: &'a str,
+    flags: Option<BasicConsumeFlags>,
     tx: oneshot::Sender<Vec<Message>>,
     n: usize,
 ) -> Result<()> {
@@ -98,7 +99,7 @@ pub(crate) async fn consume_messages<'a>(
         tx.send(messages).unwrap();
     });
 
-    client_channel.basic_consume(queue, ctag, sink).await?;
+    client_channel.basic_consume(queue, ctag, flags, sink).await?;
 
     Ok(())
 }

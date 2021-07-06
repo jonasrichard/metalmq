@@ -191,7 +191,11 @@ impl ClientState {
 
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {
         self.outgoing
-            .send(Frame::Frame(frame::queue_declare(channel, &args.name)))
+            .send(Frame::Frame(frame::queue_declare(
+                channel,
+                &args.name,
+                Some(args.flags),
+            )))
             .await?;
 
         Ok(())
@@ -243,6 +247,7 @@ impl ClientState {
                 channel,
                 &args.queue,
                 &args.consumer_tag,
+                Some(args.flags),
             )))
             .await?;
 

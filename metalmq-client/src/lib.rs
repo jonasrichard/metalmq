@@ -207,8 +207,8 @@ impl ClientChannel {
         client::sync_call(&self.sink, frame).await
     }
 
-    pub async fn queue_declare(&self, queue_name: &str) -> Result<()> {
-        let frame = frame::queue_declare(self.channel, queue_name);
+    pub async fn queue_declare(&self, queue_name: &str, flags: Option<frame::QueueDeclareFlags>) -> Result<()> {
+        let frame = frame::queue_declare(self.channel, queue_name, flags);
 
         client::sync_call(&self.sink, frame).await
     }
@@ -220,8 +220,14 @@ impl ClientChannel {
         }
     }
 
-    pub async fn basic_consume(&self, queue_name: &str, consumer_tag: &str, sink: MessageSink) -> Result<()> {
-        let frame = frame::basic_consume(self.channel, queue_name, consumer_tag);
+    pub async fn basic_consume(
+        &self,
+        queue_name: &str,
+        consumer_tag: &str,
+        flags: Option<frame::BasicConsumeFlags>,
+        sink: MessageSink,
+    ) -> Result<()> {
+        let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags);
         let (tx, rx) = oneshot::channel();
 
         self.sink
