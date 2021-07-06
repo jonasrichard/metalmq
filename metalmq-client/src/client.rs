@@ -17,11 +17,11 @@ use tokio_util::codec::Framed;
 
 pub(crate) type RequestSink = mpsc::Sender<Request>;
 
-pub(crate) type MethodFrameCallback = dyn Fn(AMQPFrame) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
+//pub(crate) type MethodFrameCallback = dyn Fn(AMQPFrame) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
 pub(crate) enum Param {
     Frame(AMQPFrame),
-    FrameCallback(AMQPFrame, Box<MethodFrameCallback>),
+    //    FrameCallback(AMQPFrame, Box<MethodFrameCallback>),
     Consume(AMQPFrame, MessageSink),
     Publish(AMQPFrame, Vec<u8>),
 }
@@ -39,7 +39,7 @@ impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.param {
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
-            Param::FrameCallback(frame, _) => write!(f, "Request{{FrameCallback={:?}}}", frame),
+            //            Param::FrameCallback(frame, _) => write!(f, "Request{{FrameCallback={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
             Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
         }
@@ -86,15 +86,6 @@ async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -
     //         |                          |                          |
     //         |                          |    Outgoing frames       |
     //         |                          |------------------------->|
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
-    //         |                          |                          |
     //         |                          |                          |
 
     tokio::spawn(async move {

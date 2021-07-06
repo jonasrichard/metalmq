@@ -43,10 +43,12 @@ pub(crate) enum QueueManagerCommand {
     Declare {
         queue: Queue,
         conn_id: String,
+        channel: u16,
         result: oneshot::Sender<Result<()>>,
     },
     Consume {
         conn_id: String,
+        channel: u16,
         queue_name: String,
         consumer_tag: String,
         no_ack: bool,
@@ -54,11 +56,13 @@ pub(crate) enum QueueManagerCommand {
         result: oneshot::Sender<Result<QueueCommandSink>>,
     },
     CancelConsume {
+        channel: u16,
         queue_name: String,
         consumer_tag: String,
         result: oneshot::Sender<Result<()>>,
     },
     GetQueueSink {
+        channel: u16,
         queue_name: String,
         result: oneshot::Sender<Result<QueueCommandSink>>,
     },
@@ -78,7 +82,7 @@ pub(crate) fn start() -> QueueManagerSink {
     sink
 }
 
-pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: &str) -> Result<()> {
+pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: &str, channel: u16) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     send!(
@@ -86,6 +90,7 @@ pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id:
         QueueManagerCommand::Declare {
             queue,
             conn_id: conn_id.to_string(),
+            channel,
             result: tx,
         }
     )?;
@@ -96,6 +101,7 @@ pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id:
 pub(crate) async fn consume(
     mgr: &QueueManagerSink,
     conn_id: &str,
+    channel: u16,
     queue_name: &str,
     consumer_tag: &str,
     no_ack: bool,
@@ -107,6 +113,7 @@ pub(crate) async fn consume(
         mgr,
         QueueManagerCommand::Consume {
             conn_id: conn_id.to_string(),
+            channel,
             queue_name: queue_name.to_string(),
             consumer_tag: consumer_tag.to_string(),
             no_ack,
@@ -118,12 +125,18 @@ pub(crate) async fn consume(
     rx.await?
 }
 
-pub(crate) async fn cancel_consume(mgr: &QueueManagerSink, queue_name: &str, consumer_tag: &str) -> Result<()> {
+pub(crate) async fn cancel_consume(
+    mgr: &QueueManagerSink,
+    channel: u16,
+    queue_name: &str,
+    consumer_tag: &str,
+) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
     chk!(send!(
         mgr,
         QueueManagerCommand::CancelConsume {
+            channel,
             queue_name: queue_name.to_string(),
             consumer_tag: consumer_tag.to_string(),
             result: tx,
@@ -133,12 +146,17 @@ pub(crate) async fn cancel_consume(mgr: &QueueManagerSink, queue_name: &str, con
     rx.await?
 }
 
-pub(crate) async fn get_command_sink(mgr: &QueueManagerSink, queue_name: &str) -> Result<QueueCommandSink> {
+pub(crate) async fn get_command_sink(
+    mgr: &QueueManagerSink,
+    channel: u16,
+    queue_name: &str,
+) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
     send!(
         mgr,
         QueueManagerCommand::GetQueueSink {
+            channel,
             queue_name: queue_name.to_string(),
             result: tx,
         }
@@ -156,27 +174,34 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
         debug!("Manager command {:?}", command);
 
         match command {
-            Declare { queue, conn_id, result } => {
-                logerr!(result.send(handle_declare(&mut queues, queue, conn_id).await));
+            Declare {
+                queue,
+                conn_id,
+                channel,
+                result,
+            } => {
+                logerr!(result.send(handle_declare(&mut queues, queue, conn_id, channel).await));
             }
             Consume {
                 conn_id,
+                channel,
                 queue_name,
                 consumer_tag,
                 no_ack,
                 outgoing,
                 result,
             } => {
-                logerr!(
-                    result.send(handle_consume(&queues, &conn_id, &queue_name, &consumer_tag, no_ack, outgoing).await)
-                );
+                logerr!(result.send(
+                    handle_consume(&queues, &conn_id, channel, &queue_name, &consumer_tag, no_ack, outgoing).await
+                ));
             }
             CancelConsume {
+                channel,
                 queue_name,
                 consumer_tag,
                 result,
             } => {
-                match handle_cancel(&queues, &queue_name, &consumer_tag).await {
+                match handle_cancel(&queues, channel, &queue_name, &consumer_tag).await {
                     Ok(still_alive) => {
                         logerr!(result.send(Ok(())));
 
@@ -192,8 +217,12 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
                     }
                 }
             }
-            GetQueueSink { queue_name, result } => {
-                logerr!(result.send(handle_get_command_sink(&queues, &queue_name)));
+            GetQueueSink {
+                channel,
+                queue_name,
+                result,
+            } => {
+                logerr!(result.send(handle_get_command_sink(&queues, channel, &queue_name)));
             }
         }
     }
@@ -203,7 +232,12 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
 
 /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
 /// creates that.
-async fn handle_declare(queues: &mut HashMap<String, QueueState>, queue: Queue, conn_id: String) -> Result<()> {
+async fn handle_declare(
+    queues: &mut HashMap<String, QueueState>,
+    queue: Queue,
+    conn_id: String,
+    channel: u16,
+) -> Result<()> {
     // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
     match queues.get(&queue.name) {
         Some(_) => Ok(()),
@@ -226,16 +260,17 @@ async fn handle_declare(queues: &mut HashMap<String, QueueState>, queue: Queue, 
     }
 }
 
-fn handle_get_command_sink(queues: &HashMap<String, QueueState>, name: &str) -> Result<QueueCommandSink> {
+fn handle_get_command_sink(queues: &HashMap<String, QueueState>, channel: u16, name: &str) -> Result<QueueCommandSink> {
     match queues.get(name) {
         Some(queue) => Ok(queue.command_sink.clone()),
-        None => channel_error(0, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found"),
+        None => channel_error(channel, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found"),
     }
 }
 
 async fn handle_consume(
     queues: &HashMap<String, QueueState>,
     conn_id: &str,
+    channel: u16,
     name: &str,
     consumer_tag: &str,
     no_ack: bool,
@@ -260,11 +295,16 @@ async fn handle_consume(
 
             Ok(queue.command_sink.clone())
         }
-        None => channel_error(0, frame::BASIC_CONSUME, ChannelError::NotFound, "Not found"),
+        None => channel_error(channel, frame::BASIC_CONSUME, ChannelError::NotFound, "Not found"),
     }
 }
 
-async fn handle_cancel(queues: &HashMap<String, QueueState>, name: &str, consumer_tag: &str) -> Result<bool> {
+async fn handle_cancel(
+    queues: &HashMap<String, QueueState>,
+    channel: u16,
+    name: &str,
+    consumer_tag: &str,
+) -> Result<bool> {
     match queues.get(name) {
         Some(queue) => {
             let (tx, rx) = oneshot::channel();

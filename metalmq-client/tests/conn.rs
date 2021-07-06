@@ -1,10 +1,9 @@
 use anyhow::Result;
 use metalmq_client::ClientError;
 
-#[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn can_connect() -> Result<()> {
-    let mut c = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
+    let c = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     let result = c.open("/invalid".into()).await;
 
     assert!(result.is_err());
@@ -17,13 +16,12 @@ async fn can_connect() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "integration-tests")]
 #[tokio::test]
 async fn double_open_the_same_channel() -> Result<()> {
     let mut c = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
     c.open("/".into()).await?;
 
-    let ch = c.channel_open(1).await?;
+    let _ = c.channel_open(1).await?;
 
     let result = c.channel_open(1).await;
 

@@ -71,7 +71,5 @@ async fn can_read_from_existing_buf() {
 
     assert!(res.is_some());
 
-    println!("res = {:?}", res.unwrap());
-
-    assert!(false);
+    //println!("res = {:?}", res.unwrap());
 }

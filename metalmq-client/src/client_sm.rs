@@ -162,11 +162,13 @@ impl ClientState {
 
     pub(crate) async fn handle_channel_close(
         &mut self,
-        _channel: Channel,
+        channel: Channel,
         _args: frame::ChannelCloseArgs,
     ) -> Result<()> {
-        // TODO handle that the server closed the channel
-        //Ok(Some(frame::channel_close_ok(channel)))
+        if let Some(sink) = self.consumers.remove(&channel) {
+            drop(sink);
+        }
+
         Ok(())
     }
 

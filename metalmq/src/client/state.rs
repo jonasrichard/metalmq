@@ -122,7 +122,7 @@ impl Connection {
         for cq in &self.consumed_queues {
             trace!("Cleaning up consumers {:?}", cq);
 
-            if let Err(e) = qm::cancel_consume(&self.qm, &cq.queue_name, &cq.consumer_tag).await {
+            if let Err(e) = qm::cancel_consume(&self.qm, cq.channel, &cq.queue_name, &cq.consumer_tag).await {
                 error!("Err {:?}", e);
             }
         }
@@ -208,13 +208,13 @@ impl Connection {
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let queue_name = args.name.clone();
 
-        qm::declare_queue(&self.qm, args.into(), &self.id).await?;
+        qm::declare_queue(&self.qm, args.into(), &self.id, channel).await?;
 
         Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0))))
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
-        match qm::get_command_sink(&self.qm, &args.queue_name).await {
+        match qm::get_command_sink(&self.qm, channel, &args.queue_name).await {
             Ok(sink) => {
                 em::bind_queue(&self.em, &args.exchange_name, &args.queue_name, &args.routing_key, sink).await?;
 
@@ -266,6 +266,7 @@ impl Connection {
         match qm::consume(
             &self.qm,
             &self.id,
+            channel,
             &args.queue,
             &args.consumer_tag,
             args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
@@ -294,7 +295,7 @@ impl Connection {
         {
             let cq = &self.consumed_queues[pos];
 
-            qm::cancel_consume(&self.qm, &cq.queue_name, &args.consumer_tag).await?;
+            qm::cancel_consume(&self.qm, channel, &cq.queue_name, &args.consumer_tag).await?;
 
             self.consumed_queues
                 .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);

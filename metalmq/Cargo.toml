@@ -28,10 +28,6 @@ tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "
 tokio-util = { version = "0.6", features = ["codec"] }
 uuid = { version = "0.8", features = ["v4"] }
 
-[[test]]
-name = "acceptance"
-harness = false
-
 [dev-dependencies]
 async-trait = "0.1"
 bencher = "0.1"
