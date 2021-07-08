@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     let channel = client.channel_open(1).await?;
 
     channel.exchange_declare(exchange, "direct", None).await?;
-    channel.queue_declare(queue).await?;
+    channel.queue_declare(queue, None).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
     let message_count = 1024u32;
@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
         otx.send(()).unwrap();
     });
 
-    channel.basic_consume(queue, "ctag", tx).await?;
+    channel.basic_consume(queue, "ctag", None, tx).await?;
 
     let message = "This will be the test message what we send over multiple times";
 

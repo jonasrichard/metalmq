@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     let channel = client.channel_open(1).await?;
 
     channel.exchange_declare(exchange, "fanout", None).await?;
-    channel.queue_declare(queue).await?;
+    channel.queue_declare(queue, None).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
     channel.basic_publish(exchange, "no-key", "Hey man".into()).await?;
