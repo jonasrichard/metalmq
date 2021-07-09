@@ -90,6 +90,8 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     let (otx2, _orx2) = oneshot::channel();
     let result = helper::consume_messages(&ch2, queue, "ctag", Some(bc_flags), otx2, 1).await;
 
+    println!("{:?}", result);
+
     assert!(result.is_err());
 
     let err = helper::to_client_error(result);

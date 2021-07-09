@@ -308,7 +308,11 @@ async fn handle_consume(
                 }
             )?;
 
-            logerr!(rx.await?);
+            if let Err(e) = rx.await? {
+                error!("Error {:?}", e);
+
+                return Err(e);
+            }
 
             Ok(queue.command_sink.clone())
         }
