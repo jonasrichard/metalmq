@@ -81,6 +81,8 @@ macro_rules! client_error {
     };
 }
 
+// TODO implement Drop
+
 /// Represents a connection to AMQP server. It is not a trait since async functions in a trait
 /// are not yet supported.
 #[derive(Debug)]

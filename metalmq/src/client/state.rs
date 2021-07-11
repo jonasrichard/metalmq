@@ -114,6 +114,8 @@ impl Connection {
     }
 
     pub(crate) async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
+        info!("Connection {} is being closed", self.id);
+
         // TODO cleanup
         //   - consume handler -> remove as consumer, auto delete queues are deleted when there are
         //     no consumers there

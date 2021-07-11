@@ -8,8 +8,6 @@ use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use std::collections::HashMap;
 use std::fmt;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};

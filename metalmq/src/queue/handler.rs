@@ -55,7 +55,7 @@ pub(crate) enum SendResult {
     MessageSent,
     QueueEmpty,
     NoConsumer,
-    ConsumerInvalid,
+    ConsumerInvalid(Message),
 }
 
 pub(crate) type FrameSink = mpsc::Sender<Frame>;
@@ -66,6 +66,8 @@ struct QueueState {
     declaring_connection: String,
     messages: VecDeque<Message>,
     outbox: Outbox,
+    // TODO consumers should be a custom datatype to support round-robin
+    // style of load balancing.
     consumers: HashMap<String, Consumer>,
     bound_exchanges: HashSet<String>,
     // TODO message metrics, current, current outgoing, etc...
@@ -251,7 +253,7 @@ impl QueueState {
         self.consumers.iter().next().map(|(_, v)| v)
     }
 
-    async fn send_out_message(&mut self, message: Message) -> Result<SendResult> {
+    async fn send_out_message(&mut self, message: Message) -> Result<()> {
         let mut chosen_ctag = None;
 
         let res = match self.consumers.iter().next() {
@@ -284,7 +286,7 @@ impl QueueState {
                     Err(e) => {
                         error!("Consumer sink seems to be invalid {:?}", e);
 
-                        Ok(SendResult::ConsumerInvalid)
+                        Ok(SendResult::ConsumerInvalid(message))
                     }
                 }
             }
@@ -295,14 +297,20 @@ impl QueueState {
                 if let Some(c) = self.consumers.get_mut(&chosen_ctag.unwrap()) {
                     c.delivery_tag_counter += 1;
                 }
-            }
-            Ok(SendResult::ConsumerInvalid) => {
-                self.consumers.remove(&chosen_ctag.unwrap());
-            }
-            _ => (),
-        }
 
-        res
+                Ok(())
+            }
+            Ok(SendResult::ConsumerInvalid(msg)) => {
+                self.consumers.remove(&chosen_ctag.unwrap());
+                // TODO here we need to get back the message what we wanted to send
+                // because we need to save it. But the original messages is moved already.
+                self.messages.push_back(msg);
+
+                Ok(())
+            }
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 

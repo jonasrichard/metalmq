@@ -6,6 +6,7 @@ use anyhow::Result;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags, QueueDeclareFlags};
 use tokio::sync::{mpsc, oneshot};
 
+#[ignore]
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
     let exchange = "xchg-consume";
@@ -37,6 +38,7 @@ async fn consume_one_message() -> Result<()> {
     Ok(())
 }
 
+#[ignore]
 #[tokio::test]
 async fn consume_not_existing_queue() -> Result<()> {
     let mut c = helper::default().connect().await?;
@@ -56,6 +58,7 @@ async fn consume_not_existing_queue() -> Result<()> {
     Ok(())
 }
 
+#[ignore]
 #[tokio::test]
 async fn two_consumers_exclusive_queue_error() -> Result<()> {
     let exchange = "xchg-exclusive";
@@ -109,29 +112,62 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
 
     helper::declare_exchange_queue(&channel, "3-exchange", "3-queue").await?;
 
+    let mut consumers = vec![];
+    let mut join_handles = vec![];
+    let message_count = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::<u16, u32>::new()));
+
     for i in 0..3u16 {
+        message_count.lock().unwrap().insert(i, 0);
+
         let mut consumer = helper::default().connect().await?;
 
         let ch = consumer.channel_open(12).await?;
 
-        let (msg_tx, mut msg_rx) = mpsc::channel(1);
+        let (msg_tx, mut msg_rx) = mpsc::channel::<metalmq_client::Message>(1);
+        let bc = ch.consumer();
+
+        let msg_count = message_count.clone();
+
+        let jh = tokio::spawn(async move {
+            while let Some(msg) = msg_rx.recv().await {
+                println!("{} {:?}", i, msg);
+
+                bc.basic_ack(msg.delivery_tag).await.unwrap();
+
+                let mut mc = msg_count.lock().unwrap();
+                if let Some(cnt) = mc.get_mut(&i) {
+                    *cnt += 1;
+                }
+            }
+        });
+
         ch.basic_consume("3-queue", &format!("ctag-{}", i), None, msg_tx)
             .await?;
 
-        tokio::spawn(async move {
-            while let Some(msg) = msg_rx.recv().await {
-                println!("{} {:?}", i, msg);
-            }
-        });
+        consumers.push(consumer);
+        join_handles.push(jh);
     }
 
-    for i in 0..30u16 {
+    for i in 0..6u16 {
         channel
             .basic_publish("3-exchange", "", format!("Message #{}", i))
             .await?;
     }
 
+    //for jh in join_handles {
+    //    jh.await.unwrap();
+    //}
+
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    for cons in &consumers {
+        cons.close().await.unwrap();
+    }
+
+    for mc in message_count.lock().unwrap().iter() {
+        println!("Message count {:?}", mc);
+        assert!(mc.1 > &1u32);
+    }
 
     producer.close().await?;
 
