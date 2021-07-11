@@ -4,7 +4,7 @@ mod helper;
 
 use anyhow::Result;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags, QueueDeclareFlags};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
@@ -98,6 +98,42 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     assert_eq!(err.channel, Some(3));
     assert_eq!(err.code, 403);
     assert_eq!(err.class_method, metalmq_codec::frame::BASIC_CONSUME);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result<()> {
+    let mut producer = helper::default().connect().await?;
+    let channel = producer.channel_open(12).await?;
+
+    helper::declare_exchange_queue(&channel, "3-exchange", "3-queue").await?;
+
+    for i in 0..3u16 {
+        let mut consumer = helper::default().connect().await?;
+
+        let ch = consumer.channel_open(12).await?;
+
+        let (msg_tx, mut msg_rx) = mpsc::channel(1);
+        ch.basic_consume("3-queue", &format!("ctag-{}", i), None, msg_tx)
+            .await?;
+
+        tokio::spawn(async move {
+            while let Some(msg) = msg_rx.recv().await {
+                println!("{} {:?}", i, msg);
+            }
+        });
+    }
+
+    for i in 0..30u16 {
+        channel
+            .basic_publish("3-exchange", "", format!("Message #{}", i))
+            .await?;
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    producer.close().await?;
 
     Ok(())
 }

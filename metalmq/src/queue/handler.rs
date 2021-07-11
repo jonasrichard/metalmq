@@ -317,6 +317,7 @@ fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option
 struct OutgoingMessage {
     // TODO we don't need to store the whole message but rather the id
     message: Message,
+    //message_id: String,
     tag: Tag,
     sent_at: Instant,
 }
