@@ -41,7 +41,6 @@ pub type ClassMethod = frame::ClassMethod;
 pub type MessageSink = mpsc::Sender<Message>;
 
 /// Message type for consuming messages.
-#[derive(Debug)]
 pub struct Message {
     pub channel: Channel,
     pub consumer_tag: String,
@@ -50,6 +49,16 @@ pub struct Message {
     pub body: Vec<u8>,
 }
 
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let body = String::from_utf8_lossy(&self.body[..std::cmp::min(64usize, self.body.len())]);
+
+        f.write_fmt(format_args!(
+            "Message {{ channel: {}, consumer_tag: {}, delivery_tag: {}, body: \"{}\" }}",
+            &self.channel, &self.consumer_tag, &self.delivery_tag, body
+        ))
+    }
+}
 /// Represents a connection or channel error. If `channel` is `None` it is a
 /// connection error.
 #[derive(Clone, Debug)]

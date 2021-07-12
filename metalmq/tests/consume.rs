@@ -6,7 +6,6 @@ use anyhow::Result;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags, QueueDeclareFlags};
 use tokio::sync::{mpsc, oneshot};
 
-#[ignore]
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
     let exchange = "xchg-consume";
@@ -38,7 +37,6 @@ async fn consume_one_message() -> Result<()> {
     Ok(())
 }
 
-#[ignore]
 #[tokio::test]
 async fn consume_not_existing_queue() -> Result<()> {
     let mut c = helper::default().connect().await?;
@@ -58,7 +56,6 @@ async fn consume_not_existing_queue() -> Result<()> {
     Ok(())
 }
 
-#[ignore]
 #[tokio::test]
 async fn two_consumers_exclusive_queue_error() -> Result<()> {
     let exchange = "xchg-exclusive";
@@ -107,14 +104,20 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
 #[tokio::test]
 async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result<()> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::broadcast;
+
     let mut producer = helper::default().connect().await?;
     let channel = producer.channel_open(12).await?;
 
     helper::declare_exchange_queue(&channel, "3-exchange", "3-queue").await?;
 
     let mut consumers = vec![];
-    let mut join_handles = vec![];
-    let message_count = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::<u16, u32>::new()));
+    let total_message_count = Arc::new(Mutex::new(0u32));
+    let message_count = Arc::new(Mutex::new(HashMap::<u16, u32>::new()));
+    let (acked_tx, mut acked_rx) = broadcast::channel::<u32>(8);
+    let max = 30u32;
 
     for i in 0..3u16 {
         message_count.lock().unwrap().insert(i, 0);
@@ -126,17 +129,36 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
         let (msg_tx, mut msg_rx) = mpsc::channel::<metalmq_client::Message>(1);
         let bc = ch.consumer();
 
+        let total = total_message_count.clone();
         let msg_count = message_count.clone();
+        let mut ack_rx2 = acked_tx.subscribe();
+        let ack_tx2 = acked_tx.clone();
 
-        let jh = tokio::spawn(async move {
-            while let Some(msg) = msg_rx.recv().await {
-                println!("{} {:?}", i, msg);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(msg) = msg_rx.recv() => {
+                        println!("{} {:?}", i, msg);
 
-                bc.basic_ack(msg.delivery_tag).await.unwrap();
+                        bc.basic_ack(msg.delivery_tag).await.unwrap();
 
-                let mut mc = msg_count.lock().unwrap();
-                if let Some(cnt) = mc.get_mut(&i) {
-                    *cnt += 1;
+                        let mut mc = msg_count.lock().unwrap();
+                        if let Some(cnt) = mc.get_mut(&i) {
+                            *cnt += 1;
+                        }
+
+                        let mut c = total.lock().unwrap();
+                        *c += 1;
+
+                        ack_tx2.send(*c).unwrap();
+                    }
+                    Ok(ack) = ack_rx2.recv() => {
+                        println!("Acked so far {}", ack);
+
+                        if ack == max {
+                            break;
+                        }
+                    }
                 }
             }
         });
@@ -145,20 +167,19 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
             .await?;
 
         consumers.push(consumer);
-        join_handles.push(jh);
     }
 
-    for i in 0..6u16 {
+    for i in 0..max {
         channel
             .basic_publish("3-exchange", "", format!("Message #{}", i))
             .await?;
     }
 
-    //for jh in join_handles {
-    //    jh.await.unwrap();
-    //}
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    while let Ok(ack) = acked_rx.recv().await {
+        if ack == max {
+            break;
+        }
+    }
 
     for cons in &consumers {
         cons.close().await.unwrap();
@@ -166,7 +187,7 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
 
     for mc in message_count.lock().unwrap().iter() {
         println!("Message count {:?}", mc);
-        assert!(mc.1 > &1u32);
+        assert!(mc.1 > &5u32 && mc.1 < &15u32);
     }
 
     producer.close().await?;
