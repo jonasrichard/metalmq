@@ -6,7 +6,7 @@ use log::{error, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::BASIC_CONSUME;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::task::Poll;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
@@ -55,7 +55,7 @@ pub(crate) enum SendResult {
     MessageSent,
     QueueEmpty,
     NoConsumer,
-    ConsumerInvalid(Message),
+    ConsumerInvalid(String, Message),
 }
 
 pub(crate) type FrameSink = mpsc::Sender<Frame>;
@@ -66,9 +66,8 @@ struct QueueState {
     declaring_connection: String,
     messages: VecDeque<Message>,
     outbox: Outbox,
-    // TODO consumers should be a custom datatype to support round-robin
-    // style of load balancing.
-    consumers: HashMap<String, Consumer>,
+    consumers: Vec<Consumer>,
+    next_consumer: usize,
     bound_exchanges: HashSet<String>,
     // TODO message metrics, current, current outgoing, etc...
 }
@@ -113,7 +112,8 @@ pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: 
         outbox: Outbox {
             outgoing_messages: vec![],
         },
-        consumers: HashMap::new(),
+        consumers: vec![],
+        next_consumer: 0,
         bound_exchanges: HashSet::new(),
     }
     .queue_loop(commands)
@@ -222,7 +222,7 @@ impl QueueState {
                         sink,
                         delivery_tag_counter: 1u64,
                     };
-                    self.consumers.insert(consumer_tag, consumer);
+                    self.consumers.push(consumer);
 
                     logerr!(result.send(Ok(())));
                 }
@@ -230,7 +230,8 @@ impl QueueState {
                 Ok(true)
             }
             QueueCommand::CancelConsuming { consumer_tag, result } => {
-                self.consumers.remove(&consumer_tag);
+                self.consumers.retain(|c| !c.consumer_tag.eq(&consumer_tag));
+                self.next_consumer = 0;
 
                 if self.queue.auto_delete && self.consumers.is_empty() {
                     logerr!(result.send(false));
@@ -249,28 +250,20 @@ impl QueueState {
         r
     }
 
-    fn choose_consumer(&self) -> Option<&Consumer> {
-        self.consumers.iter().next().map(|(_, v)| v)
-    }
-
     async fn send_out_message(&mut self, message: Message) -> Result<()> {
-        let mut chosen_ctag = None;
-
-        let res = match self.consumers.iter().next() {
+        let res = match self.consumers.get(self.next_consumer) {
             None => {
                 trace!("No consumers, pushing message back to the queue");
 
                 self.messages.push_back(message);
 
-                Ok(SendResult::NoConsumer)
+                SendResult::NoConsumer
             }
-            Some((_, consumer)) => {
+            Some(consumer) => {
                 let tag = Tag {
                     consumer_tag: consumer.consumer_tag.clone(),
                     delivery_tag: consumer.delivery_tag_counter,
                 };
-
-                chosen_ctag = Some(consumer.consumer_tag.clone());
 
                 let res = message::send_message(&message, &tag, &consumer.sink).await;
                 match res {
@@ -281,36 +274,38 @@ impl QueueState {
                             sent_at: Instant::now(),
                         });
 
-                        Ok(SendResult::MessageSent)
+                        if let Some(p) = self
+                            .consumers
+                            .iter()
+                            .position(|c| c.consumer_tag.eq(&consumer.consumer_tag))
+                        {
+                            self.consumers[p].delivery_tag_counter += 1;
+                        }
+
+                        SendResult::MessageSent
                     }
                     Err(e) => {
                         error!("Consumer sink seems to be invalid {:?}", e);
 
-                        Ok(SendResult::ConsumerInvalid(message))
+                        SendResult::ConsumerInvalid(consumer.consumer_tag.clone(), message)
                     }
                 }
             }
         };
 
         match res {
-            Ok(SendResult::MessageSent) => {
-                if let Some(c) = self.consumers.get_mut(&chosen_ctag.unwrap()) {
-                    c.delivery_tag_counter += 1;
-                }
-
-                Ok(())
-            }
-            Ok(SendResult::ConsumerInvalid(msg)) => {
-                self.consumers.remove(&chosen_ctag.unwrap());
-                // TODO here we need to get back the message what we wanted to send
-                // because we need to save it. But the original messages is moved already.
+            SendResult::ConsumerInvalid(ctag, msg) => {
                 self.messages.push_back(msg);
-
-                Ok(())
+                self.consumers.retain(|c| !c.consumer_tag.eq(&ctag));
+                self.next_consumer = 0;
             }
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
+            SendResult::MessageSent => {
+                self.next_consumer = (self.next_consumer + 1) % self.consumers.len();
+            }
+            _ => (),
         }
+
+        Ok(())
     }
 }
 
