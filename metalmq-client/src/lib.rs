@@ -178,6 +178,22 @@ impl Client {
         client::sync_call(&self.sink, frame::connection_close(0, 200, "Normal close", 0, 0)).await
     }
 
+    /// Opens a channel an gives back the channel handler.
+    ///
+    /// All the major operations can be done through the channel.
+    ///
+    /// ```no_run
+    /// use metalmq_client::*;
+    ///
+    /// async fn publish(c: &mut Client) -> anyhow::Result<()> {
+    ///     let ch = c.channel_open(3).await?;
+    ///
+    ///     ch.basic_publish("exchange-name", "", "Here is the payload".to_string()).await?;
+    ///     ch.close().await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
     pub async fn channel_open(&mut self, channel: u16) -> Result<ClientChannel> {
         client::sync_call(&self.sink, frame::channel_open(channel)).await?;
 
@@ -191,6 +207,7 @@ impl Client {
 }
 
 impl ClientChannel {
+    /// Closes the channel.
     pub async fn close(&self) -> Result<()> {
         let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
 
@@ -201,6 +218,7 @@ impl ClientChannel {
         .await
     }
 
+    /// Declare exchange.
     pub async fn exchange_declare(
         &self,
         exchange_name: &str,
@@ -212,18 +230,21 @@ impl ClientChannel {
         client::sync_call(&self.sink, frame).await
     }
 
+    /// Bind queue to exchange.
     pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
         let frame = frame::queue_bind(self.channel, queue_name, exchange_name, routing_key);
 
         client::sync_call(&self.sink, frame).await
     }
 
+    /// Declare queue.
     pub async fn queue_declare(&self, queue_name: &str, flags: Option<frame::QueueDeclareFlags>) -> Result<()> {
         let frame = frame::queue_declare(self.channel, queue_name, flags);
 
         client::sync_call(&self.sink, frame).await
     }
 
+    /// Gives back consumer channel, see the example at `basic_consume`.
     pub fn consumer(&self) -> Consumer {
         Consumer {
             channel: self.channel,
@@ -231,6 +252,41 @@ impl ClientChannel {
         }
     }
 
+    /// Consumes messages from a queue.
+    ///
+    /// ```no_run
+    /// use tokio::sync::oneshot;
+    ///
+    /// async fn consume_channel(ch: &ClientChannel) -> Vec<Message> {
+    ///     // for acking the delivery
+    ///     let controller = ch.consumer();
+    ///     // for the client to send the incoming messages to us
+    ///     let (msg_tx, msg_rx) = mpsc::channel(16);
+    ///     // to sign the end of the processing
+    ///     let (ready_tx, ready_rx) = oneshot::channel();
+    ///
+    ///     let mut count = 0u16;
+    ///     let mut messages = vec![];
+    ///
+    ///     tokio::spawn(async move {
+    ///         while let Some(message) = msg_rx.recv().await {
+    ///             controller.basic_ack(message.delivery_tag).await.unwrap();
+    ///             messages.push(message);
+    ///
+    ///             count += 1;
+    ///             if count == 10 {
+    ///                 break;
+    ///             }
+    ///         }
+    ///
+    ///         ready_tx.send(messages).unwrap();
+    ///     });
+    ///
+    ///     ch.basic_consume("queue", "my-ctag", None, controller.sink).await.unwrap();
+    ///
+    ///     ready_rx.recv().await
+    /// }
+    /// ```
     pub async fn basic_consume(
         &self,
         queue_name: &str,
