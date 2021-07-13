@@ -382,7 +382,6 @@ fn validate_exchange_type(exchange_type: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{ErrorScope, RuntimeError};
-    use std::cmp::Ordering;
 
     #[tokio::test]
     async fn passive_declare_exchange_does_not_exists_channel_error() {
@@ -444,7 +443,7 @@ mod tests {
         assert!(result.is_ok());
 
         let state = exchanges.get("transactions").unwrap();
-        assert_eq!(state.exchange.exchange_type.cmp(&"direct".to_string()), Ordering::Equal);
+        assert_eq!(state.exchange.exchange_type, "direct");
         assert_eq!(state.exchange.durable, true);
         assert_eq!(state.exchange.auto_delete, true);
         assert_eq!(state.exchange.internal, true);

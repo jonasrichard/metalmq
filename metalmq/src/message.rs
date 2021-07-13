@@ -3,7 +3,6 @@
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
 use crate::{chk, send, Result};
-use log::info;
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::fmt;

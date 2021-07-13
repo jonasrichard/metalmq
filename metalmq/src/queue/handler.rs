@@ -5,7 +5,6 @@ use crate::{logerr, Result};
 use log::{error, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::BASIC_CONSUME;
-use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::task::Poll;
 use std::time::Instant;
@@ -200,7 +199,7 @@ impl QueueState {
                 sink,
                 result,
             } => {
-                if self.queue.exclusive && self.declaring_connection.cmp(&conn_id) != Ordering::Equal {
+                if self.queue.exclusive && self.declaring_connection != conn_id {
                     logerr!(result.send(channel_error(
                         channel,
                         BASIC_CONSUME,
@@ -331,9 +330,8 @@ struct Outbox {
 
 impl Outbox {
     fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64) {
-        self.outgoing_messages.retain(|om| {
-            om.tag.delivery_tag != delivery_tag || om.tag.consumer_tag.cmp(&consumer_tag) != Ordering::Equal
-        });
+        self.outgoing_messages
+            .retain(|om| om.tag.delivery_tag != delivery_tag || om.tag.consumer_tag != consumer_tag);
     }
 
     fn on_sent_out(&mut self, outgoing_message: OutgoingMessage) {

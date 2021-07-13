@@ -9,7 +9,6 @@ use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
 use log::{error, info, trace, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time;
@@ -78,7 +77,7 @@ impl Connection {
     pub(crate) async fn connection_start_ok(&self, channel: Channel, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
         let mut authenticated = false;
 
-        if args.mechanism.cmp(&"PLAIN".to_string()) == Ordering::Equal {
+        if args.mechanism.eq(&"PLAIN") {
             let mut it = args.response.as_bytes().split(|b| b == &0u8);
             it.next();
             let username = it.next();
@@ -309,14 +308,13 @@ impl Connection {
         if let Some(pos) = self
             .consumed_queues
             .iter()
-            .position(|cq| cq.consumer_tag.cmp(&args.consumer_tag) == std::cmp::Ordering::Equal)
+            .position(|cq| cq.consumer_tag == args.consumer_tag)
         {
             let cq = &self.consumed_queues[pos];
 
             qm::cancel_consume(&self.qm, channel, &cq.queue_name, &args.consumer_tag).await?;
 
-            self.consumed_queues
-                .retain(|cq| cq.consumer_tag.cmp(&args.consumer_tag) != std::cmp::Ordering::Equal);
+            self.consumed_queues.retain(|cq| cq.consumer_tag != args.consumer_tag);
             Ok(Some(Frame::Frame(frame::basic_cancel_ok(channel, &args.consumer_tag))))
         } else {
             // TODO error: canceling consuming which didn't exist

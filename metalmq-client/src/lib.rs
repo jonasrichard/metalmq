@@ -255,7 +255,8 @@ impl ClientChannel {
     /// Consumes messages from a queue.
     ///
     /// ```no_run
-    /// use tokio::sync::oneshot;
+    /// use metalmq_client::*;
+    /// use tokio::sync::{mspc, oneshot};
     ///
     /// async fn consume_channel(ch: &ClientChannel) -> Vec<Message> {
     ///     // for acking the delivery
