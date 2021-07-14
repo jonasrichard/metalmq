@@ -338,3 +338,47 @@ impl Outbox {
         self.outgoing_messages.push(outgoing_message);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn publish_to_queue_without_consumers() {
+        let q = Queue {
+            name: "test-queue".to_string(),
+            ..Default::default()
+        };
+        let mut qs = QueueState {
+            queue: q,
+            declaring_connection: "conn-id".to_string(),
+            messages: VecDeque::new(),
+            outbox: Outbox {
+                outgoing_messages: vec![],
+            },
+            bound_exchanges: HashSet::new(),
+            consumers: vec![],
+            next_consumer: 0,
+        };
+
+        let cmd = QueueCommand::PublishMessage(Message {
+            source_connection: "conn-id".to_string(),
+            channel: 1,
+            content: b"Hello".to_vec(),
+            exchange: "test-exchange".to_string(),
+            immediate: false,
+            mandatory: false,
+            routing_key: "".to_string(),
+        });
+
+        let result = qs.handle_command(cmd).await;
+
+        assert!(result.is_ok());
+        assert_eq!(qs.messages.len(), 1);
+
+        let msg = qs.messages.get(0).unwrap();
+        assert_eq!(msg.source_connection, "conn-id");
+        assert_eq!(msg.channel, 1);
+        assert_eq!(msg.content, b"Hello".to_vec());
+    }
+}
