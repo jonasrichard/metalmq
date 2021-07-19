@@ -254,9 +254,7 @@ fn handle_declare_exchange(
             let exchange_clone = exchange.clone();
 
             tokio::spawn(async move {
-                handler::exchange_loop(exchange_clone, &mut command_stream)
-                    .await
-                    .unwrap();
+                handler::start(exchange_clone, &mut command_stream).await;
             });
 
             let exchange_name = exchange.name.clone();

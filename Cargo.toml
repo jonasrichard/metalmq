@@ -8,3 +8,6 @@ members = [
     "benches",
     "examples"
 ]
+
+[profile.release]
+lto = true

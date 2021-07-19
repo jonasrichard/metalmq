@@ -1,3 +1,4 @@
+use crate::exchange::Exchange;
 use crate::message::Message;
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
@@ -29,18 +30,35 @@ pub(crate) enum ExchangeCommand {
     },
 }
 
-pub(crate) async fn exchange_loop(
+struct ExchangeState {
     exchange: super::Exchange,
-    commands: &mut mpsc::Receiver<ExchangeCommand>,
-) -> Result<()> {
-    let mut queues = HashMap::<String, QueueCommandSink>::new();
+    queues: HashMap<String, QueueCommandSink>,
+}
 
-    while let Some(command) = commands.recv().await {
-        trace!("Command {:?}", command);
+pub(crate) async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>) {
+    ExchangeState {
+        exchange,
+        queues: HashMap::new(),
+    }
+    .exchange_loop(commands)
+    .await;
+}
 
+impl ExchangeState {
+    pub(crate) async fn exchange_loop(&mut self, commands: &mut mpsc::Receiver<ExchangeCommand>) -> Result<()> {
+        while let Some(command) = commands.recv().await {
+            trace!("Command {:?}", command);
+
+            self.handle_command(command).await;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn handle_command(&mut self, command: ExchangeCommand) -> Result<()> {
         match command {
             ExchangeCommand::Message(message, result) => {
-                match choose_queue_by_routing_key(&queues, &exchange.exchange_type, &message.routing_key) {
+                match self.choose_queue_by_routing_key(&message.routing_key) {
                     Some(queue) => {
                         // TODO here we need to check if this exchange is bound to a queue, or
                         // if routing key will send this message to a queue.
@@ -75,11 +93,11 @@ pub(crate) async fn exchange_loop(
                 sink,
                 result,
             } => {
-                queues.insert(routing_key, sink.clone());
+                self.queues.insert(routing_key, sink.clone());
                 logerr!(send!(
                     sink,
                     QueueCommand::ExchangeBound {
-                        exchange_name: exchange.name.clone(),
+                        exchange_name: self.exchange.name.clone(),
                     }
                 ));
                 logerr!(result.send(true));
@@ -89,11 +107,11 @@ pub(crate) async fn exchange_loop(
                 routing_key,
                 result,
             } => {
-                if let Some(sink) = queues.remove(&routing_key) {
+                if let Some(sink) = self.queues.remove(&routing_key) {
                     logerr!(send!(
                         sink,
                         QueueCommand::ExchangeUnbound {
-                            exchange_name: exchange.name.clone(),
+                            exchange_name: self.exchange.name.clone(),
                         }
                     ));
                 }
@@ -101,15 +119,47 @@ pub(crate) async fn exchange_loop(
                 logerr!(result.send(true));
             }
         }
+
+        Ok(())
     }
 
-    Ok(())
+    fn choose_queue_by_routing_key(&self, routing_key: &str) -> Option<&QueueCommandSink> {
+        self.queues.get(routing_key)
+    }
 }
 
-fn choose_queue_by_routing_key<'a>(
-    queues: &'a HashMap<String, QueueCommandSink>,
-    exchange_type: &str,
-    routing_key: &str,
-) -> Option<&'a QueueCommandSink> {
-    queues.get(routing_key)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn send_basic_return_on_mandatory_unroutable_message() {
+        let mut es = ExchangeState {
+            exchange: Exchange {
+                name: "x-name".to_string(),
+                exchange_type: "direct".to_string(),
+                durable: false,
+                auto_delete: false,
+                internal: false,
+            },
+            queues: HashMap::new(),
+        };
+
+        let (tx, rx) = oneshot::channel();
+        let msg = Message {
+            source_connection: "conn-id".to_string(),
+            channel: 2,
+            content: b"Hello".to_vec(),
+            exchange: "x-name".to_string(),
+            routing_key: "".to_string(),
+            mandatory: true,
+            immediate: false,
+        };
+        let cmd = ExchangeCommand::Message(msg, tx);
+
+        let res = es.handle_command(cmd).await;
+        assert!(res.is_ok());
+
+        // TODO how basic return will be sent? We need to pass here the outgoing sink
+    }
 }

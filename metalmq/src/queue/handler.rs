@@ -215,7 +215,7 @@ impl QueueState {
                     )));
                 } else {
                     let consumer = Consumer {
-                        consumer_tag: consumer_tag.clone(),
+                        consumer_tag,
                         no_ack,
                         exclusive,
                         sink,
