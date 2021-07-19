@@ -4,6 +4,7 @@ use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
 use log::{debug, error};
+use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -19,6 +20,7 @@ pub(crate) enum ExchangeManagerCommand {
         channel: u16,
         exchange: Exchange,
         passive: bool,
+        outgoing: mpsc::Sender<Frame>,
         result: oneshot::Sender<Result<ExchangeCommandSink>>,
     },
     BindQueue {
@@ -67,6 +69,7 @@ pub(crate) async fn declare_exchange(
     channel: u16,
     exchange: Exchange,
     passive: bool,
+    outgoing: mpsc::Sender<Frame>,
 ) -> Result<ExchangeCommandSink> {
     let (tx, rx) = oneshot::channel();
 
@@ -74,6 +77,7 @@ pub(crate) async fn declare_exchange(
         channel,
         exchange,
         passive,
+        outgoing,
         result: tx,
     })
     .await?;
@@ -169,9 +173,16 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
             channel,
             exchange,
             passive,
+            outgoing,
             result,
         } => {
-            logerr!(result.send(handle_declare_exchange(&mut exchanges, channel, exchange, passive)));
+            logerr!(result.send(handle_declare_exchange(
+                &mut exchanges,
+                channel,
+                exchange,
+                passive,
+                outgoing
+            )));
         }
         BindQueue {
             channel,
@@ -224,6 +235,7 @@ fn handle_declare_exchange(
     channel: u16,
     exchange: Exchange,
     passive: bool,
+    outgoing: mpsc::Sender<Frame>,
 ) -> Result<ExchangeCommandSink> {
     debug!("Declare exchange {:?}", exchange);
 
@@ -254,7 +266,7 @@ fn handle_declare_exchange(
             let exchange_clone = exchange.clone();
 
             tokio::spawn(async move {
-                handler::start(exchange_clone, &mut command_stream).await;
+                handler::start(exchange_clone, &mut command_stream, outgoing).await;
             });
 
             let exchange_name = exchange.name.clone();
@@ -388,7 +400,8 @@ mod tests {
             name: "passive-exchg".into(),
             ..Default::default()
         };
-        let result = handle_declare_exchange(&mut exchanges, 1, exchange, true);
+        let (tx, _rx) = mpsc::channel(1);
+        let result = handle_declare_exchange(&mut exchanges, 1, exchange, true, tx);
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
@@ -417,7 +430,9 @@ mod tests {
             ..Default::default()
         };
 
-        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false);
+        let (tx, _rx) = mpsc::channel(1);
+
+        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false, tx);
 
         assert!(result.is_err());
 
@@ -436,7 +451,8 @@ mod tests {
             auto_delete: true,
             internal: true,
         };
-        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false);
+        let (tx, _rx) = mpsc::channel(1);
+        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false, tx);
 
         assert!(result.is_ok());
 

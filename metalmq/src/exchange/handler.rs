@@ -1,8 +1,9 @@
 use crate::exchange::Exchange;
-use crate::message::Message;
+use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
 use log::{error, info, trace};
+use metalmq_codec::codec::Frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -16,7 +17,7 @@ pub(crate) enum MessageSentResult {
 
 #[derive(Debug)]
 pub(crate) enum ExchangeCommand {
-    Message(Message, oneshot::Sender<MessageSentResult>),
+    Message(Message),
     QueueBind {
         queue_name: String,
         routing_key: String,
@@ -33,12 +34,18 @@ pub(crate) enum ExchangeCommand {
 struct ExchangeState {
     exchange: super::Exchange,
     queues: HashMap<String, QueueCommandSink>,
+    outgoing: mpsc::Sender<Frame>,
 }
 
-pub(crate) async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>) {
+pub(crate) async fn start(
+    exchange: Exchange,
+    commands: &mut mpsc::Receiver<ExchangeCommand>,
+    outgoing: mpsc::Sender<Frame>,
+) {
     ExchangeState {
         exchange,
         queues: HashMap::new(),
+        outgoing,
     }
     .exchange_loop(commands)
     .await;
@@ -57,7 +64,7 @@ impl ExchangeState {
 
     pub(crate) async fn handle_command(&mut self, command: ExchangeCommand) -> Result<()> {
         match command {
-            ExchangeCommand::Message(message, result) => {
+            ExchangeCommand::Message(message) => {
                 match self.choose_queue_by_routing_key(&message.routing_key) {
                     Some(queue) => {
                         // TODO here we need to check if this exchange is bound to a queue, or
@@ -73,16 +80,10 @@ impl ExchangeState {
                         if let Err(e) = send!(queue, QueueCommand::PublishMessage(message.clone())) {
                             error!("Send error {:?}", e);
                         }
-
-                        if let Err(e) = result.send(MessageSentResult::None) {
-                            error!("Error sending message back {:?}", e);
-                        }
                     }
                     None => {
                         if message.mandatory {
-                            if let Err(e) = result.send(MessageSentResult::MessageNotRouted(message)) {
-                                error!("Error sending message back {:?}", e);
-                            }
+                            message::send_basic_return(&message, &self.outgoing).await?;
                         }
                     }
                 }
@@ -131,9 +132,26 @@ impl ExchangeState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use metalmq_codec::codec;
+    use metalmq_codec::frame;
+
+    async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
+        let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
+        tokio::pin!(sleep);
+
+        tokio::select! {
+            frame = rx.recv() => {
+                return frame;
+            }
+            _ = &mut sleep => {
+                return None;
+            }
+        }
+    }
 
     #[tokio::test]
     async fn send_basic_return_on_mandatory_unroutable_message() {
+        let (msg_tx, mut msg_rx) = mpsc::channel(1);
         let mut es = ExchangeState {
             exchange: Exchange {
                 name: "x-name".to_string(),
@@ -143,9 +161,9 @@ mod tests {
                 internal: false,
             },
             queues: HashMap::new(),
+            outgoing: msg_tx,
         };
 
-        let (tx, rx) = oneshot::channel();
         let msg = Message {
             source_connection: "conn-id".to_string(),
             channel: 2,
@@ -155,11 +173,15 @@ mod tests {
             mandatory: true,
             immediate: false,
         };
-        let cmd = ExchangeCommand::Message(msg, tx);
+        let cmd = ExchangeCommand::Message(msg);
 
         let res = es.handle_command(cmd).await;
         assert!(res.is_ok());
 
-        // TODO how basic return will be sent? We need to pass here the outgoing sink
+        match recv_timeout(&mut msg_rx).await {
+            Some(Frame::Frame(br)) => assert!(true),
+            Some(Frame::Frames(fs)) => if let frame::AMQPFrame::Method(ch, cm, args) = fs.get(0).unwrap() {},
+            None => assert!(false, "Basic.Return frame is expected"),
+        }
     }
 }

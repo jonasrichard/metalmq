@@ -1,7 +1,7 @@
 use crate::client::{self, ChannelError, ConnectionError};
 // Do we need to expose the messages of a 'process' or hide it in an erlang-style?
 use crate::exchange::manager as em;
-use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink, handler::MessageSentResult};
+use crate::exchange::{handler::ExchangeCommand, handler::ExchangeCommandSink};
 use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager as qm;
@@ -10,7 +10,7 @@ use log::{error, info, trace, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::time;
 use uuid::Uuid;
 
@@ -74,6 +74,7 @@ pub(crate) fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection
 }
 
 impl Connection {
+    // TODO here we should send back the frames in outgoing channel with a buffer - avoid deadlock
     pub(crate) async fn connection_start_ok(&self, channel: Channel, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
         let mut authenticated = false;
 
@@ -172,7 +173,7 @@ impl Connection {
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
 
-        let result = em::declare_exchange(&self.em, channel, args.into(), passive).await;
+        let result = em::declare_exchange(&self.em, channel, args.into(), passive, self.outgoing.clone()).await;
 
         match result {
             Ok(ch) => {
@@ -372,26 +373,15 @@ impl Connection {
 
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
-                    // TODO what happens if we cannot route the message to an existing exchange?
-                    // Probably we need to send back an error if it is a mandatory message
-                    let (tx, rx) = oneshot::channel();
-                    ch.send_timeout(ExchangeCommand::Message(msg, tx), time::Duration::from_secs(1))
-                        .await?;
-
-                    match rx.await {
-                        Ok(MessageSentResult::None) => Ok(None),
-                        Ok(MessageSentResult::MessageNotRouted(original_message)) => {
-                            send_basic_return(original_message)
-                        }
-                        Err(e) => {
-                            error!("Receiving response from exchange {:?}", e);
-                            Ok(None)
-                        }
-                    }
+                    // TODO is this the correct way of returning Err(_)
+                    ch.send_timeout(ExchangeCommand::Message(msg), time::Duration::from_secs(1))
+                        .await;
+                    Ok(None)
                 }
                 None => {
                     if msg.mandatory {
-                        send_basic_return(msg)
+                        message::send_basic_return(&msg, &self.outgoing).await;
+                        Ok(None)
                     } else {
                         Ok(None)
                     }
@@ -401,23 +391,4 @@ impl Connection {
             Ok(None)
         }
     }
-}
-
-fn send_basic_return(message: message::Message) -> MaybeFrame {
-    let mut frames = message::message_to_content_frames(&message);
-
-    frames.insert(
-        0,
-        frame::basic_return(
-            message.channel,
-            312,
-            "NO_ROUTE",
-            &message.exchange,
-            &message.routing_key,
-        ),
-    );
-
-    frames.push(frame::basic_ack(message.channel, 1u64, false));
-
-    Ok(Some(Frame::Frames(frames)))
 }

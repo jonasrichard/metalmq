@@ -61,3 +61,24 @@ pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameS
 
     Ok(())
 }
+
+pub(crate) async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Result<()> {
+    let mut frames = message_to_content_frames(&message);
+
+    frames.insert(
+        0,
+        frame::basic_return(
+            message.channel,
+            312,
+            "NO_ROUTE",
+            &message.exchange,
+            &message.routing_key,
+        ),
+    );
+
+    frames.push(frame::basic_ack(message.channel, 1u64, false));
+
+    chk!(send!(outgoing, Frame::Frames(frames)))?;
+
+    Ok(())
+}
