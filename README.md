@@ -52,19 +52,20 @@ pytest
 
 ## AMQP 0.9 client library
 
-We need a client to test the server, so for that in the `client091` folder I put the client implementation.
+In `metalmq-client` there is a Rust async client which implements part of the AMQP 0.9.1 protocol.
+You can try agains `metalmq` server or `rabbitmq`.
 
 ```bash
-docker run -p 5672:5672 -p 15672:15672 rabbitmq:3-management
-
-RUST_LOG=info cargo run
+#docker run -p 5672:5672 -p 15672:15672 --rm rabbitmq:3-management
+cargo test --lib metalmq-client
 ```
 
-In order to validate AMQP packages we also need a stable AMQP client implementation which is the `pika`. It uses Python, so one need to install `pipenv` to run that.
+In order to validate AMQP packages we also need a stable AMQP client implementation which is
+the `pika`. It runs on Python, so one need to install `pipenv` to run that.
 
 ```
-cd metalmq-client
-pipenv run bin/basic_publish.sh
+cd amqp-compliance
+pytest
 ```
 
 ## AMQP server
