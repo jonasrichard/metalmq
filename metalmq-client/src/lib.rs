@@ -25,7 +25,9 @@ use anyhow::Result;
 use env_logger::Builder;
 use metalmq_codec::frame;
 use std::fmt;
+use std::future::Future;
 use std::io::Write;
+use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
 
 /// AMQP channel number
@@ -111,6 +113,8 @@ pub struct Consumer {
     channel: Channel,
     sink: RequestSink,
 }
+
+pub type ReturnCallback = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Connect to an AMQP server.
 ///
@@ -324,6 +328,18 @@ impl ClientChannel {
             })
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn add_on_return_callback(&mut self, cb: ReturnCallback) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn add_on_cancel_callback(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn add_on_close_callback(&mut self) -> Result<()> {
         Ok(())
     }
 }

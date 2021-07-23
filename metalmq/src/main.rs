@@ -1,4 +1,5 @@
 mod client;
+mod config;
 mod exchange;
 mod message;
 mod queue;
@@ -11,7 +12,6 @@ use log::{error, info};
 use std::convert::Infallible;
 use std::fmt;
 use std::io::Write;
-use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::signal;
 
@@ -131,10 +131,10 @@ fn setup_logger() {
         .init();
 }
 
-async fn start_http(context: Context) -> Result<()> {
-    let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+async fn start_http(context: Context, url: &str) -> Result<()> {
+    let http_addr = url.parse()?;
 
-    info!("Start HTTP admin API on port 3000");
+    info!("Start HTTP admin API on {}", url);
 
     let make_svc = make_service_fn(move |_conn| {
         let context = context.clone();
@@ -153,7 +153,7 @@ async fn start_http(context: Context) -> Result<()> {
 }
 
 async fn start_amqp(context: Context, url: &str) -> Result<()> {
-    info!("Listening on port 5672");
+    info!("Start AMQP listening on {}", url);
 
     let listener = TcpListener::bind(url).await?;
 
@@ -178,14 +178,16 @@ async fn start_amqp(context: Context, url: &str) -> Result<()> {
 pub async fn main() -> Result<()> {
     setup_logger();
 
+    let config = config::parse_config()?;
+
     let context = Context {
         exchange_manager: exchange::manager::start(),
         queue_manager: queue::manager::start(),
     };
 
-    start_http(context.clone()).await?;
+    start_http(context.clone(), &config.network.http_listen).await?;
 
-    start_amqp(context, "[::1]:5672").await?;
+    start_amqp(context, &config.network.amqp_listen).await?;
 
     signal::ctrl_c().await?;
 
