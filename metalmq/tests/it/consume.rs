@@ -1,7 +1,6 @@
-extern crate metalmq_client;
+//extern crate metalmq_client;
 
-mod helper;
-
+use super::helper;
 use anyhow::Result;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags, QueueDeclareFlags};
 use tokio::sync::{mpsc, oneshot};

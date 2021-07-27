@@ -57,6 +57,11 @@ impl<'c, 'a: 'c> ConnData<'c> {
 }
 
 #[allow(dead_code)]
+pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
+    result.unwrap_err().downcast::<ClientError>().unwrap()
+}
+
+#[allow(dead_code)]
 pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, queue: &str) -> Result<()> {
     let mut ex_flags = ExchangeDeclareFlags::empty();
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
@@ -69,9 +74,13 @@ pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, q
     Ok(())
 }
 
-#[allow(dead_code)]
-pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
-    result.unwrap_err().downcast::<ClientError>().unwrap()
+pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
+    let c = default().connect().await?;
+    let ch = c.channel_open(1).await?;
+
+    ch.exchange_delete(exchange).await?;
+
+    Ok(())
 }
 
 #[allow(dead_code)]

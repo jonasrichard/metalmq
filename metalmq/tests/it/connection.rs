@@ -1,6 +1,4 @@
-extern crate metalmq_client;
-
-mod helper;
+use super::helper;
 
 #[tokio::test]
 async fn connect() -> anyhow::Result<()> {
