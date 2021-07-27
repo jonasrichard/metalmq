@@ -234,11 +234,9 @@ impl ClientChannel {
         client::sync_call(&self.sink, frame).await
     }
 
-    /// Bind queue to exchange.
-    pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        let frame = frame::queue_bind(self.channel, queue_name, exchange_name, routing_key);
-
-        client::sync_call(&self.sink, frame).await
+    /// Delete exchange.
+    pub async fn exchange_delete(&self, exchange_name: &str, if_unused: bool) -> Result<()> {
+        Ok(())
     }
 
     /// Declare queue.
@@ -246,6 +244,25 @@ impl ClientChannel {
         let frame = frame::queue_declare(self.channel, queue_name, flags);
 
         client::sync_call(&self.sink, frame).await
+    }
+
+    /// Bind queue to exchange.
+    pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
+        let frame = frame::queue_bind(self.channel, queue_name, exchange_name, routing_key);
+
+        client::sync_call(&self.sink, frame).await
+    }
+
+    pub async fn queue_unbind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn queue_purge(&self, queue_name: &str) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn queue_delete(&self, queue_name: &str, if_unused: bool, if_empty: bool) -> Result<()> {
+        Ok(())
     }
 
     /// Gives back consumer channel, see the example at `basic_consume`.
@@ -331,6 +348,18 @@ impl ClientChannel {
         Ok(())
     }
 
+    pub async fn basic_get(&self, queue_name: &str, no_ack: bool) -> Result<Message> {
+        todo!();
+    }
+
+    pub async fn basic_recover(&self, requeue: bool) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn select() -> Result<()> {
+        Ok(())
+    }
+
     pub async fn add_on_return_callback(&mut self, cb: ReturnCallback) -> Result<()> {
         Ok(())
     }
@@ -349,6 +378,18 @@ impl Consumer {
         let frame = frame::basic_ack(self.channel, delivery_tag, false);
 
         client::call(&self.sink, frame).await
+    }
+
+    pub async fn basic_nack(&self, delivery_tag: u64, multiple: bool, requeue: bool) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn basic_reject(&self, delivery_tag: u64, requeue: bool) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn cancel(&self) -> Result<()> {
+        Ok(())
     }
 }
 

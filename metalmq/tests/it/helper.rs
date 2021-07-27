@@ -74,11 +74,12 @@ pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, q
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
-    let c = default().connect().await?;
+    let mut c = default().connect().await?;
     let ch = c.channel_open(1).await?;
 
-    ch.exchange_delete(exchange).await?;
+    ch.exchange_delete(exchange, false).await?;
 
     Ok(())
 }
