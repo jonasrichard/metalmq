@@ -16,7 +16,6 @@
 //!     Ok(())
 //! }
 //! ```
-pub mod bdd;
 mod client;
 mod client_sm;
 
@@ -277,13 +276,13 @@ impl ClientChannel {
     ///
     /// ```no_run
     /// use metalmq_client::*;
-    /// use tokio::sync::{mspc, oneshot};
+    /// use tokio::sync::{mpsc, oneshot};
     ///
     /// async fn consume_channel(ch: &ClientChannel) -> Vec<Message> {
     ///     // for acking the delivery
-    ///     let controller = ch.consumer();
+    ///     let consumer = ch.consumer();
     ///     // for the client to send the incoming messages to us
-    ///     let (msg_tx, msg_rx) = mpsc::channel(16);
+    ///     let (msg_tx, mut msg_rx) = mpsc::channel::<Message>(16);
     ///     // to sign the end of the processing
     ///     let (ready_tx, ready_rx) = oneshot::channel();
     ///
@@ -292,7 +291,7 @@ impl ClientChannel {
     ///
     ///     tokio::spawn(async move {
     ///         while let Some(message) = msg_rx.recv().await {
-    ///             controller.basic_ack(message.delivery_tag).await.unwrap();
+    ///             consumer.basic_ack(message.delivery_tag).await.unwrap();
     ///             messages.push(message);
     ///
     ///             count += 1;
@@ -304,9 +303,9 @@ impl ClientChannel {
     ///         ready_tx.send(messages).unwrap();
     ///     });
     ///
-    ///     ch.basic_consume("queue", "my-ctag", None, controller.sink).await.unwrap();
+    ///     ch.basic_consume("queue", "my-ctag", None, msg_tx).await.unwrap();
     ///
-    ///     ready_rx.recv().await
+    ///     ready_rx.await.unwrap_or(vec![])
     /// }
     /// ```
     pub async fn basic_consume(
