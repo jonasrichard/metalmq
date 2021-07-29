@@ -189,6 +189,22 @@ impl ClientState {
         Ok(())
     }
 
+    pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> Result<()> {
+        self.outgoing
+            .send(Frame::Frame(frame::exchange_delete(
+                channel,
+                &args.exchange_name,
+                Some(args.flags),
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn exchange_delete_ok(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::queue_declare(

@@ -39,17 +39,6 @@ cd amqp-compliance
 pytest
 ```
 
-### Checklist
-
-* Connection
-  * Login
-    - [x] guest password
-    - [ ] user management
-* Channel
-* Exchange
-* Queue
-* Basic
-
 ## AMQP 0.9 client library
 
 In `metalmq-client` there is a Rust async client which implements part of the AMQP 0.9.1 protocol.
@@ -68,6 +57,19 @@ cd amqp-compliance
 pytest
 ```
 
-## AMQP server
+### Debug test
 
-Installation later when a stable client is implemented.
+Switch on logging in the beginning of the test.
+
+```
+#[tokio::test]
+async fn test() -> Result<()> {
+    env_logger::builder().is_test(true).try_init();
+}
+```
+
+Start the test with the environment variable set.
+
+```
+RUST_LOG=metalmq_client=trace cargo test -- --exact exchange::declare_exchange_with_different_type
+```

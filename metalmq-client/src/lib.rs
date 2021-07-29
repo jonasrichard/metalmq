@@ -235,7 +235,15 @@ impl ClientChannel {
 
     /// Delete exchange.
     pub async fn exchange_delete(&self, exchange_name: &str, if_unused: bool) -> Result<()> {
-        Ok(())
+        let mut flags = frame::ExchangeDeleteFlags::default();
+
+        if if_unused {
+            flags.toggle(frame::ExchangeDeleteFlags::IF_UNUSED);
+        }
+
+        let frame = frame::exchange_delete(self.channel, exchange_name, Some(flags));
+
+        client::sync_call(&self.sink, frame).await
     }
 
     /// Declare queue.

@@ -271,6 +271,7 @@ async fn handle_in_method_frame(
         MethodFrameArgs::ChannelOpenOk => cs.channel_open_ok(channel).await,
         MethodFrameArgs::ChannelCloseOk => cs.channel_close_ok(channel).await,
         MethodFrameArgs::ExchangeDeclareOk => cs.exchange_declare_ok().await,
+        MethodFrameArgs::ExchangeDeleteOk => cs.exchange_delete_ok().await,
         MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
@@ -294,6 +295,7 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
         MethodFrameArgs::ChannelOpen => cs.channel_open(channel).await,
         MethodFrameArgs::ChannelClose(args) => cs.channel_close(channel, args).await,
         MethodFrameArgs::ExchangeDeclare(args) => cs.exchange_declare(channel, args).await,
+        MethodFrameArgs::ExchangeDelete(args) => cs.exchange_delete(channel, args).await,
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args).await,
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args).await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
@@ -342,7 +344,13 @@ pub(crate) async fn sync_call(sink: &RequestSink, frame: AMQPFrame) -> Result<()
 
     match rx.await {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(e),
-        Err(_) => client_error!(None, 0, "Connection closed by peer", 0),
+        Ok(Err(e)) => {
+            error!("Ok Error {:?}", e);
+            Err(e)
+        }
+        Err(e) => {
+            error!("Error {:?}", e);
+            client_error!(None, 0, "Connection closed by peer", 0)
+        }
     }
 }

@@ -48,9 +48,12 @@ async fn create_exchange_after_delete_the_old() -> Result<()> {
 
 #[tokio::test]
 async fn declare_exchange_with_different_type() -> Result<()> {
+    env_logger::builder().is_test(true).try_init();
+
     let mut c = helper::connect().await?;
 
     let ch = c.channel_open(9).await?;
+    ch.exchange_delete("x-conflict", false).await?;
     ch.exchange_declare("x-conflict", "direct", None).await?;
 
     let result = ch.exchange_declare("x-conflict", "fanout", None).await;
@@ -64,8 +67,8 @@ async fn declare_exchange_with_different_type() -> Result<()> {
 
     // TODO to check if channel is closed because of the exception
 
-    let che = c.channel_open(9).await?;
-    che.exchange_delete("x-conflict", false).await?;
+    //let che = c.channel_open(9).await?;
+    //che.exchange_delete("x-conflict", false).await?;
 
     Ok(())
 }
