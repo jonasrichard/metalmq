@@ -48,8 +48,6 @@ async fn create_exchange_after_delete_the_old() -> Result<()> {
 
 #[tokio::test]
 async fn declare_exchange_with_different_type() -> Result<()> {
-    env_logger::builder().is_test(true).try_init();
-
     let mut c = helper::connect().await?;
 
     let ch = c.channel_open(9).await?;
@@ -69,6 +67,26 @@ async fn declare_exchange_with_different_type() -> Result<()> {
 
     //let che = c.channel_open(9).await?;
     //che.exchange_delete("x-conflict", false).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_not_existing_exchange_error_404() -> Result<()> {
+    env_logger::builder().is_test(true).try_init();
+
+    let mut c = helper::connect().await?;
+
+    let ch = c.channel_open(9).await?;
+
+    let result = ch.exchange_delete("x-not-existing", false).await;
+
+    assert!(result.is_ok());
+
+    // FIXME here standard says something else, RabbitMQ sends DeleteOk
+    //let err = helper::to_client_error(result);
+    //assert_eq!(err.channel, Some(9));
+    //assert_eq!(err.code, 404);
 
     Ok(())
 }
