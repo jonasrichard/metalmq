@@ -178,7 +178,9 @@ async fn start_amqp(context: Context, url: &str) -> Result<()> {
 pub async fn main() -> Result<()> {
     setup_logger();
 
-    let config = config::parse_config()?;
+    let cli_config = config::cli();
+
+    let config = config::parse_config(&cli_config.config_file_path)?;
 
     let context = Context {
         exchange_manager: exchange::manager::start(),
