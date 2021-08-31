@@ -52,6 +52,7 @@ impl Decoder for AMQPCodec {
                 let frame_len = src.get_u32() as usize;
 
                 // TODO here there is a panic is the frame is not long enough!
+                // FIXME rewrite it to assert instead
                 if src.len() < frame_len + 1 {
                     unreachable!();
                 }

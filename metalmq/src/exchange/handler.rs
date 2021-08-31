@@ -33,6 +33,7 @@ pub(crate) enum ExchangeCommand {
 
 struct ExchangeState {
     exchange: super::Exchange,
+    /// Queues bound by routing key
     queues: HashMap<String, QueueCommandSink>,
     outgoing: mpsc::Sender<Frame>,
 }
@@ -77,7 +78,7 @@ impl ExchangeState {
                         );
 
                         // FIXME this causes deadlock
-                        if let Err(e) = send!(queue, QueueCommand::PublishMessage(message.clone())) {
+                        if let Err(e) = send!(queue, QueueCommand::PublishMessage(message)) {
                             error!("Send error {:?}", e);
                         }
                     }
@@ -132,7 +133,6 @@ impl ExchangeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use metalmq_codec::codec;
     use metalmq_codec::frame;
 
     async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {

@@ -1,4 +1,4 @@
-use super::state::{self, Connection, MaybeFrame};
+use crate::client::state::{self, Connection, MaybeFrame};
 use crate::{Context, Result, RuntimeError};
 use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;

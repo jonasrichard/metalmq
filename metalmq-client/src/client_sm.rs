@@ -277,10 +277,10 @@ impl ClientState {
     pub(crate) async fn basic_deliver(&mut self, channel: Channel, args: frame::BasicDeliverArgs) -> Result<()> {
         let dc = DeliveredContent {
             channel,
-            consumer_tag: args.consumer_tag.clone(),
+            consumer_tag: args.consumer_tag,
             delivery_tag: args.delivery_tag,
-            exchange_name: args.exchange_name.clone(),
-            routing_key: args.routing_key.clone(),
+            exchange_name: args.exchange_name,
+            routing_key: args.routing_key,
             body_size: None,
             body: None,
         };
@@ -333,7 +333,7 @@ impl ClientState {
                     consumer_tag: dc.consumer_tag.clone(),
                     delivery_tag: dc.delivery_tag,
                     length: dc.body_size.unwrap() as usize,
-                    body: cb.body.clone(),
+                    body: cb.body,
                 };
 
                 sink.send(msg).await?

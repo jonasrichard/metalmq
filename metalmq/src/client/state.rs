@@ -374,13 +374,15 @@ impl Connection {
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
                     // TODO is this the correct way of returning Err(_)
-                    ch.send_timeout(ExchangeCommand::Message(msg), time::Duration::from_secs(1))
-                        .await;
+                    logerr!(
+                        ch.send_timeout(ExchangeCommand::Message(msg), time::Duration::from_secs(1))
+                            .await
+                    );
                     Ok(None)
                 }
                 None => {
                     if msg.mandatory {
-                        message::send_basic_return(&msg, &self.outgoing).await;
+                        logerr!(message::send_basic_return(&msg, &self.outgoing).await);
                         Ok(None)
                     } else {
                         Ok(None)

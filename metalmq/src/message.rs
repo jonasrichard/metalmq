@@ -1,4 +1,4 @@
-//! Messages are sent to exhchanges and forwarded to queues. There is a
+//! Messages are sent to exchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
@@ -6,7 +6,6 @@ use crate::{chk, send, Result};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::fmt;
-use tokio::sync::mpsc;
 
 //pub(crate) type MessageId = String;
 
@@ -34,7 +33,7 @@ impl fmt::Debug for Message {
     }
 }
 
-pub(crate) type MessageSink = mpsc::Sender<Message>;
+//pub(crate) type MessageSink = mpsc::Sender<Message>;
 
 /// Create content header and content body frames from a message
 pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
