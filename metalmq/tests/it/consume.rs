@@ -63,6 +63,9 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let ch = c.channel_open(4).await?;
 
+    ch.queue_delete(queue, false, false).await?;
+    ch.exchange_delete(exchange, false).await?;
+
     let mut ex_flags = ExchangeDeclareFlags::empty();
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
     ch.exchange_declare(exchange, "direct", Some(ex_flags)).await?;
@@ -109,6 +112,9 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
 
     let mut producer = helper::default().connect().await?;
     let channel = producer.channel_open(12).await?;
+
+    channel.queue_delete("3-queue", false, false).await?;
+    channel.exchange_delete("3-exchange", false).await?;
 
     helper::declare_exchange_queue(&channel, "3-exchange", "3-queue").await?;
 

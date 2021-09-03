@@ -309,7 +309,7 @@ async fn handle_consume(
             )?;
 
             if let Err(e) = rx.await? {
-                error!("Error {:?}", e);
+                error!("Error on queue {} {:?}", name, e);
 
                 return Err(e);
             }
