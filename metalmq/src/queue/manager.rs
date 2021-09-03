@@ -343,3 +343,43 @@ async fn handle_cancel(
         None => Ok(true),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn declare_queue_works() {
+        let queue_sink = start();
+        let queue = Queue {
+            name: "new-queue".to_string(),
+            ..Default::default()
+        };
+
+        declare_queue(&queue_sink, queue, "conn_id", 4u16).await.unwrap();
+
+        let qsink = get_command_sink(&queue_sink, 4u16, "new-queue").await.unwrap();
+
+        // TODO create func to generate message
+        let message = crate::message::Message {
+            source_connection: "src".to_string(),
+            channel: 4u16,
+            content: b"Heyya".to_vec(),
+            exchange: "new-exchange".to_string(),
+            routing_key: "".to_string(),
+            mandatory: false,
+            immediate: false
+        };
+
+        let (tx, mut rx) = mpsc::channel(16);
+        consume(&queue_sink, "other", 4u16, "new-queue", "ctag", false, false, tx).await.unwrap();
+
+        qsink.send(QueueCommand::PublishMessage(message)).await.unwrap();
+
+        let frames = rx.recv().await.unwrap();
+        if let Frame::Frames(fs) = frames {
+            // TODO make an assert function for checking the 3 frames
+            assert_eq!(fs.len(), 3);
+        }
+    }
+}
