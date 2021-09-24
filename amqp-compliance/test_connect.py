@@ -1,6 +1,7 @@
-import helper
 import pika
 import pytest
+
+import helper
 
 def test_connect_success():
     """

@@ -1,17 +1,21 @@
 import datetime
-import helper
 import logging
 import pika
 
+import helper
+
 LOG = logging.getLogger()
 
+
 class PublishConsumeTest():
+    """Convenience class for publish consume tests"""
+
     def __init__(
             self,
             channel_number=1,
             exchange_name="test-exchange",
             queue_name="test-queue"
-            ):
+    ):
         self.exchange_name = exchange_name
         self.queue_name = queue_name
 
@@ -19,11 +23,13 @@ class PublishConsumeTest():
         self.channel = self.connection.channel(channel_number=channel_number)
 
     def declare_exchange(self):
+        """Declare exchange and binds a queue to it with default routing key"""
         self.channel.exchange_declare(exchange=self.exchange_name)
         self.channel.queue_declare(self.queue_name)
         self.channel.queue_bind(self.queue_name, self.exchange_name)
 
     def close(self, without_cleanup=False):
+        """Close connection, with cleanup it deletes exchanges and queues"""
         if not without_cleanup:
             self.channel.queue_unbind(self.queue_name, self.exchange_name)
             self.channel.queue_delete(self.queue_name)
@@ -33,40 +39,49 @@ class PublishConsumeTest():
         self.connection.close()
 
     def publish(self, body):
+        """Publish a message with body to the exchange"""
         self.channel.basic_publish(
-                self.exchange_name,
-                self.queue_name,
-                body,
-                pika.BasicProperties(content_type='text/plain', delivery_mode=1))
+            self.exchange_name,
+            self.queue_name,
+            body,
+            pika.BasicProperties(content_type='text/plain', delivery_mode=1))
 
     def consume(self, on_message_delivered):
+        """Start consuming using the callback for on message delivered"""
         self.channel.basic_consume(
-                self.queue_name,
-                on_message_callback=lambda ch, method, props, body: on_message_delivered(self, ch, method, props, body))
+            self.queue_name,
+            on_message_callback=lambda ch, method, props, body:
+            on_message_delivered(self, ch, method, props, body))
         self.channel.start_consuming()
 
     def cancel_consume(self):
+        """Cancel consuming the queue"""
         self.channel.stop_consuming()
 
-def test_xyz(caplog):
+
+def test_xyz():
     """
-    TODO this will test the redelivery of un-acked messages. We publish messages in
-    an exchange, consume without acking and closing the connection. Reconnect and
-    consuming again, and receive the messages.
+    TODO this will test the redelivery of un-acked messages. We publish
+    messages in an exchange, consume without acking and closing the connection.
+    Reconnect and consuming again, and receive the messages.
     """
     expected_body = datetime.datetime.now().strftime("%H:%M:%S.%f")
 
-    def on_message(obj, channel, method, props, body):
+    def on_message(obj, _channel, _method, _props, body):
         LOG.info("on_msg %s", body)
         assert body.decode("utf-8") == expected_body
 
         obj.cancel_consume()
 
-    t = PublishConsumeTest(channel_number=3, exchange_name='ctag-exchange', queue_name='ctag_queue')
+    t = PublishConsumeTest(
+        channel_number=3,
+        exchange_name='ctag-exchange',
+        queue_name='ctag_queue')
     t.declare_exchange()
     t.publish(expected_body)
     t.consume(on_message)
     t.close(without_cleanup=True)
+
 
 def test_server_generated_consumer_tags_one_by_one_ack(caplog):
     """
@@ -99,7 +114,10 @@ def test_server_generated_consumer_tags_one_by_one_ack(caplog):
         if messages_received == 10:
             channel.stop_consuming()
 
-    t = PublishConsumeTest(channel_number=7, exchange_name='xchg-ctag-ack', queue_name='q-ctag-ack')
+    t = PublishConsumeTest(
+        channel_number=7,
+        exchange_name='xchg-ctag-ack',
+        queue_name='q-ctag-ack')
     t.declare_exchange()
 
     for i in range(0, 10):
@@ -108,6 +126,7 @@ def test_server_generated_consumer_tags_one_by_one_ack(caplog):
     # TODO how to get the consumer-tag of the consuming?
     t.consume(on_message)
     t.close()
+
 
 def test_publish_and_then_consume(caplog):
     received_messages = 0
@@ -122,7 +141,10 @@ def test_publish_and_then_consume(caplog):
         if received_messages == 10:
             obj.cancel_consume()
 
-    s = PublishConsumeTest(channel_number=6, exchange_name='xchg-late-consume', queue_name='q-late-consume')
+    s = PublishConsumeTest(
+        channel_number=6,
+        exchange_name='xchg-late-consume',
+        queue_name='q-late-consume')
     s.declare_exchange()
 
     for i in range(0, 10):
@@ -130,7 +152,10 @@ def test_publish_and_then_consume(caplog):
 
     s.close(without_cleanup=True)
 
-    c = PublishConsumeTest(channel_number=6, exchange_name='xchg-late-consume', queue_name='q-late-consume')
+    c = PublishConsumeTest(
+        channel_number=6,
+        exchange_name='xchg-late-consume',
+        queue_name='q-late-consume')
 
     c.consume(on_message)
     c.close()
