@@ -44,7 +44,7 @@ pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFra
 }
 
 pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(&message);
+    let mut frames = message_to_content_frames(message);
 
     let basic_deliver = frame::basic_deliver(
         message.channel,
@@ -62,7 +62,7 @@ pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameS
 }
 
 pub(crate) async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(&message);
+    let mut frames = message_to_content_frames(message);
 
     frames.insert(
         0,

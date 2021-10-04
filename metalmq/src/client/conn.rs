@@ -113,7 +113,7 @@ async fn send_out_frame_response(sink: &mut mpsc::Sender<Frame>, response: Frame
 fn has_connection_close_ok(frame: &Frame) -> bool {
     match frame {
         Frame::Frame(f) => is_connection_close_ok(f),
-        Frame::Frames(fs) => fs.iter().any(|f| is_connection_close_ok(&f)),
+        Frame::Frames(fs) => fs.iter().any(|f| is_connection_close_ok(f)),
     }
 }
 

@@ -17,6 +17,7 @@ pub(crate) type RequestSink = mpsc::Sender<Request>;
 
 //pub(crate) type MethodFrameCallback = dyn Fn(AMQPFrame) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
+/// Represent a client request. It can be sending a frame, consume a queue or publish data.
 pub(crate) enum Param {
     Frame(AMQPFrame),
     //    FrameCallback(AMQPFrame, Box<MethodFrameCallback>),
@@ -44,6 +45,7 @@ impl fmt::Debug for Request {
     }
 }
 
+/// Create a connection to an AMQP server and returns a sink to send the requests.
 pub(crate) async fn create_connection(url: String) -> Result<RequestSink> {
     match TcpStream::connect(url).await {
         Ok(socket) => {
@@ -274,6 +276,7 @@ async fn handle_in_method_frame(
         MethodFrameArgs::ExchangeDeleteOk => cs.exchange_delete_ok().await,
         MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
+        MethodFrameArgs::QueueDeleteOk(args) => cs.queue_delete_ok(channel, args).await,
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
         MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
@@ -298,6 +301,7 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
         MethodFrameArgs::ExchangeDelete(args) => cs.exchange_delete(channel, args).await,
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args).await,
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args).await,
+        MethodFrameArgs::QueueDelete(args) => cs.queue_delete(channel, args).await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
         _ => unimplemented!(),
     }

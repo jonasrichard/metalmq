@@ -4,11 +4,14 @@ use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
+/// The helper connection.
 #[allow(dead_code)]
 pub(crate) struct ConnData<'a> {
     params: HashMap<&'a str, &'a str>,
 }
 
+/// Create connection with the default data, virtual host is "/",
+/// user and password are "guest".
 #[allow(dead_code)]
 pub(crate) fn default<'a>() -> ConnData<'a> {
     let mut p = HashMap::new();
@@ -21,6 +24,7 @@ pub(crate) fn default<'a>() -> ConnData<'a> {
 }
 
 impl<'c, 'a: 'c> ConnData<'c> {
+    /// Change username of the connection is being built.
     #[allow(dead_code)]
     pub(crate) fn with_username(&'c mut self, username: &'a str) -> &'c Self {
         self.params.insert("username", username);
@@ -28,6 +32,7 @@ impl<'c, 'a: 'c> ConnData<'c> {
         self
     }
 
+    /// Change password of the connection is being built.
     #[allow(dead_code)]
     pub(crate) fn with_password(&'c mut self, password: &'a str) -> &'c Self {
         self.params.insert("password", password);
@@ -35,6 +40,7 @@ impl<'c, 'a: 'c> ConnData<'c> {
         self
     }
 
+    /// Change virtual host of the connection is being built.
     #[allow(dead_code)]
     pub(crate) fn with_virtual_host(&'c mut self, virtual_host: &'a str) -> &'c Self {
         self.params.insert("virtual_host", virtual_host);
@@ -42,6 +48,7 @@ impl<'c, 'a: 'c> ConnData<'c> {
         self
     }
 
+    /// Acutally connect to the server with the parameters we have set.
     #[allow(dead_code)]
     pub(crate) async fn connect(self) -> Result<Client> {
         let username = self.params.get("username").unwrap();
@@ -56,11 +63,13 @@ impl<'c, 'a: 'c> ConnData<'c> {
     }
 }
 
+/// Unwrap and downcast the error as a `ClientError`.
 #[allow(dead_code)]
 pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientError {
     result.unwrap_err().downcast::<ClientError>().unwrap()
 }
 
+/// Declare an exchange and the queue and bind them. Exchange will be auto-delete.
 #[allow(dead_code)]
 pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, queue: &str) -> Result<()> {
     let mut ex_flags = ExchangeDeclareFlags::empty();
@@ -74,6 +83,7 @@ pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, q
     Ok(())
 }
 
+/// Make a new connection and on the 1st channel it deletes the exchange.
 #[allow(dead_code)]
 pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
     let mut c = default().connect().await?;
@@ -84,6 +94,8 @@ pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
     Ok(())
 }
 
+/// Consumes `n` number of messages, collecting them and send back on the
+/// `tx` sender as a vector of messages.
 #[allow(dead_code)]
 pub(crate) async fn consume_messages<'a>(
     client_channel: &'a ClientChannel,

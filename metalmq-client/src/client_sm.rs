@@ -238,6 +238,23 @@ impl ClientState {
         Ok(())
     }
 
+    pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> Result<()> {
+        // TODO what happens if I am consuming that queue?
+        self.outgoing
+            .send(Frame::Frame(frame::queue_delete(
+                channel,
+                &args.queue_name,
+                Some(args.flags),
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn queue_delete_ok(&mut self, channel: Channel, args: frame::QueueDeleteOkArgs) -> Result<()> {
+        Ok(())
+    }
+
     pub(crate) async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::basic_ack(

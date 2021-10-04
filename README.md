@@ -17,6 +17,7 @@ cargo run --bin metalmq
 ## or to enable logs
 RUST_LOG=debug cargo run --bin metalmq
 RUST_LOG=metalmq=trace cargo run --bin metalmq
+cargo test --tests
 ```
 
 There are some examples in the `examples` directory, they implement simple scenarios of the

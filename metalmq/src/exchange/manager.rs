@@ -194,7 +194,7 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
         } => {
             logerr!(result.send(
                 handle_bind_queue(
-                    &exchanges,
+                    exchanges,
                     channel,
                     &exchange_name,
                     &queue_name,
@@ -212,7 +212,7 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
             result,
         } => {
             logerr!(
-                result.send(handle_unbind_queue(&exchanges, channel, &exchange_name, &queue_name, &routing_key).await)
+                result.send(handle_unbind_queue(exchanges, channel, &exchange_name, &queue_name, &routing_key).await)
             );
         }
         DeleteExchange {
@@ -223,7 +223,7 @@ async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, comm
             logerr!(result.send(handle_delete_exchange(&mut exchanges, channel, &exchange_name).await));
         }
         GetExchanges { result } => {
-            logerr!(result.send(handle_exchange_list(&exchanges)));
+            logerr!(result.send(handle_exchange_list(exchanges)));
         }
     }
 }

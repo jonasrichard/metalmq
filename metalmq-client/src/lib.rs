@@ -261,7 +261,9 @@ impl ClientChannel {
     }
 
     pub async fn queue_unbind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        Ok(())
+        let frame = frame::queue_unbind(self.channel, queue_name, exchange_name, routing_key);
+
+        client::sync_call(&self.sink, frame).await
     }
 
     pub async fn queue_purge(&self, queue_name: &str) -> Result<()> {
@@ -269,7 +271,13 @@ impl ClientChannel {
     }
 
     pub async fn queue_delete(&self, queue_name: &str, if_unused: bool, if_empty: bool) -> Result<()> {
-        Ok(())
+        let mut flags = frame::QueueDeleteFlags::empty();
+        flags.set(frame::QueueDeleteFlags::IF_UNUSED, if_unused);
+        flags.set(frame::QueueDeleteFlags::IF_EMPTY, if_empty);
+
+        let frame = frame::queue_delete(self.channel, queue_name, Some(flags));
+
+        client::sync_call(&self.sink, frame).await
     }
 
     /// Gives back consumer channel, see the example at `basic_consume`.
