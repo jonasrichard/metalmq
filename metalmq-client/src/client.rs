@@ -88,14 +88,18 @@ async fn socket_loop(socket: TcpStream, mut requests: mpsc::Receiver<Request>) -
     //         |                          |------------------------->|
     //         |                          |                          |
 
+    // I/O output port, handles outgoing frames sent via a channel.
     tokio::spawn(async move {
         if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
             error!("Error {:?}", e);
         }
     });
 
+    // I/O input loop
     loop {
         tokio::select! {
+            // Receiving incoming frames. Here we can handle any IO error and the
+            // closing of the input stream (server closes the stream).
             incoming = stream.next() => {
                 match incoming {
                     Some(Ok(Frame::Frame(frame))) => {
@@ -276,6 +280,7 @@ async fn handle_in_method_frame(
         MethodFrameArgs::ExchangeDeleteOk => cs.exchange_delete_ok().await,
         MethodFrameArgs::QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         MethodFrameArgs::QueueBindOk => cs.queue_bind_ok().await,
+        MethodFrameArgs::QueueUnbindOk => cs.queue_unbind_ok().await,
         MethodFrameArgs::QueueDeleteOk(args) => cs.queue_delete_ok(channel, args).await,
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
@@ -301,9 +306,10 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
         MethodFrameArgs::ExchangeDelete(args) => cs.exchange_delete(channel, args).await,
         MethodFrameArgs::QueueDeclare(args) => cs.queue_declare(channel, args).await,
         MethodFrameArgs::QueueBind(args) => cs.queue_bind(channel, args).await,
+        MethodFrameArgs::QueueUnbind(args) => cs.queue_unbind(channel, args).await,
         MethodFrameArgs::QueueDelete(args) => cs.queue_delete(channel, args).await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
-        _ => unimplemented!(),
+        _ => unimplemented!("{:?}", ma),
     }
 }
 

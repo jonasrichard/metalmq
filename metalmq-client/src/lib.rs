@@ -288,6 +288,13 @@ impl ClientChannel {
         }
     }
 
+    // TODO consume should spawn a thread and on that thread the client can
+    // execute its callback. From that thread we can ack or reject the message,
+    // so the consumer channel won't be affected. Also in the consumer channel,
+    // the client.rs module can buffer the messages, so if the server support
+    // some kind of qos, it won't send more messages while the client has a
+    // lot of unacked messages.
+
     /// Consumes messages from a queue.
     ///
     /// ```no_run

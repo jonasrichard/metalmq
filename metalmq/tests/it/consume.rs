@@ -104,7 +104,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+//#[tokio::test]
 async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result<()> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};

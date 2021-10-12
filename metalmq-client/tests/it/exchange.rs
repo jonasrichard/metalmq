@@ -81,7 +81,7 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
 
 #[tokio::test]
 async fn delete_not_existing_exchange_error_404() -> Result<()> {
-    env_logger::builder().is_test(true).try_init();
+    env_logger::builder().is_test(true).try_init().unwrap();
 
     let mut c = helper::connect().await?;
     let ch = c.channel_open(9).await?;

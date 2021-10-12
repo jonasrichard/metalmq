@@ -238,6 +238,23 @@ impl ClientState {
         Ok(())
     }
 
+    pub (crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
+        self.outgoing
+            .send(Frame::Frame(frame::queue_unbind(
+                channel,
+                &args.queue_name,
+                &args.exchange_name,
+                &args.routing_key
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn queue_unbind_ok(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> Result<()> {
         // TODO what happens if I am consuming that queue?
         self.outgoing
