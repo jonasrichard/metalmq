@@ -81,3 +81,30 @@ pub(crate) async fn send_basic_return(message: &Message, outgoing: &FrameSink) -
 
     Ok(())
 }
+
+async fn x() -> Result<()> {
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    let data = Arc::new(Message{
+        channel: 1u16,
+        content: "Hello".to_string().as_bytes().to_vec(),
+        exchange: "test".to_string(),
+        immediate: false,
+        mandatory: false,
+        routing_key: "*".to_string(),
+        source_connection: "1".to_string(),
+    });
+
+    let (tx, mut rx) = mpsc::channel::<Arc<Message>>(1);
+
+    tokio::spawn(async move {
+        if let Some(m) = rx.recv().await {
+            let _ = m.channel;
+        }
+    });
+
+    tx.send(data).await?;
+
+    Ok(())
+}

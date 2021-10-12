@@ -74,6 +74,15 @@ struct QueueState {
     // TODO message metrics, current, current outgoing, etc...
 }
 
+// TODO consumer should have a counter of the in-flight messages.
+// In that case we don't have the mpsc buffer full in the client
+// because we know what is the size of the message buffer. On the
+// other hand, we need to implement a receive message buffer in
+// client, so we won't have problem when the client callback
+// takes too much time to complete. Even though, right now we
+// have only mpsc receiver-based client message processing, in
+// case of a message buffer, we can make independent the receive
+// of messages on client side, and to call the callback.
 struct Consumer {
     /// Consumer tag, identifies the consumer
     consumer_tag: String,

@@ -159,6 +159,8 @@ impl Connection {
 
         self.open_channels.retain(|c| c != &channel);
 
+        // TODO use debug_assert! for checking state
+
         Ok(Some(Frame::Frame(frame::channel_close_ok(channel))))
     }
 
