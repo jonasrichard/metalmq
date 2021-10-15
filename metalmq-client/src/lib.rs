@@ -107,10 +107,27 @@ pub struct ClientChannel {
     sink: RequestSink,
 }
 
-#[derive(Debug)]
-pub struct Consumer {
-    channel: Channel,
-    sink: RequestSink,
+pub enum ConsumeResult {
+    Ack {
+        delivery_tag: u64,
+        multiple: bool,
+        cancel: bool,
+    },
+    Nack {
+        delivery_tag: u64,
+        multiple: bool,
+        requeue: bool,
+        cancel: bool,
+    },
+    Reject {
+        delivery_tag: u64,
+        requeue: bool,
+        cancel: bool,
+    },
+}
+
+pub trait Consumer {
+    fn on_message(&mut self, message: Message) -> ConsumeResult;
 }
 
 pub type ReturnCallback = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
@@ -280,66 +297,69 @@ impl ClientChannel {
         client::sync_call(&self.sink, frame).await
     }
 
-    /// Gives back consumer channel, see the example at `basic_consume`.
-    pub fn consumer(&self) -> Consumer {
-        Consumer {
-            channel: self.channel,
-            sink: self.sink.clone(),
-        }
-    }
-
     // TODO consume should spawn a thread and on that thread the client can
     // execute its callback. From that thread we can ack or reject the message,
     // so the consumer channel won't be affected. Also in the consumer channel,
     // the client.rs module can buffer the messages, so if the server support
     // some kind of qos, it won't send more messages while the client has a
     // lot of unacked messages.
+    //
+    // Because of the lifetimes it would be nice if we consume on a channel, we
+    // give up the ownership and move the channel inside the tokio thread. Why?
+    // Because inside the thread on the channel we need to send back acks or
+    // nacks and so on, so the thread uses the channel. But since we don't want
+    // to run into multithreading issue, we need to move the channel to the
+    // thread and forget that channel in the main code which consumes.
 
-    /// Consumes messages from a queue.
-    ///
-    /// ```no_run
-    /// use metalmq_client::*;
-    /// use tokio::sync::{mpsc, oneshot};
-    ///
-    /// async fn consume_channel(ch: &ClientChannel) -> Vec<Message> {
-    ///     // for acking the delivery
-    ///     let consumer = ch.consumer();
-    ///     // for the client to send the incoming messages to us
-    ///     let (msg_tx, mut msg_rx) = mpsc::channel::<Message>(16);
-    ///     // to sign the end of the processing
-    ///     let (ready_tx, ready_rx) = oneshot::channel();
-    ///
-    ///     let mut count = 0u16;
-    ///     let mut messages = vec![];
-    ///
-    ///     tokio::spawn(async move {
-    ///         while let Some(message) = msg_rx.recv().await {
-    ///             consumer.basic_ack(message.delivery_tag).await.unwrap();
-    ///             messages.push(message);
-    ///
-    ///             count += 1;
-    ///             if count == 10 {
-    ///                 break;
-    ///             }
-    ///         }
-    ///
-    ///         ready_tx.send(messages).unwrap();
-    ///     });
-    ///
-    ///     ch.basic_consume("queue", "my-ctag", None, msg_tx).await.unwrap();
-    ///
-    ///     ready_rx.await.unwrap_or(vec![])
-    /// }
-    /// ```
-    pub async fn basic_consume(
-        &self,
-        queue_name: &str,
-        consumer_tag: &str,
+    pub async fn basic_consume<'a>(
+        &'a self,
+        queue_name: &'a str,
+        consumer_tag: &'a str,
         flags: Option<frame::BasicConsumeFlags>,
-        sink: MessageSink,
-    ) -> Result<()> {
+        mut consumer: Box<dyn Consumer + Send + 'static>,
+    ) -> Result<oneshot::Receiver<bool>> {
         let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags);
         let (tx, rx) = oneshot::channel();
+
+        // TODO this will be the buffer of the inflight messages
+        let (sink, mut stream) = mpsc::channel::<Message>(16);
+
+        // Clone the channel in order that users can use this ClientChannel
+        // to publish messages.
+        let channel_clone = ClientChannel {
+            channel: self.channel,
+            sink: self.sink.clone(),
+        };
+
+        let (consume_tx, consume_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            // Result of the oneshot channel what the user listens for the result of the
+            // whole consume process.
+            let mut result = true;
+
+            while let Some(message) = stream.recv().await {
+                match consumer.on_message(message) {
+                    ConsumeResult::Ack {
+                        delivery_tag,
+                        multiple,
+                        cancel,
+                    } => {
+                        if let Err(_) = channel_clone.basic_ack(delivery_tag, multiple).await {
+                            result = false;
+                            break;
+                        }
+
+                        if cancel {
+                            break;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+
+            consume_tx.send(result);
+        });
 
         self.sink
             .send(client::Request {
@@ -350,7 +370,7 @@ impl ClientChannel {
 
         match rx.await {
             Ok(response) => match response {
-                Ok(()) => Ok(()),
+                Ok(()) => Ok(consume_rx),
                 Err(e) => Err(e),
             },
             Err(_) => client_error!(None, 501, "Channel recv error", 0),
@@ -393,24 +413,17 @@ impl ClientChannel {
     pub async fn add_on_close_callback(&mut self) -> Result<()> {
         Ok(())
     }
-}
 
-impl Consumer {
-    pub async fn basic_ack(&self, delivery_tag: u64) -> Result<()> {
-        let frame = frame::basic_ack(self.channel, delivery_tag, false);
+    async fn basic_ack(&self, delivery_tag: u64, multiple: bool) -> Result<()> {
+        let frame = frame::basic_ack(self.channel, delivery_tag, multiple);
 
-        client::call(&self.sink, frame).await
-    }
+        self.sink
+            .send(client::Request {
+                param: client::Param::Frame(frame),
+                response: None,
+            })
+            .await?;
 
-    pub async fn basic_nack(&self, delivery_tag: u64, multiple: bool, requeue: bool) -> Result<()> {
-        Ok(())
-    }
-
-    pub async fn basic_reject(&self, delivery_tag: u64, requeue: bool) -> Result<()> {
-        Ok(())
-    }
-
-    pub async fn cancel(&self) -> Result<()> {
         Ok(())
     }
 }

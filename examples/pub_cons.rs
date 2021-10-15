@@ -1,7 +1,26 @@
 use anyhow::Result;
 use log::{error, info};
+use metalmq_client::*;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
+
+struct Counter {
+    counter: u32,
+}
+
+impl Consumer for Counter {
+    fn on_message(&mut self, message: Message) -> ConsumeResult {
+        self.counter += 1;
+
+        let cancel = self.counter == 1024;
+
+        ConsumeResult::Ack {
+            delivery_tag: message.delivery_tag,
+            multiple: false,
+            cancel,
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,35 +40,9 @@ async fn main() -> Result<()> {
 
     let message_count = 1024u32;
 
-    let (otx, orx) = oneshot::channel();
+    let counter = Counter { counter: 0 };
 
-    let (tx, mut rx) = mpsc::channel::<metalmq_client::Message>(512);
-    let consumer = channel.consumer();
-
-    tokio::spawn(async move {
-        let mut count = 0u32;
-
-        //info!("Waiting for incoming messages...");
-
-        while let Some(msg) = rx.recv().await {
-            //info!("count = {}, delivery_tag = {}", count, msg.delivery_tag);
-
-            // FIXME here we have a deadlock. When we are waiting here, the client_sm
-            // wants to send a message to this rx channel and we are waiting here, so
-            // it also blocks.
-            if let Err(e) = consumer.basic_ack(msg.delivery_tag).await {
-                error!("Error during sending basic.ack {:?}", e);
-            }
-
-            count += 1;
-            if count == message_count {
-                break;
-            }
-        }
-        otx.send(()).unwrap();
-    });
-
-    channel.basic_consume(queue, "ctag", None, tx).await?;
+    let consume_result = channel.basic_consume(queue, "ctag", None, Box::new(counter)).await?;
 
     let message = "This will be the test message what we send over multiple times";
 
@@ -59,7 +52,7 @@ async fn main() -> Result<()> {
         channel.basic_publish(exchange, "", message.to_string()).await?;
     }
 
-    orx.await.unwrap();
+    consume_result.await.unwrap();
 
     println!(
         "Send and receive {} messages: {:?}",
