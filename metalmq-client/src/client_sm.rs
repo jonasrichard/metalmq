@@ -238,13 +238,13 @@ impl ClientState {
         Ok(())
     }
 
-    pub (crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
+    pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::queue_unbind(
                 channel,
                 &args.queue_name,
                 &args.exchange_name,
-                &args.routing_key
+                &args.routing_key,
             )))
             .await?;
 
@@ -305,6 +305,22 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_consume_ok(&mut self, _args: frame::BasicConsumeOkArgs) -> Result<()> {
+        Ok(())
+    }
+
+    pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> Result<()> {
+        self.outgoing
+            .send(Frame::Frame(frame::basic_cancel(
+                channel,
+                &args.consumer_tag,
+                args.no_wait,
+            )))
+            .await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn basic_cancel_ok(&mut self, channel: Channel, args: frame::BasicCancelOkArgs) -> Result<()> {
         Ok(())
     }
 

@@ -107,28 +107,35 @@ pub struct ClientChannel {
     sink: RequestSink,
 }
 
-pub enum ConsumeResult {
+pub enum ConsumeInput {
+    Delivered(Message),
+    Cancelled,
+    Error,
+}
+
+pub enum ConsumeResponse {
     Ack {
         delivery_tag: u64,
         multiple: bool,
-        cancel: bool,
     },
     Nack {
         delivery_tag: u64,
         multiple: bool,
         requeue: bool,
-        cancel: bool,
     },
     Reject {
         delivery_tag: u64,
         requeue: bool,
-        cancel: bool,
     },
+    Nothing,
 }
 
-pub trait Consumer {
-    fn on_message(&mut self, message: Message) -> ConsumeResult;
+pub struct ConsumeResult<T> {
+    pub result: Option<T>,
+    pub ack_response: ConsumeResponse,
 }
+
+pub type ConsumerFn<T> = dyn FnMut(ConsumeInput) -> ConsumeResult<T> + Send + Sync;
 
 pub type ReturnCallback = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
@@ -311,13 +318,13 @@ impl ClientChannel {
     // to run into multithreading issue, we need to move the channel to the
     // thread and forget that channel in the main code which consumes.
 
-    pub async fn basic_consume<'a>(
+    pub async fn basic_consume<'a, T: Send + 'static>(
         &'a self,
         queue_name: &'a str,
         consumer_tag: &'a str,
         flags: Option<frame::BasicConsumeFlags>,
-        mut consumer: Box<dyn Consumer + Send + 'static>,
-    ) -> Result<oneshot::Receiver<bool>> {
+        mut consumer: Box<ConsumerFn<T>>,
+    ) -> Result<oneshot::Receiver<Option<T>>> {
         let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags);
         let (tx, rx) = oneshot::channel();
 
@@ -336,29 +343,40 @@ impl ClientChannel {
         tokio::spawn(async move {
             // Result of the oneshot channel what the user listens for the result of the
             // whole consume process.
-            let mut result = true;
+            let mut final_result: Option<T> = None;
 
-            while let Some(message) = stream.recv().await {
-                match consumer.on_message(message) {
-                    ConsumeResult::Ack {
-                        delivery_tag,
-                        multiple,
-                        cancel,
-                    } => {
-                        if let Err(_) = channel_clone.basic_ack(delivery_tag, multiple).await {
-                            result = false;
-                            break;
-                        }
+            loop {
+                match stream.recv().await {
+                    Some(message) => {
+                        match consumer(ConsumeInput::Delivered(message)) {
+                            ConsumeResult { result, ack_response } => {
+                                match ack_response {
+                                    ConsumeResponse::Ack { delivery_tag, multiple } => {
+                                        channel_clone.basic_ack(delivery_tag, multiple).await;
+                                        ()
+                                    }
+                                    _ => unimplemented!(),
+                                }
 
-                        if cancel {
-                            break;
-                        }
+                                match result {
+                                    r @ Some(_) => {
+                                        final_result = r;
+                                        break;
+                                    }
+                                    _ => (),
+                                }
+                            }
+                        };
                     }
-                    _ => (),
+                    None => match consumer(ConsumeInput::Cancelled) {
+                        _ => {
+                            break;
+                        }
+                    },
                 }
             }
 
-            consume_tx.send(result);
+            consume_tx.send(final_result);
         });
 
         self.sink
@@ -375,6 +393,20 @@ impl ClientChannel {
             },
             Err(_) => client_error!(None, 501, "Channel recv error", 0),
         }
+    }
+
+    pub async fn basic_cancel(&self, consumer_tag: &str) -> Result<()> {
+        let frame = frame::basic_cancel(self.channel, consumer_tag, false);
+        let (tx, rx) = oneshot::channel();
+
+        self.sink
+            .send(client::Request {
+                param: client::Param::Frame(frame),
+                response: Some(tx),
+            })
+            .await?;
+
+        rx.await?
     }
 
     pub async fn basic_publish(&self, exchange_name: &str, routing_key: &str, payload: String) -> Result<()> {

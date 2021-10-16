@@ -102,26 +102,44 @@ pub(crate) async fn consume_messages<'a>(
     queue: &'a str,
     ctag: &'a str,
     flags: Option<BasicConsumeFlags>,
-    tx: oneshot::Sender<Vec<Message>>,
     n: usize,
-) -> Result<()> {
-    let (sink, mut source) = mpsc::channel(1);
+) -> Result<oneshot::Receiver<Option<Vec<Message>>>> {
+    use std::sync::{Arc, Mutex};
 
-    tokio::spawn(async move {
-        let mut messages = vec![];
+    let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
 
-        while let Some(msg) = source.recv().await {
-            messages.push(msg);
+    let receiver = move |input: ConsumeInput| match input {
+        ConsumeInput::Delivered(message) => {
+            let delivery_tag = message.delivery_tag;
+            let mut msgs = messages.lock().unwrap();
+            msgs.push(message);
 
-            if messages.len() == n {
-                break;
+            let response = ConsumeResponse::Ack {
+                delivery_tag: delivery_tag,
+                multiple: false,
+            };
+
+            if msgs.len() >= n {
+                let ms = msgs.drain(0..).collect();
+
+                ConsumeResult {
+                    result: Some(ms),
+                    ack_response: response,
+                }
+            } else {
+                ConsumeResult {
+                    result: None,
+                    ack_response: response,
+                }
             }
         }
+        _ => ConsumeResult {
+            result: None,
+            ack_response: ConsumeResponse::Nothing,
+        },
+    };
 
-        tx.send(messages).unwrap();
-    });
-
-    client_channel.basic_consume(queue, ctag, flags, sink).await?;
-
-    Ok(())
+    client_channel
+        .basic_consume(queue, ctag, flags, Box::new(receiver))
+        .await
 }

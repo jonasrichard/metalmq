@@ -285,6 +285,7 @@ async fn handle_in_method_frame(
         MethodFrameArgs::ConnectionCloseOk => cs.connection_close_ok().await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
         MethodFrameArgs::BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
+        MethodFrameArgs::BasicCancelOk(args) => cs.basic_cancel_ok(channel, args).await,
         MethodFrameArgs::BasicDeliver(args) => cs.basic_deliver(channel, args).await,
         MethodFrameArgs::ChannelClose(args) => cs.handle_channel_close(channel, args).await,
         //    // TODO check if client is consuming messages from that channel + consumer tag
@@ -309,6 +310,7 @@ async fn handle_out_frame(channel: frame::Channel, ma: MethodFrameArgs, cs: &mut
         MethodFrameArgs::QueueUnbind(args) => cs.queue_unbind(channel, args).await,
         MethodFrameArgs::QueueDelete(args) => cs.queue_delete(channel, args).await,
         MethodFrameArgs::BasicAck(args) => cs.basic_ack(channel, args).await,
+        MethodFrameArgs::BasicCancel(args) => cs.basic_cancel(channel, args).await,
         _ => unimplemented!("{:?}", ma),
     }
 }

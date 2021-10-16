@@ -4,24 +4,6 @@ use metalmq_client::*;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
-struct Counter {
-    counter: u32,
-}
-
-impl Consumer for Counter {
-    fn on_message(&mut self, message: Message) -> ConsumeResult {
-        self.counter += 1;
-
-        let cancel = self.counter == 1024;
-
-        ConsumeResult::Ack {
-            delivery_tag: message.delivery_tag,
-            multiple: false,
-            cancel,
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let exchange = "x_pubsub";
@@ -38,9 +20,29 @@ async fn main() -> Result<()> {
     channel.queue_declare(queue, None).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
-    let message_count = 1024u32;
+    let message_count = 128u32;
+    let mut received_count = 0u32;
 
-    let counter = Counter { counter: 0 };
+    let counter = move |i: ConsumeInput| {
+        match i {
+            ConsumeInput::Delivered(m) => {
+                received_count += 1;
+
+                ConsumeResult {
+                    result: None,
+                    ack_response: ConsumeResponse::Ack {
+                        delivery_tag: m.delivery_tag,
+                        multiple: false,
+                    }
+                }
+            },
+            ConsumeInput::Cancelled | ConsumeInput::Error =>
+                ConsumeResult {
+                    result: Some(received_count),
+                    ack_response: ConsumeResponse::Nothing,
+                },
+        }
+    };
 
     let consume_result = channel.basic_consume(queue, "ctag", None, Box::new(counter)).await?;
 
@@ -51,6 +53,8 @@ async fn main() -> Result<()> {
     for _ in 0..message_count {
         channel.basic_publish(exchange, "", message.to_string()).await?;
     }
+
+    channel.basic_cancel("ctag").await?;
 
     consume_result.await.unwrap();
 
