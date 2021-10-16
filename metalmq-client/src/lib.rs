@@ -22,6 +22,7 @@ mod client_sm;
 use crate::client::RequestSink;
 use anyhow::Result;
 use env_logger::Builder;
+use log::info;
 use metalmq_codec::frame;
 use std::fmt;
 use std::future::Future;
@@ -113,6 +114,7 @@ pub enum ConsumeInput {
     Error,
 }
 
+#[derive(Debug)]
 pub enum ConsumeResponse {
     Ack {
         delivery_tag: u64,
@@ -130,6 +132,7 @@ pub enum ConsumeResponse {
     Nothing,
 }
 
+#[derive(Debug)]
 pub struct ConsumeResult<T> {
     pub result: Option<T>,
     pub ack_response: ConsumeResponse,
@@ -318,7 +321,7 @@ impl ClientChannel {
     // to run into multithreading issue, we need to move the channel to the
     // thread and forget that channel in the main code which consumes.
 
-    pub async fn basic_consume<'a, T: Send + 'static>(
+    pub async fn basic_consume<'a, T: std::fmt::Debug + Send + 'static>(
         &'a self,
         queue_name: &'a str,
         consumer_tag: &'a str,
@@ -329,6 +332,7 @@ impl ClientChannel {
         let (tx, rx) = oneshot::channel();
 
         // TODO this will be the buffer of the inflight messages
+        // FIXME if it is smaller that the messages we want to receive, it hangs :(
         let (sink, mut stream) = mpsc::channel::<Message>(16);
 
         // Clone the channel in order that users can use this ClientChannel
@@ -361,7 +365,6 @@ impl ClientChannel {
                                 match result {
                                     r @ Some(_) => {
                                         final_result = r;
-                                        break;
                                     }
                                     _ => (),
                                 }
@@ -369,13 +372,18 @@ impl ClientChannel {
                         };
                     }
                     None => match consumer(ConsumeInput::Cancelled) {
-                        _ => {
+                        ConsumeResult { result, ack_response } => {
+                            if let Some(r) = result {
+                                final_result = Some(r);
+                            }
+
                             break;
                         }
                     },
                 }
             }
 
+            // here we need to send basic cancel
             consume_tx.send(final_result);
         });
 

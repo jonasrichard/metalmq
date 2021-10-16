@@ -43,6 +43,8 @@ pub(crate) struct ClientState {
     consumers: HashMap<Channel, MessageSink>,
     in_delivery: HashMap<Channel, DeliveredContent>,
     outgoing: mpsc::Sender<Frame>,
+    /// The last delivery tag we sent out per channel.
+    ack_sent: HashMap<Channel, u64>,
 }
 
 impl fmt::Debug for ClientState {
@@ -63,6 +65,7 @@ pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
         consumers: HashMap::new(),
         in_delivery: HashMap::new(),
         outgoing,
+        ack_sent: HashMap::new(),
     }
 }
 
@@ -281,6 +284,13 @@ impl ClientState {
             )))
             .await?;
 
+        if let Some(dt) = self.ack_sent.get_mut(&channel) {
+            debug_assert!(*dt < args.delivery_tag);
+            *dt = args.delivery_tag;
+        } else {
+            self.ack_sent.insert(channel, args.delivery_tag);
+        }
+
         Ok(())
     }
 
@@ -358,8 +368,6 @@ impl ClientState {
     }
 
     pub(crate) async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> Result<()> {
-        //debug!("Content header arrived {:?}", ch);
-
         if let Some(dc) = self.in_delivery.get_mut(&ch.channel) {
             dc.body_size = Some(ch.body_size);
         }
@@ -370,12 +378,8 @@ impl ClientState {
     }
 
     pub(crate) async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> Result<()> {
-        //debug!("Content body arrived {:?}", cb);
-
         if let Some(dc) = self.in_delivery.get(&cb.channel) {
             debug!("Delivered content is {:?} so far", dc);
-
-            debug!("Consumers {:?}", self.consumers);
 
             if let Some(sink) = self.consumers.get(&dc.channel) {
                 let msg = Message {
