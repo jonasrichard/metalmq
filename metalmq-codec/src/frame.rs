@@ -344,7 +344,7 @@ bitflags! {
 
 impl Default for BasicConsumeFlags {
     fn default() -> Self {
-        BasicConsumeFlags::NO_ACK
+        BasicConsumeFlags::empty()
     }
 }
 
