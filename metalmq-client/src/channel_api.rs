@@ -1,10 +1,11 @@
 use crate::client_api::{ClientRequest, ClientRequestSink, Param};
+use crate::client_error;
 use crate::model::ChannelNumber;
 use crate::processor;
 use anyhow::Result;
 use metalmq_codec::frame;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub struct Channel {
@@ -43,16 +44,29 @@ pub enum ConsumerSignal {
 }
 
 pub enum ConsumerAck {
-    Ack,
-    Nack,
-    Reject,
-    Nothin,
+    Ack {
+        delivery_tag: u64,
+        multiple: bool,
+    },
+    Nack {
+        delivery_tag: u64,
+        multiple: bool,
+        requeue: bool,
+    },
+    Reject {
+        delivery_tag: u64,
+        requeue: bool,
+    },
+    Nothing,
 }
 
+// TODO create functions which generates these value
 pub struct ConsumerResponse<T> {
-    result: Option<T>,
-    ack: ConsumerAck,
+    pub result: Option<T>,
+    pub ack: ConsumerAck,
 }
+
+pub type ConsumerFn<T> = dyn FnMut(ConsumerSignal) -> ConsumerResponse<T> + Send + Sync;
 
 impl Channel {
     pub(crate) fn new(channel: ChannelNumber, sink: ClientRequestSink) -> Channel {
@@ -133,6 +147,124 @@ impl Channel {
             .await?;
 
         Ok(())
+    }
+
+    // TODO consume should spawn a thread and on that thread the client can
+    // execute its callback. From that thread we can ack or reject the message,
+    // so the consumer channel won't be affected. Also in the consumer channel,
+    // the client.rs module can buffer the messages, so if the server support
+    // some kind of qos, it won't send more messages while the client has a
+    // lot of unacked messages.
+    //
+    // Because of the lifetimes it would be nice if we consume on a channel, we
+    // give up the ownership and move the channel inside the tokio thread. Why?
+    // Because inside the thread on the channel we need to send back acks or
+    // nacks and so on, so the thread uses the channel. But since we don't want
+    // to run into multithreading issue, we need to move the channel to the
+    // thread and forget that channel in the main code which consumes.
+
+    pub async fn basic_consume<'a, T: std::fmt::Debug + Send + 'static>(
+        &'a self,
+        queue_name: &'a str,
+        consumer_tag: &'a str,
+        flags: Option<frame::BasicConsumeFlags>,
+        mut consumer: Box<ConsumerFn<T>>,
+    ) -> Result<oneshot::Receiver<Option<T>>> {
+        let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags);
+        let (tx, rx) = oneshot::channel();
+
+        // TODO this will be the buffer of the inflight messages
+        // FIXME if it is smaller that the messages we want to receive, it hangs :(
+        let (sink, mut stream) = mpsc::channel::<ConsumerSignal>(16);
+
+        // Clone the channel in order that users can use this ClientChannel
+        // to publish messages.
+        let client_request_sink = self.sink.clone();
+        let channel_number = self.channel;
+
+        let (consume_tx, consume_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            // Result of the oneshot channel what the user listens for the result of the
+            // whole consume process.
+            let mut final_result: Option<T> = None;
+
+            loop {
+                match stream.recv().await {
+                    Some(signal) => {
+                        match consumer(signal) {
+                            ConsumerResponse { result, ack } => {
+                                match ack {
+                                    ConsumerAck::Ack { delivery_tag, multiple } => {
+                                        // FIXME this should not be public api, so no channel
+                                        // struct needed
+                                        let ack_frame = frame::basic_ack(channel_number, delivery_tag, false);
+
+                                        client_request_sink
+                                            .send(ClientRequest {
+                                                param: Param::Frame(ack_frame),
+                                                response: None,
+                                            })
+                                            .await;
+
+                                        ()
+                                    }
+                                    _ => unimplemented!(),
+                                }
+
+                                match result {
+                                    r @ Some(_) => {
+                                        final_result = r;
+                                    }
+                                    _ => (),
+                                }
+                            }
+                        };
+                    }
+                    None => match consumer(ConsumerSignal::Cancelled) {
+                        ConsumerResponse { result, ack } => {
+                            if let Some(r) = result {
+                                final_result = Some(r);
+                            }
+
+                            break;
+                        }
+                    },
+                }
+            }
+
+            // here we need to send basic cancel
+            consume_tx.send(final_result);
+        });
+
+        self.sink
+            .send(ClientRequest {
+                param: Param::Consume(frame, sink),
+                response: Some(tx),
+            })
+            .await?;
+
+        match rx.await {
+            Ok(response) => match response {
+                Ok(()) => Ok(consume_rx),
+                Err(e) => Err(e),
+            },
+            Err(_) => client_error!(None, 501, "Channel recv error", 0),
+        }
+    }
+
+    pub async fn basic_cancel(&self, consumer_tag: &str) -> Result<()> {
+        let frame = frame::basic_cancel(self.channel, consumer_tag, false);
+        let (tx, rx) = oneshot::channel();
+
+        self.sink
+            .send(ClientRequest {
+                param: Param::Frame(frame),
+                response: Some(tx),
+            })
+            .await?;
+
+        rx.await?
     }
 
     /// Closes the channel.

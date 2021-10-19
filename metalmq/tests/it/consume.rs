@@ -2,7 +2,7 @@
 
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{ConsumeInput, ConsumeResponse, ConsumeResult, Message};
+use metalmq_client::{ConsumerAck, ConsumerResponse, ConsumerSignal, Message};
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags, QueueDeclareFlags};
 use tokio::sync::{mpsc, oneshot};
 
@@ -127,9 +127,9 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
 
         message_count.lock().unwrap().insert(i, 0);
 
-        let counter = move |ci: ConsumeInput| {
+        let counter = move |ci: ConsumerSignal| {
             match ci {
-                ConsumeInput::Delivered(m) => {
+                ConsumerSignal::Delivered(m) => {
                     // Count the messages per consumer number
                     let mut mc = msg_count.lock().unwrap();
                     if let Some(c) = mc.get_mut(&i) {
@@ -140,17 +140,17 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
                     let mut tc = total_count.lock().unwrap();
                     *tc += 1;
 
-                    ConsumeResult {
+                    ConsumerResponse {
                         result: None,
-                        ack_response: ConsumeResponse::Ack {
+                        ack: ConsumerAck::Ack {
                             delivery_tag: m.delivery_tag,
                             multiple: false,
                         },
                     }
                 }
-                _ => ConsumeResult {
+                _ => ConsumerResponse {
                     result: Some(()),
-                    ack_response: ConsumeResponse::Nothing,
+                    ack: ConsumerAck::Nothing,
                 },
             }
         };
@@ -178,7 +178,7 @@ async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result
         }
     }*/
 
-    for cons in &consumers {
+    for cons in &mut consumers {
         cons.close().await.unwrap();
     }
 

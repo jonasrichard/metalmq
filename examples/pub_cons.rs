@@ -14,7 +14,6 @@ async fn main() -> Result<()> {
     metalmq_client::setup_logger();
 
     let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
-    client.open("/").await?;
 
     let publisher = client.channel_open(1).await?;
 
@@ -27,24 +26,24 @@ async fn main() -> Result<()> {
     let message_count = 1u32;
     let mut received_count = 0u32;
 
-    let counter = move |i: ConsumeInput| match i {
-        ConsumeInput::Delivered(m) => {
+    let counter = move |i: ConsumerSignal| match i {
+        ConsumerSignal::Delivered(m) => {
             received_count += 1;
 
-            ConsumeResult {
+            ConsumerResponse {
                 result: None,
-                ack_response: ConsumeResponse::Ack {
+                ack: ConsumerAck::Ack {
                     delivery_tag: m.delivery_tag,
                     multiple: false,
                 },
             }
         }
-        ConsumeInput::Cancelled | ConsumeInput::Error => {
+        ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed | ConsumerSignal::ConnectionClosed => {
             info!("Consuming cancelled after {} messages received", received_count);
 
-            ConsumeResult {
+            ConsumerResponse {
                 result: Some(received_count),
-                ack_response: ConsumeResponse::Nothing,
+                ack: ConsumerAck::Nothing,
             }
         }
     };

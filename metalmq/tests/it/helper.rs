@@ -2,7 +2,7 @@ use anyhow::Result;
 use metalmq_client::*;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 /// The helper connection.
 #[allow(dead_code)]
@@ -57,8 +57,6 @@ impl<'c, 'a: 'c> ConnData<'c> {
 
         let client = metalmq_client::connect("localhost:5672", username, password).await?;
 
-        client.open(virtual_host).await?;
-
         Ok(client)
     }
 }
@@ -71,7 +69,7 @@ pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientEr
 
 /// Declare an exchange and the queue and bind them. Exchange will be auto-delete.
 #[allow(dead_code)]
-pub(crate) async fn declare_exchange_queue(ch: &ClientChannel, exchange: &str, queue: &str) -> Result<()> {
+pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: &str) -> Result<()> {
     let mut ex_flags = ExchangeDeclareFlags::empty();
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
 
@@ -98,7 +96,7 @@ pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
 /// `tx` sender as a vector of messages.
 #[allow(dead_code)]
 pub(crate) async fn consume_messages<'a>(
-    client_channel: &'a ClientChannel,
+    client_channel: &'a Channel,
     queue: &'a str,
     ctag: &'a str,
     flags: Option<BasicConsumeFlags>,
@@ -108,34 +106,34 @@ pub(crate) async fn consume_messages<'a>(
 
     let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
 
-    let receiver = move |input: ConsumeInput| match input {
-        ConsumeInput::Delivered(message) => {
+    let receiver = move |input: ConsumerSignal| match input {
+        ConsumerSignal::Delivered(message) => {
             let delivery_tag = message.delivery_tag;
             let mut msgs = messages.lock().unwrap();
             msgs.push(message);
 
-            let response = ConsumeResponse::Ack {
-                delivery_tag: delivery_tag,
+            let response = ConsumerAck::Ack {
+                delivery_tag,
                 multiple: false,
             };
 
             if msgs.len() >= n {
                 let ms = msgs.drain(0..).collect();
 
-                ConsumeResult {
+                ConsumerResponse {
                     result: Some(ms),
-                    ack_response: response,
+                    ack: response,
                 }
             } else {
-                ConsumeResult {
+                ConsumerResponse {
                     result: None,
-                    ack_response: response,
+                    ack: response,
                 }
             }
         }
-        _ => ConsumeResult {
+        _ => ConsumerResponse {
             result: None,
-            ack_response: ConsumeResponse::Nothing,
+            ack: ConsumerAck::Nothing,
         },
     };
 
