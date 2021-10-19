@@ -1,4 +1,4 @@
-//! `client_sm` module represents the client state machine which handles incoming
+//! `state` module represents the client state machine which handles incoming
 //! commands (from client api side) and incoming AMQP frames from network/server
 //! side.
 //!
@@ -6,11 +6,12 @@
 //! AMQP frame or `MethodFrame`, content etc. Everything which talks to the client
 //! api it is a typed struct.
 
-use crate::{Message, MessageSink};
+use crate::channel_api::{ConsumerSignal, Message};
+use crate::model::ChannelNumber;
 use anyhow::Result;
 use log::{debug, info};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, AMQPFrame, Channel};
+use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
 use std::fmt;
 use tokio::sync::mpsc;
@@ -34,17 +35,38 @@ struct DeliveredContent {
     body: Option<Vec<u8>>,
 }
 
+/*
+ * Consumer handling.
+ *
+ * A consumer process starts with a basic consume message to the server with a consumer tag.
+ * If there is no error, the server starts delivering messages to the same consumer.
+ * For that reason we start a new thread, so the delivered messages can be handled independently
+ * from the other method frames.
+ *
+ * TODO If consumer sends a basic cancel, or the channel is closed because of an exception,
+ * or if connection is closed because of any reason, we need to unblock the client; so we
+ * need to send a message to the consumer process, denoting that the consuming is over.
+ *
+ * This means that we need to know about the mpsc channel in which we deliver the messages.
+ * Moreover, from now on, we are not delivering just messages but control signals as well.
+ * So messages look like:
+ *   Delivered(Message, CTag, DeliveryTag,...)
+ *   ConsumeCancelled
+ *   ChannelClosed
+ *   ConnectionClosed
+ */
+
 // TODO basic consume subscribe to a queue but when messages are delivered we get only the exchange
 // name
 pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
-    consumers: HashMap<Channel, MessageSink>,
-    in_delivery: HashMap<Channel, DeliveredContent>,
+    consumers: HashMap<ChannelNumber, mpsc::Sender<ConsumerSignal>>,
+    in_delivery: HashMap<ChannelNumber, DeliveredContent>,
     outgoing: mpsc::Sender<Frame>,
     /// The last delivery tag we sent out per channel.
-    ack_sent: HashMap<Channel, u64>,
+    ack_sent: HashMap<ChannelNumber, u64>,
 }
 
 impl fmt::Debug for ClientState {
@@ -131,17 +153,17 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn channel_open(&mut self, channel: Channel) -> Result<()> {
+    pub(crate) async fn channel_open(&mut self, channel: ChannelNumber) -> Result<()> {
         self.outgoing.send(Frame::Frame(frame::channel_open(channel))).await?;
 
         Ok(())
     }
 
-    pub(crate) async fn channel_open_ok(&mut self, _channel: Channel) -> Result<()> {
+    pub(crate) async fn channel_open_ok(&mut self, _channel: ChannelNumber) -> Result<()> {
         Ok(())
     }
 
-    pub(crate) async fn channel_close(&mut self, channel: Channel, args: frame::ChannelCloseArgs) -> Result<()> {
+    pub(crate) async fn channel_close(&mut self, channel: ChannelNumber, args: frame::ChannelCloseArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::channel_close(
                 channel,
@@ -155,7 +177,7 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn channel_close_ok(&mut self, channel: Channel) -> Result<()> {
+    pub(crate) async fn channel_close_ok(&mut self, channel: ChannelNumber) -> Result<()> {
         if let Some(sink) = self.consumers.remove(&channel) {
             drop(sink);
         }
@@ -165,7 +187,7 @@ impl ClientState {
 
     pub(crate) async fn handle_channel_close(
         &mut self,
-        channel: Channel,
+        channel: ChannelNumber,
         _args: frame::ChannelCloseArgs,
     ) -> Result<()> {
         if let Some(sink) = self.consumers.remove(&channel) {
@@ -175,7 +197,11 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> Result<()> {
+    pub(crate) async fn exchange_declare(
+        &mut self,
+        channel: ChannelNumber,
+        args: frame::ExchangeDeclareArgs,
+    ) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::exchange_declare(
                 channel,
@@ -192,7 +218,11 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> Result<()> {
+    pub(crate) async fn exchange_delete(
+        &mut self,
+        channel: ChannelNumber,
+        args: frame::ExchangeDeleteArgs,
+    ) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::exchange_delete(
                 channel,
@@ -208,7 +238,7 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {
+    pub(crate) async fn queue_declare(&mut self, channel: ChannelNumber, args: frame::QueueDeclareArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::queue_declare(
                 channel,
@@ -224,7 +254,7 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> Result<()> {
+    pub(crate) async fn queue_bind(&mut self, channel: ChannelNumber, args: frame::QueueBindArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::queue_bind(
                 channel,
@@ -241,7 +271,7 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
+    pub(crate) async fn queue_unbind(&mut self, channel: ChannelNumber, args: frame::QueueUnbindArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::queue_unbind(
                 channel,
@@ -258,7 +288,7 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> Result<()> {
+    pub(crate) async fn queue_delete(&mut self, channel: ChannelNumber, args: frame::QueueDeleteArgs) -> Result<()> {
         // TODO what happens if I am consuming that queue?
         self.outgoing
             .send(Frame::Frame(frame::queue_delete(
@@ -271,11 +301,15 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn queue_delete_ok(&mut self, channel: Channel, args: frame::QueueDeleteOkArgs) -> Result<()> {
+    pub(crate) async fn queue_delete_ok(
+        &mut self,
+        channel: ChannelNumber,
+        args: frame::QueueDeleteOkArgs,
+    ) -> Result<()> {
         Ok(())
     }
 
-    pub(crate) async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> Result<()> {
+    pub(crate) async fn basic_ack(&mut self, channel: ChannelNumber, args: frame::BasicAckArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::basic_ack(
                 channel,
@@ -296,9 +330,9 @@ impl ClientState {
 
     pub(crate) async fn basic_consume(
         &mut self,
-        channel: Channel,
+        channel: ChannelNumber,
         args: frame::BasicConsumeArgs,
-        sink: MessageSink,
+        sink: mpsc::Sender<ConsumerSignal>,
     ) -> Result<()> {
         self.consumers.insert(channel, sink);
 
@@ -318,7 +352,7 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> Result<()> {
+    pub(crate) async fn basic_cancel(&mut self, channel: ChannelNumber, args: frame::BasicCancelArgs) -> Result<()> {
         self.outgoing
             .send(Frame::Frame(frame::basic_cancel(
                 channel,
@@ -330,11 +364,15 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn basic_cancel_ok(&mut self, channel: Channel, args: frame::BasicCancelOkArgs) -> Result<()> {
+    pub(crate) async fn basic_cancel_ok(
+        &mut self,
+        channel: ChannelNumber,
+        args: frame::BasicCancelOkArgs,
+    ) -> Result<()> {
         Ok(())
     }
 
-    pub(crate) async fn basic_deliver(&mut self, channel: Channel, args: frame::BasicDeliverArgs) -> Result<()> {
+    pub(crate) async fn basic_deliver(&mut self, channel: ChannelNumber, args: frame::BasicDeliverArgs) -> Result<()> {
         let dc = DeliveredContent {
             channel,
             consumer_tag: args.consumer_tag,
@@ -352,7 +390,7 @@ impl ClientState {
 
     pub(crate) async fn basic_publish(
         &mut self,
-        channel: Channel,
+        channel: ChannelNumber,
         args: frame::BasicPublishArgs,
         content: Vec<u8>,
     ) -> Result<()> {
@@ -390,7 +428,7 @@ impl ClientState {
                     body: cb.body,
                 };
 
-                sink.send(msg).await?
+                sink.send(ConsumerSignal::Delivered(msg)).await?
             }
         }
 

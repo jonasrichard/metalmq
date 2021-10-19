@@ -8,7 +8,6 @@ async fn main() -> Result<()> {
     metalmq_client::setup_logger();
 
     let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
-    client.open("/").await?;
     let channel = client.channel_open(1).await?;
 
     channel.exchange_declare(exchange, "fanout", None).await?;

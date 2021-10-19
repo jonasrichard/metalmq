@@ -21,6 +21,8 @@ pub(crate) type RequestSink = mpsc::Sender<Request>;
 pub(crate) enum Param {
     Frame(AMQPFrame),
     //    FrameCallback(AMQPFrame, Box<MethodFrameCallback>),
+    // TODO here MessageSink should contain control signals (consume cancelled, channel closed,
+    // connection closed)
     Consume(AMQPFrame, MessageSink),
     Publish(AMQPFrame, Vec<u8>),
 }
