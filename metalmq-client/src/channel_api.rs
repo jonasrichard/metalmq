@@ -212,24 +212,21 @@ impl Channel {
                                     _ => unimplemented!(),
                                 }
 
-                                match result {
-                                    r @ Some(_) => {
-                                        final_result = r;
-                                    }
-                                    _ => (),
+                                if let Some(_) = result {
+                                    final_result = result;
                                 }
                             }
                         };
                     }
-                    None => match consumer(ConsumerSignal::Cancelled) {
-                        ConsumerResponse { result, ack } => {
-                            if let Some(r) = result {
-                                final_result = Some(r);
-                            }
+                    None => {
+                        let ConsumerResponse { result, .. } = consumer(ConsumerSignal::Cancelled);
 
-                            break;
+                        if let Some(r) = result {
+                            final_result = Some(r);
                         }
-                    },
+
+                        break;
+                    }
                 }
             }
 

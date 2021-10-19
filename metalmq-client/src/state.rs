@@ -435,3 +435,8 @@ impl ClientState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+}

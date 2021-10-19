@@ -97,17 +97,17 @@ async fn handle_request(
 
     match request.param {
         Param::Frame(AMQPFrame::Header) => {
-            register_waiter(&feedback, Some(0), request.response);
+            register_waiter(feedback, Some(0), request.response);
             outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, &mut client).await?;
-            register_waiter(&feedback, Some(ch), request.response);
+            register_waiter(feedback, Some(ch), request.response);
         }
         Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
             client.basic_consume(ch, args, msg_sink).await?;
 
-            register_waiter(&feedback, Some(ch), request.response);
+            register_waiter(feedback, Some(ch), request.response);
         }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
             client.basic_publish(ch, args, content).await?;
@@ -154,7 +154,7 @@ fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, cli
                 frame::unify_class_method(args.class_id, args.method_id)
             );
 
-            if let Some(fb) = feedback.lock().unwrap().remove(&channel) {
+            if let Some(fb) = feedback.lock().unwrap().remove(channel) {
                 if fb.send(err).is_err() {
                     return client_error!(None, 501, "Cannot unblock client", 0);
                 }
@@ -162,7 +162,7 @@ fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, cli
             Ok(())
         }
         AMQPFrame::Method(channel, _, _) => {
-            if let Some(fb) = feedback.lock().unwrap().remove(&channel) {
+            if let Some(fb) = feedback.lock().unwrap().remove(channel) {
                 if fb.send(Ok(())).is_err() {
                     return client_error!(None, 501, "Cannot unblock client", 0);
                 }
