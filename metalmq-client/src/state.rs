@@ -62,8 +62,8 @@ pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
-    consumers: HashMap<ChannelNumber, mpsc::Sender<ConsumerSignal>>,
-    in_delivery: HashMap<ChannelNumber, DeliveredContent>,
+    pub(crate) consumers: HashMap<ChannelNumber, mpsc::Sender<ConsumerSignal>>,
+    pub(self) in_delivery: HashMap<ChannelNumber, DeliveredContent>,
     outgoing: mpsc::Sender<Frame>,
     /// The last delivery tag we sent out per channel.
     ack_sent: HashMap<ChannelNumber, u64>,
@@ -145,6 +145,10 @@ impl ClientState {
     }
 
     pub(crate) async fn connection_close_ok(&mut self) -> Result<()> {
+        for consumer in &self.consumers {
+            consumer.1.send(ConsumerSignal::ConnectionClosed).await?;
+        }
+
         Ok(())
     }
 
@@ -179,6 +183,7 @@ impl ClientState {
 
     pub(crate) async fn channel_close_ok(&mut self, channel: ChannelNumber) -> Result<()> {
         if let Some(sink) = self.consumers.remove(&channel) {
+            sink.send(ConsumerSignal::ChannelClosed).await?;
             drop(sink);
         }
 
@@ -369,6 +374,10 @@ impl ClientState {
         channel: ChannelNumber,
         args: frame::BasicCancelOkArgs,
     ) -> Result<()> {
+        if let Some(consumer_sink) = self.consumers.remove(&channel) {
+            consumer_sink.send(ConsumerSignal::Cancelled).await?;
+        }
+
         Ok(())
     }
 
@@ -439,4 +448,80 @@ impl ClientState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use metalmq_codec::frame::{self, AMQPFrame};
+
+    #[tokio::test]
+    async fn connect_open_sets_virtual_host() {
+        let virtual_host = "/".to_owned();
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut cs = new(tx);
+        let args = frame::ConnectionOpenArgs {
+            virtual_host,
+            insist: false,
+        };
+
+        cs.connection_open(args).await.unwrap();
+
+        let outgoing_frame = rx.recv().await.unwrap();
+
+        assert!(matches!(
+            outgoing_frame,
+            Frame::Frame(AMQPFrame::Method(
+                0,
+                frame::CONNECTION_OPEN,
+                _,
+                //frame::MethodFrameArgs::ConnectionOpen(frame::ConnectionOpenArgs {
+                //    virtual_host,
+                //    insist: false,
+                //})
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn connection_close_sends_consumer_signal() {
+        let (tx, _) = mpsc::channel(1);
+        let mut cs = new(tx);
+        let (consumer_sink, mut consumer_stream) = mpsc::channel(1);
+
+        cs.consumers.insert(2, consumer_sink);
+
+        cs.connection_close_ok().await.unwrap();
+
+        let signal = consumer_stream.recv().await.unwrap();
+
+        assert!(matches!(signal, ConsumerSignal::ConnectionClosed));
+    }
+
+    #[tokio::test]
+    async fn channel_close_sends_consumer_signal() {
+        let (tx, _) = mpsc::channel(1);
+        let mut cs = new(tx);
+        let (consumer_sink, mut consumer_stream) = mpsc::channel(1);
+
+        cs.consumers.insert(2, consumer_sink);
+
+        cs.channel_close_ok(2).await.unwrap();
+
+        let signal = consumer_stream.recv().await.unwrap();
+
+        assert!(matches!(signal, ConsumerSignal::ChannelClosed));
+    }
+
+    #[tokio::test]
+    async fn basic_consume_sends_signal() {
+        let ctag = "ctag1".to_owned();
+        let (tx, _) = mpsc::channel(1);
+        let mut cs = new(tx);
+        let args = frame::BasicCancelOkArgs { consumer_tag: ctag };
+        let (consumer_sink, mut consumer_stream) = mpsc::channel(1);
+
+        cs.consumers.insert(1, consumer_sink);
+
+        cs.basic_cancel_ok(1, args).await.unwrap();
+
+        let signal = consumer_stream.recv().await.unwrap();
+
+        assert!(matches!(signal, ConsumerSignal::Cancelled));
+    }
 }

@@ -1,3 +1,4 @@
+use crate::channel_api::ConsumerSignal;
 use crate::client_api::{self, ClientRequest, Param};
 use crate::client_error;
 use crate::state;
@@ -21,6 +22,7 @@ pub(crate) async fn socket_loop(
     let (out_tx, mut out_rx) = mpsc::channel(1);
     let mut client = state::new(out_tx.clone());
     let feedback = Arc::new(Mutex::new(HashMap::<u16, client_api::Response>::new()));
+    let consumers = Arc::new(Mutex::new(HashMap::<String, mpsc::Sender<ConsumerSignal>>::new()));
 
     // I/O output port, handles outgoing frames sent via a channel.
     tokio::spawn(async move {
@@ -57,7 +59,7 @@ pub(crate) async fn socket_loop(
                     Some(request) => {
                         info!("Incoming client request {:?}", request);
 
-                        if let Err(e) = handle_request(request, &mut client, &feedback, &out_tx).await {
+                        if let Err(e) = handle_request(request, &mut client, &feedback, &consumers, &out_tx).await {
                             error!("Error {:?}", e);
                         }
                     },
@@ -91,6 +93,7 @@ async fn handle_request(
     request: client_api::ClientRequest,
     mut client: &mut state::ClientState,
     feedback: &Arc<Mutex<HashMap<u16, client_api::Response>>>,
+    consumers: &Arc<Mutex<HashMap<String, mpsc::Sender<ConsumerSignal>>>>,
     outgoing: &mpsc::Sender<Frame>,
 ) -> Result<()> {
     use frame::{AMQPFrame, MethodFrameArgs};
@@ -108,6 +111,9 @@ async fn handle_request(
             client.basic_consume(ch, args, msg_sink).await?;
 
             register_waiter(feedback, Some(ch), request.response);
+            // TODO register consumer signal sinks
+
+            //register_consumer(&consumers, "ctag");
         }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
             client.basic_publish(ch, args, content).await?;
