@@ -23,7 +23,8 @@ async fn main() -> Result<()> {
 
     let consumer = client.channel_open(2).await?;
 
-    let message_count = 1u32;
+    // FIXME we still have issue if the consumer buffer is full
+    let message_count = 1024u32;
     let mut received_count = 0u32;
 
     let counter = move |i: ConsumerSignal| match i {
@@ -39,7 +40,7 @@ async fn main() -> Result<()> {
             }
         }
         ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed | ConsumerSignal::ConnectionClosed => {
-            info!("Consuming cancelled after {} messages received", received_count);
+            println!("Consuming cancelled after {} messages received", received_count);
 
             ConsumerResponse {
                 result: Some(received_count),
@@ -48,7 +49,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let consume_result = consumer.basic_consume(queue, "ctag", None, Box::new(counter)).await?;
+    let handle = consumer.basic_consume(queue, "ctag", None, Box::new(counter)).await?;
 
     let message = "This will be the test message what we send over multiple times";
 
@@ -56,19 +57,14 @@ async fn main() -> Result<()> {
 
     for _ in 0..message_count {
         publisher.basic_publish(exchange, "", message.to_string()).await?;
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
     let ctag_num: u32 = rng.gen();
     consumer.basic_cancel(&format!("ctag-{}", ctag_num)).await?;
 
-    let received_messages = consume_result.await.unwrap();
+    let received_messages = handle.await.unwrap();
 
-    println!(
-        "Received {} messages from the {}",
-        received_messages.unwrap(),
-        message_count
-    );
+    println!("Received {:?} messages from the {}", received_messages, message_count);
 
     println!(
         "Send and receive {} messages: {:?}",

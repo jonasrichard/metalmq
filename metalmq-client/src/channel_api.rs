@@ -6,6 +6,7 @@ use anyhow::Result;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 #[derive(Debug)]
 pub struct Channel {
@@ -169,7 +170,7 @@ impl Channel {
         consumer_tag: &'a str,
         flags: Option<frame::BasicConsumeFlags>,
         mut consumer: Box<ConsumerFn<T>>,
-    ) -> Result<oneshot::Receiver<Option<T>>> {
+    ) -> Result<JoinHandle<Option<T>>> {
         let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags);
         let (tx, rx) = oneshot::channel();
 
@@ -182,9 +183,7 @@ impl Channel {
         let client_request_sink = self.sink.clone();
         let channel_number = self.channel;
 
-        let (consume_tx, consume_rx) = oneshot::channel();
-
-        tokio::spawn(async move {
+        let join_handle: JoinHandle<Option<T>> = tokio::spawn(async move {
             // Result of the oneshot channel what the user listens for the result of the
             // whole consume process.
             let mut final_result: Option<T> = None;
@@ -194,6 +193,10 @@ impl Channel {
                     Some(signal) => {
                         match consumer(signal) {
                             ConsumerResponse { result, ack } => {
+                                if let Some(_) = result {
+                                    final_result = result;
+                                }
+
                                 match ack {
                                     ConsumerAck::Ack { delivery_tag, multiple } => {
                                         // FIXME this should not be public api, so no channel
@@ -209,11 +212,10 @@ impl Channel {
 
                                         ()
                                     }
+                                    ConsumerAck::Nothing => {
+                                        break;
+                                    }
                                     _ => unimplemented!(),
-                                }
-
-                                if let Some(_) = result {
-                                    final_result = result;
                                 }
                             }
                         };
@@ -230,8 +232,7 @@ impl Channel {
                 }
             }
 
-            // here we need to send basic cancel
-            consume_tx.send(final_result);
+            final_result
         });
 
         self.sink
@@ -243,7 +244,7 @@ impl Channel {
 
         match rx.await {
             Ok(response) => match response {
-                Ok(()) => Ok(consume_rx),
+                Ok(()) => Ok(join_handle),
                 Err(e) => Err(e),
             },
             Err(_) => client_error!(None, 501, "Channel recv error", 0),
