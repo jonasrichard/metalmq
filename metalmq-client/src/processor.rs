@@ -57,7 +57,7 @@ pub(crate) async fn socket_loop(
             req = requests.recv() => {
                 match req {
                     Some(request) => {
-                        info!("Incoming client request {:?}", request);
+                        trace!("Incoming client request {:?}", request);
 
                         if let Err(e) = handle_request(request, &mut client, &feedback, &consumers, &out_tx).await {
                             error!("Error {:?}", e);

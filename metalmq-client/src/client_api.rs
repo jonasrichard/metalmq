@@ -11,7 +11,7 @@ use std::fmt;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type ClientRequestSink = mpsc::Sender<ClientRequest>;
-pub(crate) type ConsumerSink = mpsc::Sender<ConsumerSignal>;
+pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 
 //pub(crate) type MethodFrameCallback = dyn Fn(AMQPFrame) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 

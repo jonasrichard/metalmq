@@ -176,7 +176,7 @@ impl Channel {
 
         // TODO this will be the buffer of the inflight messages
         // FIXME if it is smaller that the messages we want to receive, it hangs :(
-        let (sink, mut stream) = mpsc::channel::<ConsumerSignal>(16);
+        let (sink, mut stream) = mpsc::unbounded_channel::<ConsumerSignal>();
 
         // Clone the channel in order that users can use this ClientChannel
         // to publish messages.

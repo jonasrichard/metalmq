@@ -74,3 +74,11 @@ Start the test with the environment variable set.
 ```
 RUST_LOG=metalmq_client=trace cargo test -- --exact exchange::declare_exchange_with_different_type
 ```
+
+### Use tokio console
+
+In the examples the publish-consume test has dependency on the tokio console.
+
+```
+RUSTFLAGS="--cfg tokio_unstable" cargo run --example publish-consume
+```

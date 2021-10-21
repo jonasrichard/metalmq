@@ -6,6 +6,8 @@ use std::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    //console_subscriber::init();
+
     let mut rng = rand::thread_rng();
 
     let exchange = "x_pubsub";
@@ -40,7 +42,7 @@ async fn main() -> Result<()> {
             }
         }
         ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed | ConsumerSignal::ConnectionClosed => {
-            println!("Consuming cancelled after {} messages received", received_count);
+            info!("Consuming cancelled after {} messages received", received_count);
 
             ConsumerResponse {
                 result: Some(received_count),
@@ -59,14 +61,16 @@ async fn main() -> Result<()> {
         publisher.basic_publish(exchange, "", message.to_string()).await?;
     }
 
+    info!("Cancelling consumer...");
+
     let ctag_num: u32 = rng.gen();
     consumer.basic_cancel(&format!("ctag-{}", ctag_num)).await?;
 
     let received_messages = handle.await.unwrap();
 
-    println!("Received {:?} messages from the {}", received_messages, message_count);
+    info!("Received {:?} messages from the {}", received_messages, message_count);
 
-    println!(
+    info!(
         "Send and receive {} messages: {:?}",
         message_count,
         Instant::elapsed(&start)

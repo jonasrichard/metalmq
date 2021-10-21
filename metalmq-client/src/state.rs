@@ -24,6 +24,7 @@ enum Phase {
     //    Closing
 }
 
+/// A content being delivered by content frames, building step by step.
 #[derive(Debug)]
 struct DeliveredContent {
     channel: u16,
@@ -62,7 +63,7 @@ pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
-    pub(crate) consumers: HashMap<ChannelNumber, mpsc::Sender<ConsumerSignal>>,
+    pub(crate) consumers: HashMap<ChannelNumber, mpsc::UnboundedSender<ConsumerSignal>>,
     pub(self) in_delivery: HashMap<ChannelNumber, DeliveredContent>,
     outgoing: mpsc::Sender<Frame>,
     /// The last delivery tag we sent out per channel.
@@ -82,8 +83,8 @@ impl fmt::Debug for ClientState {
 pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
     ClientState {
         state: Phase::Uninitialized,
-        username: "".into(),
-        password: "".into(),
+        username: "".to_owned(),
+        password: "".to_owned(),
         consumers: HashMap::new(),
         in_delivery: HashMap::new(),
         outgoing,
@@ -146,7 +147,7 @@ impl ClientState {
 
     pub(crate) async fn connection_close_ok(&mut self) -> Result<()> {
         for consumer in &self.consumers {
-            consumer.1.send(ConsumerSignal::ConnectionClosed).await?;
+            consumer.1.send(ConsumerSignal::ConnectionClosed)?;
         }
 
         Ok(())
@@ -183,7 +184,7 @@ impl ClientState {
 
     pub(crate) async fn channel_close_ok(&mut self, channel: ChannelNumber) -> Result<()> {
         if let Some(sink) = self.consumers.remove(&channel) {
-            sink.send(ConsumerSignal::ChannelClosed).await?;
+            sink.send(ConsumerSignal::ChannelClosed)?;
             drop(sink);
         }
 
@@ -337,7 +338,7 @@ impl ClientState {
         &mut self,
         channel: ChannelNumber,
         args: frame::BasicConsumeArgs,
-        sink: mpsc::Sender<ConsumerSignal>,
+        sink: mpsc::UnboundedSender<ConsumerSignal>,
     ) -> Result<()> {
         self.consumers.insert(channel, sink);
 
@@ -375,7 +376,7 @@ impl ClientState {
         args: frame::BasicCancelOkArgs,
     ) -> Result<()> {
         if let Some(consumer_sink) = self.consumers.remove(&channel) {
-            consumer_sink.send(ConsumerSignal::Cancelled).await?;
+            consumer_sink.send(ConsumerSignal::Cancelled)?;
         }
 
         Ok(())
@@ -437,7 +438,12 @@ impl ClientState {
                     body: cb.body,
                 };
 
-                sink.send(ConsumerSignal::Delivered(msg)).await?
+                // FIXME here if the channel is full, this call yields. The problem is that the
+                // consumer is sending back an ack which should be processed by the processor
+                // but since the async call yields here, that select is never reached.
+                // A solution can be to apply backpressure and in ack mode there shouldn't be
+                // more than capacity number of unacked messages.
+                sink.send(ConsumerSignal::Delivered(msg))?
             }
         }
 
