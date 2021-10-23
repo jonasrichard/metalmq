@@ -7,6 +7,7 @@
 //! api it is a typed struct.
 
 use crate::channel_api::{ConsumerSignal, Message};
+use crate::client_api::WaitFor;
 use crate::model::ChannelNumber;
 use anyhow::Result;
 use log::{debug, info};
@@ -95,28 +96,18 @@ pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
 impl ClientState {
     pub(crate) async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> Result<()> {
         info!("Server supported mechanisms: {}", args.mechanisms);
-        // TODO here we need to send start_ok not in the other function
+
         Ok(())
     }
 
     pub(crate) async fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> Result<()> {
         self.state = Phase::Connected;
 
-        self.outgoing
-            .send(Frame::Frame(frame::AMQPFrame::Method(
-                0,
-                frame::CONNECTION_START_OK,
-                frame::MethodFrameArgs::ConnectionStartOk(args),
-            )))
-            .await?;
-
         Ok(())
     }
 
     pub(crate) async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> Result<()> {
         self.state = Phase::Authenticated;
-
-        self.outgoing.send(Frame::Frame(frame::connection_tune_ok(0))).await?;
 
         Ok(())
     }
@@ -126,9 +117,7 @@ impl ClientState {
     }
 
     pub(crate) async fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::connection_open(0, &args.virtual_host)))
-            .await?;
+        self.outgoing.send(Frame::Frame(frame::connection_open(0, "/"))).await?;
 
         Ok(())
     }
@@ -488,7 +477,7 @@ mod tests {
     async fn connection_close_sends_consumer_signal() {
         let (tx, _) = mpsc::channel(1);
         let mut cs = new(tx);
-        let (consumer_sink, mut consumer_stream) = mpsc::channel(1);
+        let (consumer_sink, mut consumer_stream) = mpsc::unbounded_channel();
 
         cs.consumers.insert(2, consumer_sink);
 
@@ -503,7 +492,7 @@ mod tests {
     async fn channel_close_sends_consumer_signal() {
         let (tx, _) = mpsc::channel(1);
         let mut cs = new(tx);
-        let (consumer_sink, mut consumer_stream) = mpsc::channel(1);
+        let (consumer_sink, mut consumer_stream) = mpsc::unbounded_channel();
 
         cs.consumers.insert(2, consumer_sink);
 
@@ -520,7 +509,7 @@ mod tests {
         let (tx, _) = mpsc::channel(1);
         let mut cs = new(tx);
         let args = frame::BasicCancelOkArgs { consumer_tag: ctag };
-        let (consumer_sink, mut consumer_stream) = mpsc::channel(1);
+        let (consumer_sink, mut consumer_stream) = mpsc::unbounded_channel();
 
         cs.consumers.insert(1, consumer_sink);
 

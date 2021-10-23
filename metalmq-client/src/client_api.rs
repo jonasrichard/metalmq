@@ -13,8 +13,6 @@ use tokio::sync::{mpsc, oneshot};
 pub(crate) type ClientRequestSink = mpsc::Sender<ClientRequest>;
 pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 
-//pub(crate) type MethodFrameCallback = dyn Fn(AMQPFrame) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
-
 // TODO onBasicReturn callback
 // TODO onChannelClose callback
 // TODO onConnectionClose callback
@@ -22,24 +20,30 @@ pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 
 /// Represent a client request. It can be sending a frame, consume a queue or publish data.
 pub(crate) enum Param {
+    Start(String, String),
     Frame(frame::AMQPFrame),
     Consume(frame::AMQPFrame, ConsumerSink),
     Publish(frame::AMQPFrame, Vec<u8>),
 }
 
-/// Response for passing errors to the client API.
-// TODO a lot of AMQP rpc results something, we need to handle them
-pub(crate) type Response = oneshot::Sender<Result<()>>;
+pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;
+
+pub(crate) enum WaitFor {
+    Nothing,
+    SentOut(oneshot::Sender<Result<()>>),
+    FrameResponse(FrameResponse),
+}
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 pub(crate) struct ClientRequest {
     pub(crate) param: Param,
-    pub(crate) response: Option<Response>,
+    pub(crate) response: WaitFor,
 }
 
 impl fmt::Debug for ClientRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.param {
+            Param::Start(user, _) => write!(f, "Start{{Username={:?}}}", user),
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
             Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
@@ -67,7 +71,6 @@ pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client
 
     processor::call(&client_sink, frame::AMQPFrame::Header).await?;
 
-    // connection open
     let mut caps = frame::FieldTable::new();
 
     caps.insert(
@@ -80,17 +83,7 @@ pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client
     //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
     //caps.insert("publisher_confirms".to_string(), AMQPFieldValue::Bool(true));
 
-    if processor::call(&client_sink, frame::connection_start_ok(username, password, caps))
-        .await
-        .is_err()
-    {
-        return client_error!(
-            None,
-            503,
-            "Server closed connection during authentication",
-            frame::CONNECTION_START_OK
-        );
-    }
+    processor::call(&client_sink, frame::connection_start_ok(username, password, caps)).await?;
 
     processor::send(&client_sink, frame::connection_tune_ok(0)).await?;
 

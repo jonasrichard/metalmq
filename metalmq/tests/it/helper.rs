@@ -2,7 +2,7 @@ use anyhow::Result;
 use metalmq_client::*;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 use std::collections::HashMap;
-use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 /// The helper connection.
 #[allow(dead_code)]
@@ -101,7 +101,7 @@ pub(crate) async fn consume_messages<'a>(
     ctag: &'a str,
     flags: Option<BasicConsumeFlags>,
     n: usize,
-) -> Result<oneshot::Receiver<Option<Vec<Message>>>> {
+) -> Result<JoinHandle<Option<Vec<Message>>>> {
     use std::sync::{Arc, Mutex};
 
     let messages = Arc::new(Mutex::new(Vec::<Message>::new()));

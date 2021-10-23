@@ -24,7 +24,7 @@ There are some examples in the `examples` directory, they implement simple scena
 `metalmq-client` library. To run execute
 
 ```bash
-cargo run --example publish-consume
+RUST_LOG=metalmq_client=trace cargo run --example publish-consume
 cargo test
 cd metalmq
 cargo test --features integration-tests

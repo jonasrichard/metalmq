@@ -7,7 +7,8 @@ def test_connect_success():
     """
     Connecting with correct user credentials ends up in success, no exceptions are thrown.
     """
-    helper.connect()
+    conn = helper.connect()
+    conn.close()
 
 def test_connect_fail_bad_password():
     """

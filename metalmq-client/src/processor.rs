@@ -1,5 +1,5 @@
 use crate::channel_api::ConsumerSignal;
-use crate::client_api::{self, ClientRequest, Param};
+use crate::client_api::{self, ClientRequest, FrameResponse, Param, WaitFor};
 use crate::client_error;
 use crate::state;
 use anyhow::Result;
@@ -21,9 +21,12 @@ pub(crate) async fn socket_loop(
     let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
     let (out_tx, mut out_rx) = mpsc::channel(1);
     let mut client = state::new(out_tx.clone());
-    let feedback = Arc::new(Mutex::new(HashMap::<u16, client_api::Response>::new()));
-    let consumers = Arc::new(Mutex::new(HashMap::<String, mpsc::Sender<ConsumerSignal>>::new()));
+    let feedback = Arc::new(Mutex::new(HashMap::<u16, FrameResponse>::new()));
 
+    // TODO this should be part of the future, so write should yield. As a
+    // consequence we can know what we managed to sent out, like basic publish
+    // or ack.
+    //
     // I/O output port, handles outgoing frames sent via a channel.
     tokio::spawn(async move {
         if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
@@ -57,9 +60,9 @@ pub(crate) async fn socket_loop(
             req = requests.recv() => {
                 match req {
                     Some(request) => {
-                        trace!("Incoming client request {:?}", request);
+                        trace!("Client request {:?}", request);
 
-                        if let Err(e) = handle_request(request, &mut client, &feedback, &consumers, &out_tx).await {
+                        if let Err(e) = handle_request(request, &mut client, &feedback, &out_tx).await {
                             error!("Error {:?}", e);
                         }
                     },
@@ -80,6 +83,8 @@ async fn handle_outgoing(
     outgoing: &mut mpsc::Receiver<Frame>,
 ) -> Result<()> {
     while let Some(f) = outgoing.recv().await {
+        trace!("Sending out: {:?}", f);
+
         if let Err(e) = sink.send(f).await {
             error!("Error {:?}", e);
         }
@@ -92,33 +97,45 @@ async fn handle_outgoing(
 async fn handle_request(
     request: client_api::ClientRequest,
     mut client: &mut state::ClientState,
-    feedback: &Arc<Mutex<HashMap<u16, client_api::Response>>>,
-    consumers: &Arc<Mutex<HashMap<String, mpsc::Sender<ConsumerSignal>>>>,
+    feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>,
     outgoing: &mpsc::Sender<Frame>,
 ) -> Result<()> {
     use frame::{AMQPFrame, MethodFrameArgs};
 
     match request.param {
         Param::Frame(AMQPFrame::Header) => {
-            register_waiter(feedback, Some(0), request.response);
             outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, &mut client).await?;
-            register_waiter(feedback, Some(ch), request.response);
+            register_wait_for(feedback, ch, request.response)?;
         }
         Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
             client.basic_consume(ch, args, msg_sink).await?;
-
-            register_waiter(feedback, Some(ch), request.response);
-            // TODO register consumer signal sinks
-
-            //register_consumer(&consumers, "ctag");
+            register_wait_for(feedback, ch, request.response)?;
         }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
             client.basic_publish(ch, args, content).await?;
         }
         _ => unreachable!("{:?}", request),
+    }
+
+    Ok(())
+}
+
+fn register_wait_for(feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>, channel: u16, wf: WaitFor) -> Result<()> {
+    match wf {
+        WaitFor::Nothing => (),
+        WaitFor::SentOut(tx) => {
+            // Since the previous block has run, we sent out the frame.
+            // TODO we need to send back send errors which we swallowed with ? operator
+            if let Err(e) = tx.send(Ok(())) {
+                error!("Error {:?}", e);
+            }
+        }
+        WaitFor::FrameResponse(tx) => {
+            feedback.lock().unwrap().insert(channel, tx);
+        }
     }
 
     Ok(())
@@ -130,12 +147,12 @@ async fn handle_request(
 /// will receive the `ClientError`. If there is a connection error, it notifies all
 /// the calls who are waiting on channels (otherwise the client API would remain blocked)
 /// and sends back the error to a random waiter. (Sorry, if I have a better idea, I fix this.)
-fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, client_api::Response>>>) -> Result<()> {
+fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>) -> Result<()> {
     use frame::AMQPFrame;
 
     trace!("Notify waiter by {:?}", frame);
 
-    let r = match frame {
+    match frame {
         AMQPFrame::Method(_, frame::CONNECTION_CLOSE, frame::MethodFrameArgs::ConnectionClose(args)) => {
             let err = crate::error::ClientError {
                 channel: None,
@@ -176,24 +193,6 @@ fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, cli
             Ok(())
         }
         _ => Ok(()),
-    };
-
-    trace!("End of notify block");
-
-    r
-}
-
-fn register_waiter(
-    feedback: &Arc<Mutex<HashMap<u16, client_api::Response>>>,
-    channel: Option<frame::Channel>,
-    response_channel: Option<client_api::Response>,
-) {
-    trace!("Register waiter on channel {:?}", channel);
-
-    if let Some(ch) = channel {
-        if let Some(chan) = response_channel {
-            feedback.lock().unwrap().insert(ch, chan);
-        }
     }
 }
 
@@ -273,13 +272,17 @@ async fn handle_out_frame(
 pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
+    log::trace!("Sending out a sync frame {:?}", f);
+
     sink.send(ClientRequest {
         param: Param::Frame(f),
-        response: Some(tx),
+        response: WaitFor::FrameResponse(tx),
     })
     .await?;
 
-    rx.await?;
+    log::trace!("Waiting for result of call");
+
+    rx.await??;
 
     Ok(())
 }
@@ -287,7 +290,7 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
 pub(crate) async fn send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
     sink.send(ClientRequest {
         param: Param::Frame(f),
-        response: None,
+        response: WaitFor::Nothing,
     })
     .await?;
 
