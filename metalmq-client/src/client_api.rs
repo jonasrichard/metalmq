@@ -20,7 +20,6 @@ pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 
 /// Represent a client request. It can be sending a frame, consume a queue or publish data.
 pub(crate) enum Param {
-    Start(String, String),
     Frame(frame::AMQPFrame),
     Consume(frame::AMQPFrame, ConsumerSink),
     Publish(frame::AMQPFrame, Vec<u8>),
@@ -43,7 +42,6 @@ pub(crate) struct ClientRequest {
 impl fmt::Debug for ClientRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.param {
-            Param::Start(user, _) => write!(f, "Start{{Username={:?}}}", user),
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
             Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),

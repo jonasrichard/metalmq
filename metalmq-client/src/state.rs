@@ -94,6 +94,13 @@ pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
 }
 
 impl ClientState {
+    pub(crate) async fn header(&mut self) -> Result<()> {
+        // FIXME we need to give back the result of .await
+        self.outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
+
+        Ok(())
+    }
+
     pub(crate) async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> Result<()> {
         info!("Server supported mechanisms: {}", args.mechanisms);
 

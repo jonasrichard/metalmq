@@ -1,50 +1,44 @@
-use crate::channel_api::ConsumerSignal;
 use crate::client_api::{self, ClientRequest, FrameResponse, Param, WaitFor};
 use crate::client_error;
 use crate::state;
 use anyhow::Result;
 use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;
-use log::{debug, error, info, trace};
+use log::{debug, error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::Framed;
 
-pub(crate) async fn socket_loop(
-    socket: TcpStream,
-    mut requests: mpsc::Receiver<client_api::ClientRequest>,
+#[cfg(test)]
+mod processor_tests;
+
+pub(crate) async fn loop2(
+    mut client_state: state::ClientState,
+    //mut frame_stream: futures::stream::SplitStream<Framed<tokio::net::TcpStream, AMQPCodec>>,
+    mut frame_stream: Pin<Box<dyn futures::stream::Stream<Item = Result<Frame, std::io::Error>> + Send>>,
+    mut command_stream: mpsc::Receiver<ClientRequest>,
 ) -> Result<()> {
-    let (mut sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let (out_tx, mut out_rx) = mpsc::channel(1);
-    let mut client = state::new(out_tx.clone());
     let feedback = Arc::new(Mutex::new(HashMap::<u16, FrameResponse>::new()));
 
-    // TODO this should be part of the future, so write should yield. As a
-    // consequence we can know what we managed to sent out, like basic publish
-    // or ack.
-    //
-    // I/O output port, handles outgoing frames sent via a channel.
-    tokio::spawn(async move {
-        if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
-            error!("Error {:?}", e);
-        }
-    });
-
-    // I/O input loop
     loop {
         tokio::select! {
             // Receiving incoming frames. Here we can handle any IO error and the
             // closing of the input stream (server closes the stream).
-            incoming = stream.next() => {
+            incoming = frame_stream.next() => {
+                println!("Incoming frame {:?}", incoming);
+
                 match incoming {
                     Some(Ok(Frame::Frame(frame))) => {
+                        debug!("Incoming frame {:?}", frame);
+
                         notify_waiter(&frame, &feedback)?;
 
-                        if let Err(e) = handle_in_frame(frame, &mut client).await {
+                        if let Err(e) = handle_in_frame(frame, &mut client_state).await {
                             error!("Error {:?}", e);
                         }
                     }
@@ -57,12 +51,12 @@ pub(crate) async fn socket_loop(
                     }
                 }
             }
-            req = requests.recv() => {
+            req = command_stream.recv() => {
                 match req {
                     Some(request) => {
                         trace!("Client request {:?}", request);
 
-                        if let Err(e) = handle_request(request, &mut client, &feedback, &out_tx).await {
+                        if let Err(e) = handle_request(request, &mut client_state, &feedback).await {
                             error!("Error {:?}", e);
                         }
                     },
@@ -76,6 +70,25 @@ pub(crate) async fn socket_loop(
     }
 
     Ok(())
+}
+
+pub(crate) async fn socket_loop(socket: TcpStream, requests: mpsc::Receiver<ClientRequest>) -> Result<()> {
+    let (mut sink, stream) = Framed::new(socket, AMQPCodec {}).split();
+    let (out_tx, mut out_rx) = mpsc::channel(1);
+    let client = state::new(out_tx.clone());
+
+    // TODO this should be part of the future, so write should yield. As a
+    // consequence we can know what we managed to sent out, like basic publish
+    // or ack.
+    //
+    // I/O output port, handles outgoing frames sent via a channel.
+    tokio::spawn(async move {
+        if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
+            error!("Error {:?}", e);
+        }
+    });
+
+    loop2(client, Box::pin(stream), requests).await
 }
 
 async fn handle_outgoing(
@@ -98,13 +111,12 @@ async fn handle_request(
     request: client_api::ClientRequest,
     mut client: &mut state::ClientState,
     feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>,
-    outgoing: &mpsc::Sender<Frame>,
 ) -> Result<()> {
     use frame::{AMQPFrame, MethodFrameArgs};
 
     match request.param {
         Param::Frame(AMQPFrame::Header) => {
-            outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
+            client.header().await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, &mut client).await?;
@@ -129,9 +141,11 @@ fn register_wait_for(feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>, channel
         WaitFor::SentOut(tx) => {
             // Since the previous block has run, we sent out the frame.
             // TODO we need to send back send errors which we swallowed with ? operator
-            if let Err(e) = tx.send(Ok(())) {
-                error!("Error {:?}", e);
-            }
+            // DOUBT can we send back here to the thread which basically sent a clientrequest
+            // which is waiting for us to complete
+            //if let Err(e) = tx.send(Ok(())) {
+            //    error!("Error {:?}", e);
+            //}
         }
         WaitFor::FrameResponse(tx) => {
             feedback.lock().unwrap().insert(channel, tx);
@@ -198,8 +212,6 @@ fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, Fra
 
 async fn handle_in_frame(f: frame::AMQPFrame, cs: &mut state::ClientState) -> Result<()> {
     use frame::AMQPFrame::*;
-
-    debug!("Incoming frame {:?}", f);
 
     match f {
         Header => Ok(()),
