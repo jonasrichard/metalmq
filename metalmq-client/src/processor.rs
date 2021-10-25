@@ -30,7 +30,7 @@ pub(crate) async fn loop2(
             // Receiving incoming frames. Here we can handle any IO error and the
             // closing of the input stream (server closes the stream).
             incoming = frame_stream.next() => {
-                println!("Incoming frame {:?}", incoming);
+                trace!("Incoming frame {:?}", incoming);
 
                 match incoming {
                     Some(Ok(Frame::Frame(frame))) => {
@@ -115,8 +115,13 @@ async fn handle_request(
     use frame::{AMQPFrame, MethodFrameArgs};
 
     match request.param {
-        Param::Frame(AMQPFrame::Header) => {
-            client.header().await?;
+        Param::Connect {
+            username,
+            password,
+            virtual_host,
+            connected,
+        } => {
+            client.start(username, password, virtual_host, connected).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, &mut client).await?;

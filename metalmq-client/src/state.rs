@@ -15,7 +15,7 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::collections::HashMap;
 use std::fmt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 enum Phase {
@@ -64,11 +64,13 @@ pub(crate) struct ClientState {
     state: Phase,
     username: String,
     password: String,
+    virtual_host: String,
     pub(crate) consumers: HashMap<ChannelNumber, mpsc::UnboundedSender<ConsumerSignal>>,
     pub(self) in_delivery: HashMap<ChannelNumber, DeliveredContent>,
     outgoing: mpsc::Sender<Frame>,
     /// The last delivery tag we sent out per channel.
     ack_sent: HashMap<ChannelNumber, u64>,
+    connected: Option<oneshot::Sender<()>>,
 }
 
 impl fmt::Debug for ClientState {
@@ -86,15 +88,28 @@ pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
         state: Phase::Uninitialized,
         username: "".to_owned(),
         password: "".to_owned(),
+        virtual_host: "/".to_owned(),
         consumers: HashMap::new(),
         in_delivery: HashMap::new(),
         outgoing,
         ack_sent: HashMap::new(),
+        connected: None,
     }
 }
 
 impl ClientState {
-    pub(crate) async fn header(&mut self) -> Result<()> {
+    pub(crate) async fn start(
+        &mut self,
+        username: String,
+        password: String,
+        virtual_host: String,
+        connected: oneshot::Sender<()>,
+    ) -> Result<()> {
+        self.username = username;
+        self.password = password;
+        self.virtual_host = virtual_host;
+        self.connected = Some(connected);
+
         // FIXME we need to give back the result of .await
         self.outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
 
@@ -103,6 +118,26 @@ impl ClientState {
 
     pub(crate) async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> Result<()> {
         info!("Server supported mechanisms: {}", args.mechanisms);
+
+        let mut caps = frame::FieldTable::new();
+
+        caps.insert(
+            "authentication_failure_close".to_string(),
+            frame::AMQPFieldValue::Bool(true),
+        );
+
+        //caps.insert("basic.nack".to_string(), AMQPFieldValue::Bool(true));
+        //caps.insert("connection.blocked".to_string(), AMQPFieldValue::Bool(true));
+        //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
+        //caps.insert("publisher_confirms".to_string(), AMQPFieldValue::Bool(true));
+
+        self.outgoing
+            .send(Frame::Frame(frame::connection_start_ok(
+                &self.username,
+                &self.password,
+                caps,
+            )))
+            .await?;
 
         Ok(())
     }
@@ -116,6 +151,11 @@ impl ClientState {
     pub(crate) async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> Result<()> {
         self.state = Phase::Authenticated;
 
+        self.outgoing.send(Frame::Frame(frame::connection_tune_ok(0))).await?;
+        self.outgoing
+            .send(Frame::Frame(frame::connection_open(0, &self.virtual_host)))
+            .await?;
+
         Ok(())
     }
 
@@ -124,12 +164,15 @@ impl ClientState {
     }
 
     pub(crate) async fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> Result<()> {
-        self.outgoing.send(Frame::Frame(frame::connection_open(0, "/"))).await?;
-
         Ok(())
     }
 
     pub(crate) async fn connection_open_ok(&mut self) -> Result<()> {
+        let mut conn_tx = None;
+
+        std::mem::swap(&mut conn_tx, &mut self.connected);
+        conn_tx.unwrap().send(()).unwrap();
+
         Ok(())
     }
 

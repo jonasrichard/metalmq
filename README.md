@@ -72,7 +72,7 @@ async fn test() -> Result<()> {
 Start the test with the environment variable set.
 
 ```
-RUST_LOG=metalmq_client=trace cargo test -- --exact exchange::declare_exchange_with_different_type
+RUST_LOG=metalmq_client=trace cargo test -- --exact exchange::declare_exchange_with_different_type --show-output
 ```
 
 ### Use tokio console

@@ -20,6 +20,12 @@ pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 
 /// Represent a client request. It can be sending a frame, consume a queue or publish data.
 pub(crate) enum Param {
+    Connect {
+        username: String,
+        password: String,
+        virtual_host: String,
+        connected: oneshot::Sender<()>,
+    },
     Frame(frame::AMQPFrame),
     Consume(frame::AMQPFrame, ConsumerSink),
     Publish(frame::AMQPFrame, Vec<u8>),
@@ -42,6 +48,9 @@ pub(crate) struct ClientRequest {
 impl fmt::Debug for ClientRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.param {
+            Param::Connect {
+                username, virtual_host, ..
+            } => write!(f, "Request{{Connect={:?},{:?}}}", username, virtual_host),
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
             Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
@@ -64,28 +73,22 @@ pub struct Client {
 pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
     //let mut rng = rand::thread_rng();
 
-    // but it needs to do the authentication and to connect to virtualhost
+    let (connected_tx, connected_rx) = oneshot::channel();
     let client_sink = create_connection(url).await?;
 
-    processor::call(&client_sink, frame::AMQPFrame::Header).await?;
+    client_sink
+        .send(ClientRequest {
+            param: Param::Connect {
+                username: username.to_owned(),
+                password: password.to_owned(),
+                virtual_host: "/".to_owned(),
+                connected: connected_tx,
+            },
+            response: WaitFor::Nothing,
+        })
+        .await?;
 
-    let mut caps = frame::FieldTable::new();
-
-    caps.insert(
-        "authentication_failure_close".to_string(),
-        frame::AMQPFieldValue::Bool(true),
-    );
-
-    //caps.insert("basic.nack".to_string(), AMQPFieldValue::Bool(true));
-    //caps.insert("connection.blocked".to_string(), AMQPFieldValue::Bool(true));
-    //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
-    //caps.insert("publisher_confirms".to_string(), AMQPFieldValue::Bool(true));
-
-    processor::call(&client_sink, frame::connection_start_ok(username, password, caps)).await?;
-
-    processor::send(&client_sink, frame::connection_tune_ok(0)).await?;
-
-    processor::call(&client_sink, frame::connection_open(0, "/")).await?;
+    connected_rx.await?;
 
     Ok(Client {
         connection_id: "01234".to_owned(),
