@@ -1,5 +1,6 @@
 use crate::client_api::{ClientRequest, ClientRequestSink, Param, WaitFor};
 use crate::client_error;
+use crate::dev;
 use crate::model::ChannelNumber;
 use crate::processor;
 use anyhow::Result;
@@ -139,16 +140,15 @@ impl Channel {
 
     pub async fn basic_publish(&self, exchange_name: &str, routing_key: &str, payload: String) -> Result<()> {
         let frame = frame::basic_publish(self.channel, exchange_name, routing_key);
-        let (tx, rx) = oneshot::channel();
 
         self.sink
             .send(ClientRequest {
                 param: Param::Publish(frame, payload.as_bytes().to_vec()),
-                response: WaitFor::SentOut(tx),
+                response: WaitFor::Nothing,
             })
             .await?;
 
-        rx.await?
+        Ok(())
     }
 
     // TODO consume should spawn a thread and on that thread the client can
@@ -203,16 +203,8 @@ impl Channel {
                                         // FIXME this should not be public api, so no channel
                                         // struct needed
                                         let ack_frame = frame::basic_ack(channel_number, delivery_tag, false);
-                                        let (tx, rx) = oneshot::channel();
 
-                                        client_request_sink
-                                            .send(ClientRequest {
-                                                param: Param::Frame(ack_frame),
-                                                response: WaitFor::SentOut(tx),
-                                            })
-                                            .await;
-
-                                        rx.await;
+                                        processor::send(&client_request_sink, ack_frame).await.unwrap();
 
                                         ()
                                     }
@@ -257,16 +249,8 @@ impl Channel {
 
     pub async fn basic_cancel(&self, consumer_tag: &str) -> Result<()> {
         let frame = frame::basic_cancel(self.channel, consumer_tag, false);
-        let (tx, rx) = oneshot::channel();
 
-        self.sink
-            .send(ClientRequest {
-                param: Param::Frame(frame),
-                response: WaitFor::FrameResponse(tx),
-            })
-            .await?;
-
-        rx.await?
+        processor::call(&self.sink, frame).await
     }
 
     /// Closes the channel.

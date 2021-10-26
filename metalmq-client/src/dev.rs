@@ -1,6 +1,25 @@
 use env_logger::Builder;
 use std::io::Write;
 
+pub(crate) async fn send_timeout<T: std::fmt::Debug>(
+    ms: &tokio::sync::mpsc::Sender<T>,
+    value: T,
+) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(1));
+    tokio::pin!(timeout);
+
+    log::trace!("Send with timeout {:?}", value);
+
+    tokio::select! {
+        result = ms.send(value) => {
+            result
+        }
+        _ = &mut timeout => {
+            panic!("Timeout during sending to channel");
+        }
+    }
+}
+
 /// Convenience function for setting up `env_logger` to see log messages.
 pub fn setup_logger() {
     let mut builder = Builder::from_default_env();

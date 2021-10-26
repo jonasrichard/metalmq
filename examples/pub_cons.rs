@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     let consumer = client.channel_open(2).await?;
 
     // FIXME we still have issue if the consumer buffer is full
-    let message_count = 1024u32;
+    let message_count = 16u32;
     let mut received_count = 0u32;
 
     let counter = move |i: ConsumerSignal| match i {

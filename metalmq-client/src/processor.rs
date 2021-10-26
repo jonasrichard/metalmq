@@ -1,26 +1,43 @@
 use crate::client_api::{self, ClientRequest, FrameResponse, Param, WaitFor};
 use crate::client_error;
+use crate::dev;
 use crate::state;
 use anyhow::Result;
-use futures::stream::{SplitSink, StreamExt};
+use futures::stream::{SplitSink, Stream, StreamExt};
 use futures::SinkExt;
 use log::{debug, error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame;
 use std::collections::HashMap;
+use std::io::Error;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time;
 use tokio_util::codec::Framed;
 
 #[cfg(test)]
 mod processor_tests;
 
-pub(crate) async fn loop2(
+pub(crate) async fn start_loop_and_output(socket: TcpStream, requests: mpsc::Receiver<ClientRequest>) -> Result<()> {
+    let (mut sink, stream) = Framed::new(socket, AMQPCodec {}).split();
+    let (out_tx, mut out_rx) = mpsc::channel(1);
+    let client = state::new(out_tx.clone());
+
+    // I/O output port, handles outgoing frames sent via a channel.
+    tokio::spawn(async move {
+        if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
+            error!("Error {:?}", e);
+        }
+    });
+
+    socket_loop(client, Box::pin(stream), requests).await
+}
+
+pub(crate) async fn socket_loop(
     mut client_state: state::ClientState,
-    //mut frame_stream: futures::stream::SplitStream<Framed<tokio::net::TcpStream, AMQPCodec>>,
-    mut frame_stream: Pin<Box<dyn futures::stream::Stream<Item = Result<Frame, std::io::Error>> + Send>>,
+    mut frame_stream: Pin<Box<dyn Stream<Item = Result<Frame, Error>> + Send>>,
     mut command_stream: mpsc::Receiver<ClientRequest>,
 ) -> Result<()> {
     let feedback = Arc::new(Mutex::new(HashMap::<u16, FrameResponse>::new()));
@@ -36,7 +53,7 @@ pub(crate) async fn loop2(
                     Some(Ok(Frame::Frame(frame))) => {
                         debug!("Incoming frame {:?}", frame);
 
-                        notify_waiter(&frame, &feedback)?;
+                        notify_waiter(&frame, &feedback).unwrap();
 
                         if let Err(e) = handle_in_frame(frame, &mut client_state).await {
                             error!("Error {:?}", e);
@@ -72,25 +89,6 @@ pub(crate) async fn loop2(
     Ok(())
 }
 
-pub(crate) async fn socket_loop(socket: TcpStream, requests: mpsc::Receiver<ClientRequest>) -> Result<()> {
-    let (mut sink, stream) = Framed::new(socket, AMQPCodec {}).split();
-    let (out_tx, mut out_rx) = mpsc::channel(1);
-    let client = state::new(out_tx.clone());
-
-    // TODO this should be part of the future, so write should yield. As a
-    // consequence we can know what we managed to sent out, like basic publish
-    // or ack.
-    //
-    // I/O output port, handles outgoing frames sent via a channel.
-    tokio::spawn(async move {
-        if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
-            error!("Error {:?}", e);
-        }
-    });
-
-    loop2(client, Box::pin(stream), requests).await
-}
-
 async fn handle_outgoing(
     sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
     outgoing: &mut mpsc::Receiver<Frame>,
@@ -98,8 +96,16 @@ async fn handle_outgoing(
     while let Some(f) = outgoing.recv().await {
         trace!("Sending out: {:?}", f);
 
-        if let Err(e) = sink.send(f).await {
-            error!("Error {:?}", e);
+        let timeout = time::sleep(time::Duration::from_secs(1));
+        tokio::pin!(timeout);
+
+        tokio::select! {
+            result = sink.send(f) => {
+                result.unwrap();
+            }
+            _ = &mut timeout => {
+                panic!("Timeout sending out to network");
+            }
         }
     }
 
@@ -291,15 +297,19 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
 
     log::trace!("Sending out a sync frame {:?}", f);
 
-    sink.send(ClientRequest {
-        param: Param::Frame(f),
-        response: WaitFor::FrameResponse(tx),
-    })
-    .await?;
+    dev::send_timeout(
+        sink,
+        ClientRequest {
+            param: Param::Frame(f),
+            response: WaitFor::FrameResponse(tx),
+        },
+    )
+    .await
+    .unwrap();
 
-    log::trace!("Waiting for result of call");
+    rx.await.unwrap().unwrap();
 
-    rx.await??;
+    log::trace!("Sync call finished");
 
     Ok(())
 }

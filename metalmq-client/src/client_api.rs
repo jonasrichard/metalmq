@@ -108,7 +108,7 @@ async fn create_connection(url: &str) -> Result<ClientRequestSink> {
             let (sender, receiver) = mpsc::channel(1);
 
             tokio::spawn(async move {
-                if let Err(e) = processor::socket_loop(socket, receiver).await {
+                if let Err(e) = processor::start_loop_and_output(socket, receiver).await {
                     error!("error: {:?}", e);
                 }
             });

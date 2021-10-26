@@ -17,7 +17,7 @@ async fn connect_frame_exchange() {
     let (command_tx, command_rx) = mpsc::channel(1);
 
     tokio::spawn(async move {
-        let result = loop2(cs, Box::pin(frames_stream), command_rx).await;
+        let result = socket_loop(cs, Box::pin(frames_stream), command_rx).await;
 
         assert!(result.is_ok());
     });

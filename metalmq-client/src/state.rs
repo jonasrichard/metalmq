@@ -7,7 +7,6 @@
 //! api it is a typed struct.
 
 use crate::channel_api::{ConsumerSignal, Message};
-use crate::client_api::WaitFor;
 use crate::model::ChannelNumber;
 use anyhow::Result;
 use log::{debug, info};
@@ -111,7 +110,7 @@ impl ClientState {
         self.connected = Some(connected);
 
         // FIXME we need to give back the result of .await
-        self.outgoing.send(Frame::Frame(AMQPFrame::Header)).await?;
+        self.outgoing.send(Frame::Frame(AMQPFrame::Header)).await.unwrap();
 
         Ok(())
     }
@@ -137,7 +136,8 @@ impl ClientState {
                 &self.password,
                 caps,
             )))
-            .await?;
+            .await
+            .unwrap();
 
         Ok(())
     }
@@ -151,10 +151,14 @@ impl ClientState {
     pub(crate) async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> Result<()> {
         self.state = Phase::Authenticated;
 
-        self.outgoing.send(Frame::Frame(frame::connection_tune_ok(0))).await?;
+        self.outgoing
+            .send(Frame::Frame(frame::connection_tune_ok(0)))
+            .await
+            .unwrap();
         self.outgoing
             .send(Frame::Frame(frame::connection_open(0, &self.virtual_host)))
-            .await?;
+            .await
+            .unwrap();
 
         Ok(())
     }
@@ -388,7 +392,8 @@ impl ClientState {
                 &args.consumer_tag,
                 Some(args.flags),
             )))
-            .await?;
+            .await
+            .unwrap();
 
         Ok(())
     }
@@ -449,7 +454,7 @@ impl ClientState {
             AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice())),
         ];
 
-        self.outgoing.send(Frame::Frames(fs)).await?;
+        self.outgoing.send(Frame::Frames(fs)).await.unwrap();
 
         Ok(())
     }
@@ -482,7 +487,7 @@ impl ClientState {
                 // but since the async call yields here, that select is never reached.
                 // A solution can be to apply backpressure and in ack mode there shouldn't be
                 // more than capacity number of unacked messages.
-                sink.send(ConsumerSignal::Delivered(msg))?
+                sink.send(ConsumerSignal::Delivered(msg)).unwrap();
             }
         }
 
