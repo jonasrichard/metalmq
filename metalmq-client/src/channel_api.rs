@@ -206,6 +206,12 @@ impl Channel {
 
                                         processor::send(&client_request_sink, ack_frame).await.unwrap();
 
+                                        // Here it is ugly but this is the only way the client say, ok I ack this
+                                        // message and I would like to finish consuming
+                                        if final_result.is_some() {
+                                            break;
+                                        }
+
                                         ()
                                     }
                                     ConsumerAck::Nothing => {

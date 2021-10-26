@@ -30,5 +30,11 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     ch1.basic_publish("xcgh-shared", "", "Content".to_string()).await?;
     ch2.basic_publish("xcgh-shared", "", "Content".to_string()).await?;
 
+    c1.close().await?;
+    c2.close().await?;
+
+    c1.close().await?;
+    c2.close().await?;
+
     Ok(())
 }

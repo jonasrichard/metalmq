@@ -2,9 +2,8 @@
 
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{ConsumerAck, ConsumerResponse, ConsumerSignal, Message};
-use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags, QueueDeclareFlags};
-use tokio::sync::{mpsc, oneshot};
+use metalmq_client::{ConsumerAck, ConsumerResponse, ConsumerSignal};
+use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
@@ -35,7 +34,7 @@ async fn consume_one_message() -> Result<()> {
     Ok(())
 }
 
-//#[tokio::test]
+#[tokio::test]
 async fn consume_not_existing_queue() -> Result<()> {
     let mut c = helper::default().connect().await?;
     let ch = c.channel_open(2).await?;
@@ -52,7 +51,7 @@ async fn consume_not_existing_queue() -> Result<()> {
     Ok(())
 }
 
-//#[tokio::test]
+#[tokio::test]
 async fn two_consumers_exclusive_queue_error() -> Result<()> {
     let exchange = "xchg-exclusive";
     let queue = "q-exclusive";
@@ -98,7 +97,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     Ok(())
 }
 
-//#[tokio::test]
+#[tokio::test]
 async fn three_consumers_consume_roughly_the_same_number_of_messages() -> Result<()> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
