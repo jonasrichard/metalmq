@@ -503,19 +503,21 @@ mod tests {
     #[tokio::test]
     async fn connect_open_sets_virtual_host() {
         let virtual_host = "/".to_owned();
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = mpsc::channel(2);
         let mut cs = new(tx);
-        let args = frame::ConnectionOpenArgs {
-            virtual_host,
-            insist: false,
+        let args = frame::ConnectionTuneArgs {
+            channel_max: 2047,
+            frame_max: 65535,
+            heartbeat: 60,
         };
 
-        cs.connection_open(args).await.unwrap();
+        cs.connection_tune(args).await.unwrap();
 
-        let outgoing_frame = rx.recv().await.unwrap();
+        let outgoing_tune_ok_frame = rx.recv().await.unwrap();
+        let outgoing_open_frame = rx.recv().await.unwrap();
 
         assert!(matches!(
-            outgoing_frame,
+            outgoing_open_frame,
             Frame::Frame(AMQPFrame::Method(
                 0,
                 frame::CONNECTION_OPEN,

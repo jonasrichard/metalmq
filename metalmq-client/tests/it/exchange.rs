@@ -153,7 +153,7 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
 
     let err = helper::to_client_error(result);
     assert_eq!(err.channel, Some(11));
-    assert_eq!(err.code, 404);
+    assert_eq!(err.code, 406);
 
     ch.close().await?;
     c.close().await?;

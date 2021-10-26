@@ -307,7 +307,7 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
     .await
     .unwrap();
 
-    rx.await.unwrap().unwrap();
+    rx.await.unwrap()?;
 
     log::trace!("Sync call finished");
 
