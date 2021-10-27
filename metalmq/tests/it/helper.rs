@@ -112,6 +112,10 @@ pub(crate) async fn consume_messages<'a>(
             match signal {
                 ConsumerSignal::Delivered(message) => {
                     messages.push(message);
+
+                    if messages.len() >= n {
+                        break;
+                    }
                 }
                 _ => {
                     panic!("Unexpected signal {:?}", signal);
@@ -119,7 +123,7 @@ pub(crate) async fn consume_messages<'a>(
             }
         }
 
-        tx.send(messages);
+        tx.send(messages).unwrap();
     });
 
     Ok(rx)
