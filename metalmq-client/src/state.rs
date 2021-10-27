@@ -6,7 +6,8 @@
 //! AMQP frame or `MethodFrame`, content etc. Everything which talks to the client
 //! api it is a typed struct.
 
-use crate::channel_api::{ConsumerSignal, Message};
+use crate::channel_api::Message;
+use crate::consumer::ConsumerSignal;
 use crate::model::ChannelNumber;
 use anyhow::Result;
 use log::{debug, info};
@@ -142,11 +143,11 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> Result<()> {
-        self.state = Phase::Connected;
+    //pub(crate) async fn connection_start_ok(&mut self, args: frame::ConnectionStartOkArgs) -> Result<()> {
+    //    self.state = Phase::Connected;
 
-        Ok(())
-    }
+    //    Ok(())
+    //}
 
     pub(crate) async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> Result<()> {
         self.state = Phase::Authenticated;
@@ -163,13 +164,13 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn connection_tune_ok(&mut self, _args: frame::ConnectionTuneOkArgs) -> Result<()> {
-        Ok(())
-    }
+    //pub(crate) async fn connection_tune_ok(&mut self, _args: frame::ConnectionTuneOkArgs) -> Result<()> {
+    //    Ok(())
+    //}
 
-    pub(crate) async fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> Result<()> {
-        Ok(())
-    }
+    //pub(crate) async fn connection_open(&mut self, args: frame::ConnectionOpenArgs) -> Result<()> {
+    //    Ok(())
+    //}
 
     pub(crate) async fn connection_open_ok(&mut self) -> Result<()> {
         let mut conn_tx = None;

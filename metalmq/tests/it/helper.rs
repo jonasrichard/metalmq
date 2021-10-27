@@ -2,7 +2,7 @@ use anyhow::Result;
 use metalmq_client::*;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 use std::collections::HashMap;
-use tokio::task::JoinHandle;
+use tokio::sync::oneshot;
 
 /// The helper connection.
 #[allow(dead_code)]
@@ -101,43 +101,26 @@ pub(crate) async fn consume_messages<'a>(
     ctag: &'a str,
     flags: Option<BasicConsumeFlags>,
     n: usize,
-) -> Result<JoinHandle<Option<Vec<Message>>>> {
-    use std::sync::{Arc, Mutex};
+) -> Result<oneshot::Receiver<Vec<Message>>> {
+    let (tx, rx) = oneshot::channel();
+    let mut handler = client_channel.basic_consume(queue, ctag, flags).await?;
 
-    let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+    tokio::spawn(async move {
+        let mut messages = vec![];
 
-    let receiver = move |input: ConsumerSignal| match input {
-        ConsumerSignal::Delivered(message) => {
-            let delivery_tag = message.delivery_tag;
-            let mut msgs = messages.lock().unwrap();
-            msgs.push(message);
-
-            let response = ConsumerAck::Ack {
-                delivery_tag,
-                multiple: false,
-            };
-
-            if msgs.len() >= n {
-                let ms = msgs.drain(0..).collect();
-
-                ConsumerResponse {
-                    result: Some(ms),
-                    ack: response,
+        while let Some(signal) = handler.signal_stream.recv().await {
+            match signal {
+                ConsumerSignal::Delivered(message) => {
+                    messages.push(message);
                 }
-            } else {
-                ConsumerResponse {
-                    result: None,
-                    ack: response,
+                _ => {
+                    panic!("Unexpected signal {:?}", signal);
                 }
             }
         }
-        _ => ConsumerResponse {
-            result: None,
-            ack: ConsumerAck::Nothing,
-        },
-    };
 
-    client_channel
-        .basic_consume(queue, ctag, flags, Box::new(receiver))
-        .await
+        tx.send(messages);
+    });
+
+    Ok(rx)
 }

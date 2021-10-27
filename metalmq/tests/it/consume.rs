@@ -2,7 +2,6 @@
 
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{ConsumerAck, ConsumerResponse, ConsumerSignal};
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 
 #[tokio::test]
@@ -18,7 +17,7 @@ async fn consume_one_message() -> Result<()> {
 
     ch.basic_publish(exchange, "", "Hello".into()).await?;
 
-    let msgs = result.await.unwrap().unwrap();
+    let msgs = result.await.unwrap();
     assert_eq!(msgs.len(), 1);
 
     let msg = msgs.get(0).unwrap();

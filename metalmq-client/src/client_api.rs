@@ -1,5 +1,5 @@
-use crate::channel_api::{Channel, ConsumerSignal, DeliveredContent};
-use crate::client_error;
+use crate::channel_api::{Channel, DeliveredContent};
+use crate::consumer::ConsumerSignal;
 use crate::model::ChannelNumber;
 use crate::processor;
 use anyhow::{anyhow, Result};

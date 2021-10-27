@@ -1,8 +1,11 @@
 use anyhow::Result;
-use log::info;
+use log::{debug, info};
 use metalmq_client::*;
 use rand::prelude::*;
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::mpsc;
+use tokio::sync::Barrier;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,33 +28,36 @@ async fn main() -> Result<()> {
 
     let consumer = client.channel_open(2).await?;
 
-    // FIXME we still have issue if the consumer buffer is full
-    let message_count = 16u32;
+    let message_count = 1024u32;
+
+    let barrier = Arc::new(Barrier::new(2));
+    let consuming_finished = Arc::clone(&barrier);
+
+    let ctag = format!("ctag-{}", rng.gen::<u32>());
+
+    let mut handler = consumer.basic_consume(queue, &ctag, None).await?;
     let mut received_count = 0u32;
 
-    let counter = move |i: ConsumerSignal| match i {
-        ConsumerSignal::Delivered(m) => {
-            received_count += 1;
+    tokio::spawn(async move {
+        while let Some(signal) = handler.signal_stream.recv().await {
+            match signal {
+                ConsumerSignal::Delivered(m) => {
+                    received_count += 1;
 
-            ConsumerResponse {
-                result: None,
-                ack: ConsumerAck::Ack {
-                    delivery_tag: m.delivery_tag,
-                    multiple: false,
-                },
+                    handler.basic_ack(m.delivery_tag).await;
+
+                    if received_count >= message_count {
+                        break;
+                    }
+                }
+                ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed | ConsumerSignal::ConnectionClosed => {}
             }
         }
-        ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed | ConsumerSignal::ConnectionClosed => {
-            info!("Consuming cancelled after {} messages received", received_count);
 
-            ConsumerResponse {
-                result: Some(received_count),
-                ack: ConsumerAck::Nothing,
-            }
-        }
-    };
+        handler.basic_cancel().await;
 
-    let handle = consumer.basic_consume(queue, "ctag", None, Box::new(counter)).await?;
+        consuming_finished.wait();
+    });
 
     let message = "This will be the test message what we send over multiple times";
 
@@ -61,14 +67,7 @@ async fn main() -> Result<()> {
         publisher.basic_publish(exchange, "", message.to_string()).await?;
     }
 
-    info!("Cancelling consumer...");
-
-    let ctag_num: u32 = rng.gen();
-    consumer.basic_cancel(&format!("ctag-{}", ctag_num)).await?;
-
-    let received_messages = handle.await.unwrap();
-
-    info!("Received {:?} messages from the {}", received_messages, message_count);
+    barrier.wait();
 
     info!(
         "Send and receive {} messages: {:?}",

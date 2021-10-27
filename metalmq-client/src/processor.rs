@@ -275,9 +275,6 @@ async fn handle_out_frame(
     debug!("Outgoing frame {:?}", ma);
 
     match ma {
-        ConnectionStartOk(args) => cs.connection_start_ok(args).await,
-        ConnectionTuneOk(args) => cs.connection_tune_ok(args).await,
-        ConnectionOpen(args) => cs.connection_open(args).await,
         ConnectionClose(args) => cs.connection_close(args).await,
         ChannelOpen => cs.channel_open(channel).await,
         ChannelClose(args) => cs.channel_close(channel, args).await,
@@ -309,8 +306,6 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
 
     rx.await.unwrap()?;
 
-    log::trace!("Sync call finished");
-
     Ok(())
 }
 
@@ -319,7 +314,8 @@ pub(crate) async fn send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
         param: Param::Frame(f),
         response: WaitFor::Nothing,
     })
-    .await?;
+    .await
+    .unwrap();
 
     Ok(())
 }
