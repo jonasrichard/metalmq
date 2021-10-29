@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
 
         handler.basic_cancel().await;
 
-        consuming_finished.wait();
+        consuming_finished.wait().await;
     });
 
     let message = "This will be the test message what we send over multiple times";
@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
         publisher.basic_publish(exchange, "", message.to_string()).await?;
     }
 
-    barrier.wait();
+    barrier.wait().await;
 
     info!(
         "Send and receive {} messages: {:?}",

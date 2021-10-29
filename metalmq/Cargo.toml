@@ -32,9 +32,7 @@ toml = "0.5"
 uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
-async-trait = "0.1"
 bencher = "0.1"
-cucumber = { package = "cucumber_rust", version = "0.8" }
 
 [[bench]]
 name = "server-bench"
