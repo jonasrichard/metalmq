@@ -38,7 +38,7 @@ async fn connect_frame_exchange() {
     log::info!("Header command send result: {:?}", cmd_result);
     assert!(matches!(cmd_result, Ok(())));
 
-    let header = frame_out_rx.recv().await.unwrap();
+    let OutgoingFrame { frame: header, .. } = frame_out_rx.recv().await.unwrap();
     assert!(matches!(header, Frame::Frame(AMQPFrame::Header)));
 
     // Server send back a connection-start
@@ -87,10 +87,10 @@ async fn connect_frame_exchange() {
     }
 }
 
-fn extract_method_frame(r: Option<Frame>) -> frame::MethodFrameArgs {
+fn extract_method_frame(r: Option<OutgoingFrame>) -> frame::MethodFrameArgs {
     assert!(r.is_some());
 
-    let frame = r.unwrap();
+    let OutgoingFrame { frame, .. } = r.unwrap();
 
     if let Frame::Frame(AMQPFrame::Method(ch, cid, args)) = frame {
         args

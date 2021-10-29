@@ -7,8 +7,10 @@
 //! api it is a typed struct.
 
 use crate::channel_api::Message;
+use crate::client_api::WaitFor;
 use crate::consumer::ConsumerSignal;
 use crate::model::ChannelNumber;
+use crate::processor::OutgoingFrame;
 use anyhow::Result;
 use log::{debug, info};
 use metalmq_codec::codec::Frame;
@@ -67,7 +69,7 @@ pub(crate) struct ClientState {
     virtual_host: String,
     pub(crate) consumers: HashMap<ChannelNumber, mpsc::UnboundedSender<ConsumerSignal>>,
     pub(self) in_delivery: HashMap<ChannelNumber, DeliveredContent>,
-    outgoing: mpsc::Sender<Frame>,
+    outgoing: mpsc::Sender<OutgoingFrame>,
     /// The last delivery tag we sent out per channel.
     ack_sent: HashMap<ChannelNumber, u64>,
     connected: Option<oneshot::Sender<()>>,
@@ -83,7 +85,7 @@ impl fmt::Debug for ClientState {
     }
 }
 
-pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
+pub(crate) fn new(outgoing: mpsc::Sender<OutgoingFrame>) -> ClientState {
     ClientState {
         state: Phase::Uninitialized,
         username: "".to_owned(),
@@ -95,6 +97,13 @@ pub(crate) fn new(outgoing: mpsc::Sender<Frame>) -> ClientState {
         ack_sent: HashMap::new(),
         connected: None,
     }
+}
+
+async fn send_out(
+    out: &mpsc::Sender<OutgoingFrame>,
+    frame: Frame,
+) -> std::result::Result<(), mpsc::error::SendError<OutgoingFrame>> {
+    out.send(OutgoingFrame { frame, written: None }).await
 }
 
 impl ClientState {
@@ -111,7 +120,7 @@ impl ClientState {
         self.connected = Some(connected);
 
         // FIXME we need to give back the result of .await
-        self.outgoing.send(Frame::Frame(AMQPFrame::Header)).await.unwrap();
+        send_out(&self.outgoing, Frame::Frame(AMQPFrame::Header)).await.unwrap();
 
         Ok(())
     }
@@ -131,14 +140,12 @@ impl ClientState {
         //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
         //caps.insert("publisher_confirms".to_string(), AMQPFieldValue::Bool(true));
 
-        self.outgoing
-            .send(Frame::Frame(frame::connection_start_ok(
-                &self.username,
-                &self.password,
-                caps,
-            )))
-            .await
-            .unwrap();
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::connection_start_ok(&self.username, &self.password, caps)),
+        )
+        .await
+        .unwrap();
 
         Ok(())
     }
@@ -152,14 +159,16 @@ impl ClientState {
     pub(crate) async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> Result<()> {
         self.state = Phase::Authenticated;
 
-        self.outgoing
-            .send(Frame::Frame(frame::connection_tune_ok(0)))
+        send_out(&self.outgoing, Frame::Frame(frame::connection_tune_ok(0)))
             .await
             .unwrap();
-        self.outgoing
-            .send(Frame::Frame(frame::connection_open(0, &self.virtual_host)))
-            .await
-            .unwrap();
+
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::connection_open(0, &self.virtual_host)),
+        )
+        .await
+        .unwrap();
 
         Ok(())
     }
@@ -182,9 +191,11 @@ impl ClientState {
     }
 
     pub(crate) async fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::connection_close(0, 200, "Normal close", 0, 0)))
-            .await?;
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::connection_close(0, 200, "Normal close", 0, 0)),
+        )
+        .await?;
 
         Ok(())
     }
@@ -203,7 +214,7 @@ impl ClientState {
     }
 
     pub(crate) async fn channel_open(&mut self, channel: ChannelNumber) -> Result<()> {
-        self.outgoing.send(Frame::Frame(frame::channel_open(channel))).await?;
+        send_out(&self.outgoing, Frame::Frame(frame::channel_open(channel))).await?;
 
         Ok(())
     }
@@ -213,15 +224,17 @@ impl ClientState {
     }
 
     pub(crate) async fn channel_close(&mut self, channel: ChannelNumber, args: frame::ChannelCloseArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::channel_close(
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::channel_close(
                 channel,
                 args.code,
                 &args.text,
                 args.class_id,
                 args.method_id,
-            )))
-            .await?;
+            )),
+        )
+        .await?;
 
         Ok(())
     }
@@ -252,14 +265,16 @@ impl ClientState {
         channel: ChannelNumber,
         args: frame::ExchangeDeclareArgs,
     ) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::exchange_declare(
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::exchange_declare(
                 channel,
                 &args.exchange_name,
                 &args.exchange_type,
                 Some(args.flags),
-            )))
-            .await?;
+            )),
+        )
+        .await?;
 
         Ok(())
     }
@@ -273,13 +288,11 @@ impl ClientState {
         channel: ChannelNumber,
         args: frame::ExchangeDeleteArgs,
     ) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::exchange_delete(
-                channel,
-                &args.exchange_name,
-                Some(args.flags),
-            )))
-            .await?;
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::exchange_delete(channel, &args.exchange_name, Some(args.flags))),
+        )
+        .await?;
 
         Ok(())
     }
@@ -289,13 +302,11 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_declare(&mut self, channel: ChannelNumber, args: frame::QueueDeclareArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::queue_declare(
-                channel,
-                &args.name,
-                Some(args.flags),
-            )))
-            .await?;
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::queue_declare(channel, &args.name, Some(args.flags))),
+        )
+        .await?;
 
         Ok(())
     }
@@ -305,14 +316,16 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: ChannelNumber, args: frame::QueueBindArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::queue_bind(
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::queue_bind(
                 channel,
                 &args.queue_name,
                 &args.exchange_name,
                 &args.routing_key,
-            )))
-            .await?;
+            )),
+        )
+        .await?;
 
         Ok(())
     }
@@ -322,14 +335,16 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_unbind(&mut self, channel: ChannelNumber, args: frame::QueueUnbindArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::queue_unbind(
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::queue_unbind(
                 channel,
                 &args.queue_name,
                 &args.exchange_name,
                 &args.routing_key,
-            )))
-            .await?;
+            )),
+        )
+        .await?;
 
         Ok(())
     }
@@ -340,13 +355,11 @@ impl ClientState {
 
     pub(crate) async fn queue_delete(&mut self, channel: ChannelNumber, args: frame::QueueDeleteArgs) -> Result<()> {
         // TODO what happens if I am consuming that queue?
-        self.outgoing
-            .send(Frame::Frame(frame::queue_delete(
-                channel,
-                &args.queue_name,
-                Some(args.flags),
-            )))
-            .await?;
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::queue_delete(channel, &args.queue_name, Some(args.flags))),
+        )
+        .await?;
 
         Ok(())
     }
@@ -359,14 +372,21 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn basic_ack(&mut self, channel: ChannelNumber, args: frame::BasicAckArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::basic_ack(
-                channel,
-                args.delivery_tag,
-                args.multiple,
-            )))
-            .await?;
+    pub(crate) async fn basic_ack(
+        &mut self,
+        channel: ChannelNumber,
+        args: frame::BasicAckArgs,
+        wait_for: WaitFor,
+    ) -> Result<()> {
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::basic_ack(channel, args.delivery_tag, args.multiple)),
+        )
+        .await?;
+
+        if let WaitFor::SentOut(tx) = wait_for {
+            tx.send(Ok(())).unwrap();
+        }
 
         if let Some(dt) = self.ack_sent.get_mut(&channel) {
             debug_assert!(*dt < args.delivery_tag);
@@ -386,15 +406,17 @@ impl ClientState {
     ) -> Result<()> {
         self.consumers.insert(channel, sink);
 
-        self.outgoing
-            .send(Frame::Frame(frame::basic_consume(
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::basic_consume(
                 channel,
                 &args.queue,
                 &args.consumer_tag,
                 Some(args.flags),
-            )))
-            .await
-            .unwrap();
+            )),
+        )
+        .await
+        .unwrap();
 
         Ok(())
     }
@@ -404,13 +426,11 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_cancel(&mut self, channel: ChannelNumber, args: frame::BasicCancelArgs) -> Result<()> {
-        self.outgoing
-            .send(Frame::Frame(frame::basic_cancel(
-                channel,
-                &args.consumer_tag,
-                args.no_wait,
-            )))
-            .await?;
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::basic_cancel(channel, &args.consumer_tag, args.no_wait)),
+        )
+        .await?;
 
         Ok(())
     }
@@ -455,7 +475,7 @@ impl ClientState {
             AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice())),
         ];
 
-        self.outgoing.send(Frame::Frames(fs)).await.unwrap();
+        send_out(&self.outgoing, Frame::Frames(fs)).await.unwrap();
 
         Ok(())
     }
@@ -515,10 +535,10 @@ mod tests {
         cs.connection_tune(args).await.unwrap();
 
         let outgoing_tune_ok_frame = rx.recv().await.unwrap();
-        let outgoing_open_frame = rx.recv().await.unwrap();
+        let OutgoingFrame { frame: open_frame, .. } = rx.recv().await.unwrap();
 
         assert!(matches!(
-            outgoing_open_frame,
+            open_frame,
             Frame::Frame(AMQPFrame::Method(
                 0,
                 frame::CONNECTION_OPEN,

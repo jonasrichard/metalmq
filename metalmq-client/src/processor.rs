@@ -14,16 +14,21 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time;
 use tokio_util::codec::Framed;
 
 #[cfg(test)]
 mod processor_tests;
 
+#[derive(Debug)]
+pub(crate) struct OutgoingFrame {
+    pub(crate) frame: Frame,
+    pub(crate) written: Option<oneshot::Sender<Result<()>>>,
+}
+
 pub(crate) async fn start_loop_and_output(socket: TcpStream, requests: mpsc::Receiver<ClientRequest>) -> Result<()> {
     let (mut sink, stream) = Framed::new(socket, AMQPCodec {}).split();
     let (out_tx, mut out_rx) = mpsc::channel(1);
-    let client = state::new(out_tx.clone());
+    let client = state::new(out_tx);
 
     // I/O output port, handles outgoing frames sent via a channel.
     tokio::spawn(async move {
@@ -91,22 +96,15 @@ pub(crate) async fn socket_loop(
 
 async fn handle_outgoing(
     sink: &mut SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
-    outgoing: &mut mpsc::Receiver<Frame>,
+    outgoing: &mut mpsc::Receiver<OutgoingFrame>,
 ) -> Result<()> {
     while let Some(f) = outgoing.recv().await {
         trace!("Sending out: {:?}", f);
 
-        let timeout = time::sleep(time::Duration::from_secs(1));
-        tokio::pin!(timeout);
+        let OutgoingFrame { frame, written } = f;
 
-        tokio::select! {
-            result = sink.send(f) => {
-                result.unwrap();
-            }
-            _ = &mut timeout => {
-                panic!("Timeout sending out to network");
-            }
-        }
+        sink.send(frame).await.unwrap();
+        written.map(|w| w.send(Ok(())).unwrap());
     }
 
     Ok(())
@@ -128,6 +126,9 @@ async fn handle_request(
             connected,
         } => {
             client.start(username, password, virtual_host, connected).await?;
+        }
+        Param::Frame(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicAck(args))) => {
+            client.basic_ack(ch, args, request.response).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, &mut client).await?;
@@ -255,7 +256,6 @@ async fn handle_in_method_frame(
         QueueUnbindOk => cs.queue_unbind_ok().await,
         QueueDeleteOk(args) => cs.queue_delete_ok(channel, args).await,
         ConnectionCloseOk => cs.connection_close_ok().await,
-        BasicAck(args) => cs.basic_ack(channel, args).await,
         BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
         BasicCancelOk(args) => cs.basic_cancel_ok(channel, args).await,
         BasicDeliver(args) => cs.basic_deliver(channel, args).await,
@@ -284,7 +284,6 @@ async fn handle_out_frame(
         QueueBind(args) => cs.queue_bind(channel, args).await,
         QueueUnbind(args) => cs.queue_unbind(channel, args).await,
         QueueDelete(args) => cs.queue_delete(channel, args).await,
-        BasicAck(args) => cs.basic_ack(channel, args).await,
         BasicCancel(args) => cs.basic_cancel(channel, args).await,
         _ => unimplemented!("{:?}", ma),
     }
@@ -301,6 +300,21 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
             response: WaitFor::FrameResponse(tx),
         },
     )
+    .await
+    .unwrap();
+
+    rx.await.unwrap()?;
+
+    Ok(())
+}
+
+pub(crate) async fn sync_send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+
+    sink.send(ClientRequest {
+        param: Param::Frame(f),
+        response: WaitFor::SentOut(tx),
+    })
     .await
     .unwrap();
 

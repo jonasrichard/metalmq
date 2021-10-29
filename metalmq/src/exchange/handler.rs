@@ -72,6 +72,9 @@ impl ExchangeState {
                         // if routing key will send this message to a queue.
                         //   If not, we need to check if the message is mandatory, we need to
                         //   send back a basic-return with an error.
+                        // FIXME we can close a message as far as we don't use Vec but Bytes.
+                        // Vec is cloned by cloning the underlying array, but Buffer is a bit
+                        // more specialized, and it uses a reference counter pointer.
                         info!(
                             "Publish message {}",
                             String::from_utf8(message.content.clone()).unwrap()

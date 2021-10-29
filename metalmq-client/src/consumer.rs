@@ -24,8 +24,7 @@ pub struct ConsumerHandler {
 
 impl ConsumerHandler {
     pub async fn basic_ack(&self, delivery_tag: u64) -> Result<()> {
-        // TODO it should wait the ack to be sent out the network - see processor.rs
-        processor::send(&self.client_sink, frame::basic_ack(self.channel, delivery_tag, false)).await
+        processor::sync_send(&self.client_sink, frame::basic_ack(self.channel, delivery_tag, false)).await
     }
 
     //pub async fn basic_nack(&self, delivery_tag: u64, multiple: bool, requeue: bool) -> Result<()> {
