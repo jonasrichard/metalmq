@@ -5,7 +5,6 @@ members = [
     "metalmq-codec",
     "metalmq-client",
 
-    "benches",
     "examples"
 ]
 

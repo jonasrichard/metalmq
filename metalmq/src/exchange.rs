@@ -7,7 +7,7 @@ pub(crate) mod handler;
 pub(crate) mod manager;
 
 use metalmq_codec::frame::{ExchangeDeclareArgs, ExchangeDeclareFlags};
-use serde::Serialize;
+use serde_derive::Serialize;
 
 /// Descriptive information of the exchanges
 #[derive(Clone, Debug, PartialEq, Serialize)]

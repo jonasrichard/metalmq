@@ -107,6 +107,9 @@ async fn send_out(
 }
 
 impl ClientState {
+    /// Starts the client sending connection start and tune and open frames.
+    /// Connects to the virtual host and when connection-open-ok message comes
+    /// back it notifies the `connected` channel.
     pub(crate) async fn start(
         &mut self,
         username: String,

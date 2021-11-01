@@ -34,7 +34,7 @@ uuid = { version = "0.8", features = ["v4"] }
 [dev-dependencies]
 bencher = "0.1"
 
-[[bench]]
-name = "server-bench"
-path = "benches/server.rs"
-harness = false
+#[[bench]]
+#name = "server-bench"
+#path = "benches/server.rs"
+#harness = false
