@@ -67,6 +67,9 @@ pub(crate) enum QueueManagerCommand {
         queue_name: String,
         result: oneshot::Sender<Result<QueueCommandSink>>,
     },
+    GetQueues {
+        result: oneshot::Sender<Vec<Queue>>,
+    },
 }
 
 pub(crate) type QueueManagerSink = mpsc::Sender<QueueManagerCommand>;
@@ -168,6 +171,17 @@ pub(crate) async fn get_command_sink(
     rx.await?
 }
 
+pub(crate) async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
+    let (tx, rx) = oneshot::channel();
+
+    logerr!(mgr.send(QueueManagerCommand::GetQueues { result: tx }).await);
+
+    match rx.await {
+        Ok(queues) => queues,
+        Err(_) => vec![],
+    }
+}
+
 async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result<()> {
     use QueueManagerCommand::*;
 
@@ -237,6 +251,11 @@ async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result
                 result,
             } => {
                 logerr!(result.send(handle_get_command_sink(&queues, channel, &queue_name)));
+            }
+            GetQueues { result } => {
+                let qs = queues.iter().map(|kv| kv.1.queue.clone()).collect();
+
+                logerr!(result.send(qs));
             }
         }
     }
@@ -368,11 +387,13 @@ mod tests {
             exchange: "new-exchange".to_string(),
             routing_key: "".to_string(),
             mandatory: false,
-            immediate: false
+            immediate: false,
         };
 
         let (tx, mut rx) = mpsc::channel(16);
-        consume(&queue_sink, "other", 4u16, "new-queue", "ctag", false, false, tx).await.unwrap();
+        consume(&queue_sink, "other", 4u16, "new-queue", "ctag", false, false, tx)
+            .await
+            .unwrap();
 
         qsink.send(QueueCommand::PublishMessage(message)).await.unwrap();
 

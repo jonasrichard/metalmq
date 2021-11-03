@@ -2,9 +2,10 @@ pub(crate) mod handler;
 pub(crate) mod manager;
 
 use metalmq_codec::frame::{QueueDeclareArgs, QueueDeclareFlags};
+use serde_derive::Serialize;
 
 /// Representation of a queue.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct Queue {
     /// The name aka the identifier of the queue.
     name: String,

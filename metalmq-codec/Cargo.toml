@@ -21,5 +21,5 @@ tokio = { version = "1.0", features = ["macros", "rt"] }
 
 [[bench]]
 name = "encoder"
-path = "tests/encode.rs"
+path = "benches/encode.rs"
 harness = false
