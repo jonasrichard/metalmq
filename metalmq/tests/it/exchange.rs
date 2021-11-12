@@ -27,8 +27,8 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
 
     ch1.exchange_declare("xchg-shared", "direct", None).await?;
 
-    ch1.basic_publish("xcgh-shared", "", "Content".to_string()).await?;
-    ch2.basic_publish("xcgh-shared", "", "Content".to_string()).await?;
+    ch1.basic_publish("xcgh-shared", "", "Content".to_string(), false, false).await?;
+    ch2.basic_publish("xcgh-shared", "", "Content".to_string(), false, false).await?;
 
     ch1.close().await?;
     ch2.close().await?;

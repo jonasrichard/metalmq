@@ -56,7 +56,6 @@ def test_one_publisher_one_consumer(caplog):
 
 def test_unrouted_mandatory_message(caplog):
     def on_return(channel, method, props, body):
-        breakpoint()
         LOG.info("Return %s %s %s", method, props, body)
 
     publisher = helper.connect()

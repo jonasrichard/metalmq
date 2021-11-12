@@ -1,10 +1,9 @@
 use anyhow::Result;
-use log::{debug, info};
+use log::info;
 use metalmq_client::*;
 use rand::prelude::*;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::mpsc;
 use tokio::sync::Barrier;
 
 #[tokio::main]
@@ -44,7 +43,7 @@ async fn main() -> Result<()> {
                 ConsumerSignal::Delivered(m) => {
                     received_count += 1;
 
-                    handler.basic_ack(m.delivery_tag).await;
+                    handler.basic_ack(m.delivery_tag).await.unwrap();
 
                     if received_count >= message_count {
                         break;
@@ -54,7 +53,7 @@ async fn main() -> Result<()> {
             }
         }
 
-        handler.basic_cancel().await;
+        handler.basic_cancel().await.unwrap();
 
         consuming_finished.wait().await;
     });
@@ -64,7 +63,9 @@ async fn main() -> Result<()> {
     let start = Instant::now();
 
     for _ in 0..message_count {
-        publisher.basic_publish(exchange, "", message.to_string()).await?;
+        publisher
+            .basic_publish(exchange, "", message.to_string(), false, false)
+            .await?;
     }
 
     barrier.wait().await;

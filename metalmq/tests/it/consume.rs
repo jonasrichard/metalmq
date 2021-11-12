@@ -15,7 +15,7 @@ async fn consume_one_message() -> Result<()> {
 
     let result = helper::consume_messages(&ch, queue, "ctag", None, 1).await?;
 
-    ch.basic_publish(exchange, "", "Hello".into()).await?;
+    ch.basic_publish(exchange, "", "Hello".into(), false, false).await?;
 
     let msgs = result.await.unwrap();
     assert_eq!(msgs.len(), 1);

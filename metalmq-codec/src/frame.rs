@@ -805,14 +805,19 @@ pub fn basic_cancel_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
     )
 }
 
-pub fn basic_publish(channel: u16, exchange_name: &str, routing_key: &str) -> AMQPFrame {
+pub fn basic_publish(
+    channel: u16,
+    exchange_name: &str,
+    routing_key: &str,
+    flags: Option<BasicPublishFlags>,
+) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_PUBLISH,
         MethodFrameArgs::BasicPublish(BasicPublishArgs {
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
-            flags: BasicPublishFlags::empty(),
+            flags: flags.unwrap_or_default(),
         }),
     )
 }

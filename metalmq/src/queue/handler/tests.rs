@@ -45,6 +45,7 @@ async fn publish_to_queue_without_consumers() {
         immediate: false,
         mandatory: false,
         routing_key: "".to_string(),
+        content_type: None,
     });
 
     let result = qs.handle_command(cmd).await;
@@ -91,6 +92,7 @@ async fn publish_to_queue_with_one_consumer() {
         immediate: false,
         mandatory: false,
         routing_key: "".to_string(),
+        content_type: None,
     });
 
     let result = qs.handle_command(cmd).await;

@@ -101,8 +101,19 @@ impl Channel {
         processor::call(&self.sink, frame).await
     }
 
-    pub async fn basic_publish(&self, exchange_name: &str, routing_key: &str, payload: String) -> Result<()> {
-        let frame = frame::basic_publish(self.channel, exchange_name, routing_key);
+    pub async fn basic_publish(
+        &self,
+        exchange_name: &str,
+        routing_key: &str,
+        payload: String,
+        mandatory: bool,
+        immediate: bool,
+    ) -> Result<()> {
+        let mut flags = frame::BasicPublishFlags::empty();
+        flags.set(frame::BasicPublishFlags::MANDATORY, mandatory);
+        flags.set(frame::BasicPublishFlags::IMMEDIATE, immediate);
+
+        let frame = frame::basic_publish(self.channel, exchange_name, routing_key, Some(flags));
 
         self.sink
             .send(ClientRequest {

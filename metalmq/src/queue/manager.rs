@@ -388,6 +388,7 @@ mod tests {
             routing_key: "".to_string(),
             mandatory: false,
             immediate: false,
+            content_type: None,
         };
 
         let (tx, mut rx) = mpsc::channel(16);

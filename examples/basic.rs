@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     channel.queue_declare(queue, None).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
-    channel.basic_publish(exchange, "no-key", "Hey man".into()).await?;
+    channel.basic_publish(exchange, "no-key", "Hey man".into(), false, false).await?;
 
     channel.close().await?;
     client.close().await?;

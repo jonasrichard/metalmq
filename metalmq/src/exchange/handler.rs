@@ -176,6 +176,7 @@ mod tests {
             routing_key: "".to_string(),
             mandatory: true,
             immediate: false,
+            content_type: None,
         };
         let cmd = ExchangeCommand::Message(msg);
 

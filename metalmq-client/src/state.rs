@@ -473,7 +473,7 @@ impl ClientState {
         content: Vec<u8>,
     ) -> Result<()> {
         let fs = vec![
-            frame::basic_publish(channel, &args.exchange_name, &args.routing_key),
+            frame::basic_publish(channel, &args.exchange_name, &args.routing_key, None),
             AMQPFrame::ContentHeader(frame::content_header(channel, content.len() as u64)),
             AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice())),
         ];
