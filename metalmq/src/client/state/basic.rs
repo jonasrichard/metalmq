@@ -29,8 +29,7 @@ impl Connection {
                     routing_key: args.routing_key,
                     mandatory: args.flags.contains(frame::BasicPublishFlags::MANDATORY),
                     immediate: args.flags.contains(frame::BasicPublishFlags::IMMEDIATE),
-                    length: None,
-                    content: None,
+                    ..Default::default()
                 },
             );
 
@@ -113,6 +112,7 @@ impl Connection {
         // TODO collect info into a data struct
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
             pc.length = Some(header.body_size);
+            pc.content_type = header.content_type;
         }
 
         Ok(None)
@@ -128,6 +128,7 @@ impl Connection {
                 routing_key: pc.routing_key,
                 mandatory: pc.mandatory,
                 immediate: pc.immediate,
+                content_type: pc.content_type,
             };
 
             match self.exchanges.get(&pc.exchange) {

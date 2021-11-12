@@ -381,7 +381,7 @@ fn validate_exchange_type(exchange_type: &str) -> Result<()> {
         return connection_error(
             frame::EXCHANGE_DECLARE,
             ConnectionError::CommandInvalid,
-            "PRECONDITION_FAILED - Exchange type is invalid",
+            "COMMAND_INVALID - Exchange type is invalid",
         );
     }
 

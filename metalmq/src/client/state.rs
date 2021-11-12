@@ -6,7 +6,7 @@ use crate::queue::manager as qm;
 use crate::{Context, Result};
 use log::info;
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::Channel;
+use metalmq_codec::frame::{Channel, ContentHeaderFrame};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -47,13 +47,14 @@ pub(crate) struct Connection {
     outgoing: mpsc::Sender<Frame>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct PublishedContent {
     channel: Channel,
     exchange: String,
     routing_key: String,
     mandatory: bool,
     immediate: bool,
+    content_type: Option<String>,
     length: Option<u64>,
     content: Option<Vec<u8>>,
 }

@@ -450,8 +450,34 @@ fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class_id = src.get_u16();
     let weight = src.get_u16();
     let body_size = src.get_u64();
-    let property_flags = src.get_u16();
-    // TODO property list, it seems that we need to know from the class_id what is the type list
+    let property_flags = HeaderPropertyFlags::from_bits(src.get_u16()).unwrap_or_default();
+
+    let content_type = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::CONTENT_TYPE);
+    let content_encoding = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::CONTENT_ENCODING);
+    let headers = None;
+    let delivery_mode = if property_flags.contains(HeaderPropertyFlags::DELIVERY_MODE) {
+        Some(src.get_u8())
+    } else {
+        None
+    };
+    let priority = if property_flags.contains(HeaderPropertyFlags::PRIORITY) {
+        Some(src.get_u8())
+    } else {
+        None
+    };
+    let correlation_id = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::CORRELATION_ID);
+    let reply_to = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::REPLY_TO);
+    let expiration = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::EXPIRATION);
+    let message_id = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::MESSAGE_ID);
+    let timestamp = if property_flags.contains(HeaderPropertyFlags::TIMESTAMP) {
+        Some(src.get_u64())
+    } else {
+        None
+    };
+    let message_type = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::MESSAGE_TYPE);
+    let user_id = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::USER_ID);
+    let app_id = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::APP_ID);
+    let cluster_id = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::CLUSTER_ID);
 
     AMQPFrame::ContentHeader(ContentHeaderFrame {
         channel,
@@ -459,8 +485,33 @@ fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
         weight,
         body_size,
         prop_flags: property_flags,
-        args: vec![],
+        cluster_id,
+        app_id,
+        user_id,
+        message_type,
+        timestamp,
+        message_id,
+        expiration,
+        reply_to,
+        correlation_id,
+        priority,
+        delivery_mode,
+        headers,
+        content_encoding,
+        content_type,
     })
+}
+
+fn decode_short_string_flag(
+    src: &mut BytesMut,
+    flags: HeaderPropertyFlags,
+    flag: HeaderPropertyFlags,
+) -> Option<String> {
+    if flags.contains(flag) {
+        Some(decode_short_string(src))
+    } else {
+        None
+    }
 }
 
 fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
@@ -766,9 +817,22 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
     fr_buf.put_u16(hf.class_id);
     fr_buf.put_u16(hf.weight);
     fr_buf.put_u64(hf.body_size);
-    fr_buf.put_u16(hf.prop_flags);
+    fr_buf.put_u16(hf.prop_flags.bits());
 
-    // TODO encode property list here
+    hf.content_type.as_ref().map(|s| encode_short_string(buf, s));
+    hf.content_encoding.as_ref().map(|s| encode_short_string(buf, s));
+    // TODO write headers
+    hf.delivery_mode.map(|v| buf.put_u8(v));
+    hf.priority.map(|v| buf.put_u8(v));
+    hf.correlation_id.as_ref().map(|s| encode_short_string(buf, s));
+    hf.reply_to.as_ref().map(|s| encode_short_string(buf, s));
+    hf.expiration.as_ref().map(|s| encode_short_string(buf, s));
+    hf.message_id.as_ref().map(|s| encode_short_string(buf, s));
+    hf.timestamp.map(|v| buf.put_u64(v));
+    hf.message_type.as_ref().map(|s| encode_short_string(buf, s));
+    hf.user_id.as_ref().map(|s| encode_short_string(buf, s));
+    hf.app_id.as_ref().map(|s| encode_short_string(buf, s));
+    hf.cluster_id.as_ref().map(|s| encode_short_string(buf, s));
 
     buf.put_u32(fr_buf.len() as u32);
     buf.put(fr_buf);

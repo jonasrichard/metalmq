@@ -49,7 +49,8 @@ pub(crate) async fn start(
         outgoing,
     }
     .exchange_loop(commands)
-    .await;
+    .await
+    .unwrap();
 }
 
 impl ExchangeState {
@@ -57,7 +58,7 @@ impl ExchangeState {
         while let Some(command) = commands.recv().await {
             trace!("Command {:?}", command);
 
-            self.handle_command(command).await;
+            self.handle_command(command).await.unwrap();
         }
 
         Ok(())

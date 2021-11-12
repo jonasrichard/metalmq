@@ -55,7 +55,7 @@ pub(crate) enum QueueCommand {
 #[derive(Debug)]
 pub(crate) enum SendResult {
     MessageSent,
-    QueueEmpty,
+    //QueueEmpty,
     NoConsumer,
     ConsumerInvalid(String, Message),
 }

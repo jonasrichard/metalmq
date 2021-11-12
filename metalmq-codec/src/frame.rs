@@ -109,14 +109,60 @@ pub enum MethodFrameArgs {
     ConfirmSelectOk,
 }
 
-#[derive(Debug)]
+bitflags! {
+    pub struct HeaderPropertyFlags: u16 {
+        const CLUSTER_ID       = 0b0000_0000_0000_0100;
+        const APP_ID           = 0b0000_0000_0000_1000;
+        const USER_ID          = 0b0000_0000_0001_0000;
+        const MESSAGE_TYPE     = 0b0000_0000_0010_0000;
+        const TIMESTAMP        = 0b0000_0000_0100_0000;
+        const MESSAGE_ID       = 0b0000_0000_1000_0000;
+        const EXPIRATION       = 0b0000_0001_0000_0000;
+        const REPLY_TO         = 0b0000_0010_0000_0000;
+        const CORRELATION_ID   = 0b0000_0100_0000_0000;
+        const PRIORITY         = 0b0000_1000_0000_0000;
+        const DELIVERY_MODE    = 0b0001_0000_0000_0000;
+        const HEADERS          = 0b0010_0000_0000_0000;
+        const CONTENT_ENCODING = 0b0100_0000_0000_0000;
+        const CONTENT_TYPE     = 0b1000_0000_0000_0000;
+    }
+}
+
+impl Default for HeaderPropertyFlags {
+    fn default() -> Self {
+        HeaderPropertyFlags::empty()
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct ContentHeaderFrame {
     pub channel: Channel,
     pub class_id: ClassId,
     pub weight: Weight,
     pub body_size: u64,
-    pub prop_flags: u16, // we need to elaborate the properties here
-    pub args: Vec<AMQPValue>,
+    pub prop_flags: HeaderPropertyFlags,
+    pub cluster_id: Option<String>,
+    pub app_id: Option<String>,
+    pub user_id: Option<String>,
+    pub message_type: Option<String>,
+    pub timestamp: Option<u64>,
+    pub message_id: Option<String>,
+    pub expiration: Option<String>,
+    pub reply_to: Option<String>,
+    pub correlation_id: Option<String>,
+    pub priority: Option<u8>,
+    pub delivery_mode: Option<u8>,
+    pub headers: Option<FieldTable>,
+    pub content_encoding: Option<String>,
+    pub content_type: Option<String>,
+}
+
+impl ContentHeaderFrame {
+    pub fn with_content_type(&mut self, content_type: String) -> &ContentHeaderFrame {
+        self.content_type = Some(content_type);
+        self.prop_flags.set(HeaderPropertyFlags::CONTENT_TYPE, true);
+        self
+    }
 }
 
 pub struct ContentBodyFrame {
@@ -837,8 +883,8 @@ pub fn content_header(channel: u16, size: u64) -> ContentHeaderFrame {
         class_id: 0x003C,
         weight: 0,
         body_size: size,
-        prop_flags: 0x0000,
-        args: vec![],
+        prop_flags: HeaderPropertyFlags::empty(),
+        ..Default::default()
     }
 }
 

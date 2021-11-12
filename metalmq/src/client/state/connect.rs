@@ -28,7 +28,7 @@ impl Connection {
             false => client::connection_error(
                 0u32,
                 ConnectionError::AccessRefused,
-                "Username and password are incorrect",
+                "ACCESS_REFUSED - Username and password are incorrect",
             ),
         }
     }

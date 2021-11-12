@@ -42,7 +42,11 @@ def test_one_publisher_one_consumer(caplog):
                 "speed1",
                 "speed1",
                 "Message body {}".format(i),
-                pika.BasicProperties(content_type='text/plain', delivery_mode=1))
+                pika.BasicProperties(
+                    content_type='text/plain',
+                    delivery_mode=1,
+                    content_encoding='utf-8',
+                    message_id='id1'))
 
     LOG.info("End of publish")
 
@@ -66,7 +70,12 @@ def test_unrouted_mandatory_message(caplog):
                 "x-unroute",
                 "routing-key",
                 "Unrouted message",
-                properties=pika.BasicProperties(content_type='text/plain', delivery_mode=1),
+                properties=pika.BasicProperties(
+                    content_type='text/plain',
+                    content_encoding='utf-8',
+                    message_id='id2',
+                    timestamp=15440000,
+                    delivery_mode=1),
                 mandatory=True)
 
     assert exp.value.messages[0].method.reply_code == 312

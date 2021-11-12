@@ -1,10 +1,11 @@
 //! Messages are sent to exchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
+use crate::client::ChannelError;
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
 use crate::{chk, send, Result};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame;
+use metalmq_codec::frame::{self, AMQPFrame};
 use std::fmt;
 
 //pub(crate) type MessageId = String;
@@ -19,6 +20,8 @@ pub(crate) struct Message {
     pub(crate) routing_key: String,
     pub(crate) mandatory: bool,
     pub(crate) immediate: bool,
+    // TODO add here all the necessary content header properties
+    pub(crate) content_type: Option<String>,
 }
 
 impl fmt::Debug for Message {
@@ -37,9 +40,12 @@ impl fmt::Debug for Message {
 
 /// Create content header and content body frames from a message
 pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
+    let mut ch = frame::content_header(message.channel, message.content.len() as u64);
+    message.content_type.as_ref().map(|v| ch.with_content_type(v.clone()));
+
     vec![
-        frame::AMQPFrame::ContentHeader(frame::content_header(message.channel, message.content.len() as u64)),
-        frame::AMQPFrame::ContentBody(frame::content_body(message.channel, message.content.as_slice())),
+        AMQPFrame::ContentHeader(ch),
+        AMQPFrame::ContentBody(frame::content_body(message.channel, message.content.as_slice())),
     ]
 }
 
@@ -68,7 +74,7 @@ pub(crate) async fn send_basic_return(message: &Message, outgoing: &FrameSink) -
         0,
         frame::basic_return(
             message.channel,
-            312,
+            ChannelError::NoRoute as u16,
             "NO_ROUTE",
             &message.exchange,
             &message.routing_key,
@@ -86,7 +92,7 @@ async fn x() -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::mpsc;
 
-    let data = Arc::new(Message{
+    let data = Arc::new(Message {
         channel: 1u16,
         content: "Hello".to_string().as_bytes().to_vec(),
         exchange: "test".to_string(),
@@ -94,6 +100,7 @@ async fn x() -> Result<()> {
         mandatory: false,
         routing_key: "*".to_string(),
         source_connection: "1".to_string(),
+        content_type: None,
     });
 
     let (tx, mut rx) = mpsc::channel::<Arc<Message>>(1);
