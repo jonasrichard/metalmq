@@ -3,15 +3,15 @@
 //! through a channel. When a client is publishing to an exchange it should
 //! clone the exchange channel, so the messages will be handled serially.
 
-pub(crate) mod handler;
-pub(crate) mod manager;
+pub mod handler;
+pub mod manager;
 
 use metalmq_codec::frame::{ExchangeDeclareArgs, ExchangeDeclareFlags};
 use serde_derive::Serialize;
 
 /// Descriptive information of the exchanges
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub(crate) struct Exchange {
+pub struct Exchange {
     name: String,
     exchange_type: String,
     durable: bool,

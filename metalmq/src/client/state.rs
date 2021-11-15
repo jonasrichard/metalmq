@@ -11,13 +11,13 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-pub(crate) mod basic;
-pub(crate) mod channel;
-pub(crate) mod connect;
-pub(crate) mod exchange;
-pub(crate) mod queue;
+pub mod basic;
+pub mod channel;
+pub mod connect;
+pub mod exchange;
+pub mod queue;
 
-pub(crate) type MaybeFrame = Result<Option<Frame>>;
+pub type MaybeFrame = Result<Option<Frame>>;
 
 #[derive(Debug)]
 struct ConsumedQueue {
@@ -28,7 +28,7 @@ struct ConsumedQueue {
 }
 
 /// All the transient data of a connection are stored here.
-pub(crate) struct Connection {
+pub struct Connection {
     /// Unique ID of the connection.
     id: String,
     qm: qm::QueueManagerSink,

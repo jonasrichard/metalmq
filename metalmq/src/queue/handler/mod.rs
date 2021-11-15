@@ -13,17 +13,17 @@ use std::task::Poll;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) type QueueCommandSink = mpsc::Sender<QueueCommand>;
-//pub(crate) type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
+pub type QueueCommandSink = mpsc::Sender<QueueCommand>;
+//pub type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
 
 #[derive(Clone, Debug)]
-pub(crate) struct Tag {
+pub struct Tag {
     pub consumer_tag: String,
     pub delivery_tag: u64,
 }
 
 #[derive(Debug)]
-pub(crate) enum QueueCommand {
+pub enum QueueCommand {
     PublishMessage(Message),
     AckMessage {
         consumer_tag: String,
@@ -53,14 +53,14 @@ pub(crate) enum QueueCommand {
 }
 
 #[derive(Debug)]
-pub(crate) enum SendResult {
+pub enum SendResult {
     MessageSent,
     //QueueEmpty,
     NoConsumer,
     ConsumerInvalid(String, Message),
 }
 
-pub(crate) type FrameSink = mpsc::Sender<Frame>;
+pub type FrameSink = mpsc::Sender<Frame>;
 
 /// Information about the queue instance
 struct QueueState {
@@ -115,7 +115,7 @@ struct Consumer {
 //    All messages which are outflight needs to be redelivered to the
 //      remaining consumers.
 
-pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: &mut mpsc::Receiver<QueueCommand>) {
+pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mpsc::Receiver<QueueCommand>) {
     QueueState {
         queue,
         declaring_connection,
@@ -132,7 +132,7 @@ pub(crate) async fn start(queue: Queue, declaring_connection: String, commands: 
 }
 
 impl QueueState {
-    pub(crate) async fn queue_loop(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
+    pub async fn queue_loop(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
         // TODO we need to store the delivery tags by consumers
         // Also we need to mark a message that it is sent, so we need to wait
         // for the ack, until that we cannot send new messages out - or depending

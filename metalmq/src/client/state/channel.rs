@@ -1,6 +1,6 @@
 use crate::client::state::{Connection, MaybeFrame};
 use crate::client::{self, ConnectionError};
-use crate::exchange::manager;
+use crate::exchange::manager::{self, DeleteExchangeCommand};
 use crate::logerr;
 use log::error;
 use metalmq_codec::codec::Frame;
@@ -26,7 +26,12 @@ impl Connection {
             for exchange_name in &self.auto_delete_exchanges {
                 // TODO this is bad here, we hold the locks until the exchanges are not deleted
                 // I don't know if await yield release that locks but I doubt it.
-                logerr!(manager::delete_exchange(&self.em, channel, exchange_name).await);
+                let cmd = DeleteExchangeCommand {
+                    channel,
+                    exchange_name: exchange_name.to_owned(),
+                };
+
+                logerr!(manager::delete_exchange(&self.em, cmd).await);
             }
         }
 

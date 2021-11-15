@@ -1,16 +1,22 @@
 use crate::client::state::{Connection, MaybeFrame};
-use crate::exchange::manager;
+use crate::exchange::manager::{self, DeclareExchangeCommand, DeleteExchangeCommand};
 use crate::{ErrorScope, RuntimeError};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, Channel};
 
 impl Connection {
-    pub(crate) async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
+    pub async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
         let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
 
-        let result = manager::declare_exchange(&self.em, channel, args.into(), passive, self.outgoing.clone()).await;
+        let cmd = DeclareExchangeCommand {
+            channel,
+            exchange: args.into(),
+            passive,
+            outgoing: self.outgoing.clone(),
+        };
+        let result = manager::declare_exchange(&self.em, cmd).await;
 
         match result {
             Ok(ch) => {
@@ -36,10 +42,18 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
-        manager::delete_exchange(&self.em, channel, &args.exchange_name).await?;
+    pub async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
+        // FIXME this is a hack for borrow checker. We need to pass the reference of the command
+        // to the enum. The command is read-only, so it must be easy.
+        let exchange_name = args.exchange_name.clone();
+        let cmd = DeleteExchangeCommand {
+            channel,
+            exchange_name: args.exchange_name,
+        };
 
-        self.exchanges.remove(&args.exchange_name);
+        manager::delete_exchange(&self.em, cmd).await?;
+
+        self.exchanges.remove(&exchange_name);
 
         Ok(Some(Frame::Frame(frame::exchange_delete_ok(channel))))
     }

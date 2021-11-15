@@ -9,54 +9,65 @@ use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-struct ExchangeState {
-    exchange: Exchange,
-    command_sink: ExchangeCommandSink,
+pub struct ExchangeState {
+    pub exchange: Exchange,
+    pub command_sink: ExchangeCommandSink,
 }
 
 #[derive(Debug)]
-pub(crate) enum ExchangeManagerCommand {
-    DeclareExchange {
-        channel: u16,
-        exchange: Exchange,
-        passive: bool,
-        outgoing: mpsc::Sender<Frame>,
-        result: oneshot::Sender<Result<ExchangeCommandSink>>,
-    },
-    BindQueue {
-        channel: u16,
-        exchange_name: String,
-        queue_name: String,
-        routing_key: String,
-        queue_sink: QueueCommandSink,
-        result: oneshot::Sender<Result<()>>,
-    },
-    UnbindQueue {
-        channel: u16,
-        exchange_name: String,
-        queue_name: String,
-        routing_key: String,
-        result: oneshot::Sender<Result<()>>,
-    },
-    DeleteExchange {
-        channel: u16,
-        exchange_name: String,
-        result: oneshot::Sender<Result<()>>,
-    },
-    GetExchanges {
-        result: oneshot::Sender<Vec<Exchange>>,
-    },
+pub struct DeclareExchangeCommand {
+    pub channel: u16,
+    pub exchange: Exchange,
+    pub passive: bool,
+    pub outgoing: mpsc::Sender<Frame>,
 }
 
-pub(crate) type ExchangeManagerSink = mpsc::Sender<ExchangeManagerCommand>;
+#[derive(Debug)]
+pub struct BindQueueCommand {
+    pub channel: u16,
+    pub exchange_name: String,
+    pub queue_name: String,
+    pub routing_key: String,
+    pub queue_sink: QueueCommandSink,
+}
+
+#[derive(Debug)]
+pub struct UnbindQueueCommand {
+    pub channel: u16,
+    pub exchange_name: String,
+    pub queue_name: String,
+    pub routing_key: String,
+}
+
+#[derive(Debug)]
+pub struct DeleteExchangeCommand {
+    pub channel: u16,
+    pub exchange_name: String,
+}
+
+#[derive(Debug)]
+pub enum ExchangeManagerCommand {
+    DeclareExchange(DeclareExchangeCommand, oneshot::Sender<Result<ExchangeCommandSink>>),
+    BindQueue(BindQueueCommand, oneshot::Sender<Result<()>>),
+    UnbindQueue(UnbindQueueCommand, oneshot::Sender<Result<()>>),
+    DeleteExchange(DeleteExchangeCommand, oneshot::Sender<Result<()>>),
+    GetExchanges(oneshot::Sender<Vec<Exchange>>),
+}
+
+pub type ExchangeManagerSink = mpsc::Sender<ExchangeManagerCommand>;
 
 /// Start exchange manager which manages the exchanges, exchange and queue bindings
 /// via `ExchangeManagerCommand`.
-pub(crate) fn start() -> ExchangeManagerSink {
-    let (sink, mut stream) = mpsc::channel(1);
+pub fn start() -> ExchangeManagerSink {
+    let (sink, stream) = mpsc::channel(1);
 
     tokio::spawn(async move {
-        if let Err(e) = command_loop(&mut stream).await {
+        let mut manager = ExchangeManagerState {
+            command_stream: stream,
+            exchanges: HashMap::new(),
+        };
+
+        if let Err(e) = manager.command_loop().await {
             error!("Exchange manager exited {:?}", e);
         }
     });
@@ -64,88 +75,42 @@ pub(crate) fn start() -> ExchangeManagerSink {
     sink
 }
 
-pub(crate) async fn declare_exchange(
-    mgr: &ExchangeManagerSink,
-    channel: u16,
-    exchange: Exchange,
-    passive: bool,
-    outgoing: mpsc::Sender<Frame>,
-) -> Result<ExchangeCommandSink> {
+pub async fn declare_exchange(mgr: &ExchangeManagerSink, cmd: DeclareExchangeCommand) -> Result<ExchangeCommandSink> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(ExchangeManagerCommand::DeclareExchange {
-        channel,
-        exchange,
-        passive,
-        outgoing,
-        result: tx,
-    })
-    .await?;
+    mgr.send(ExchangeManagerCommand::DeclareExchange(cmd, tx)).await?;
 
     rx.await?
 }
 
-pub(crate) async fn bind_queue(
-    mgr: &ExchangeManagerSink,
-    channel: u16,
-    exchange_name: &str,
-    queue_name: &str,
-    routing_key: &str,
-    queue_sink: QueueCommandSink,
-) -> Result<()> {
+pub async fn bind_queue(mgr: &ExchangeManagerSink, cmd: BindQueueCommand) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(ExchangeManagerCommand::BindQueue {
-        channel,
-        exchange_name: exchange_name.to_string(),
-        queue_name: queue_name.to_string(),
-        routing_key: routing_key.to_string(),
-        queue_sink,
-        result: tx,
-    })
-    .await?;
+    mgr.send(ExchangeManagerCommand::BindQueue(cmd, tx)).await?;
 
     rx.await?
 }
 
-pub(crate) async fn unbind_queue(
-    mgr: &ExchangeManagerSink,
-    channel: u16,
-    exchange_name: &str,
-    queue_name: &str,
-    routing_key: &str,
-) -> Result<()> {
+pub async fn unbind_queue(mgr: &ExchangeManagerSink, cmd: UnbindQueueCommand) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(ExchangeManagerCommand::UnbindQueue {
-        channel,
-        exchange_name: exchange_name.to_string(),
-        queue_name: queue_name.to_string(),
-        routing_key: routing_key.to_string(),
-        result: tx,
-    })
-    .await?;
+    mgr.send(ExchangeManagerCommand::UnbindQueue(cmd, tx)).await?;
 
     rx.await?
 }
 
-pub(crate) async fn delete_exchange(mgr: &ExchangeManagerSink, channel: u16, exchange_name: &str) -> Result<()> {
+pub async fn delete_exchange(mgr: &ExchangeManagerSink, cmd: DeleteExchangeCommand) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    mgr.send(ExchangeManagerCommand::DeleteExchange {
-        channel,
-        exchange_name: exchange_name.to_string(),
-        result: tx,
-    })
-    .await?;
+    mgr.send(ExchangeManagerCommand::DeleteExchange(cmd, tx)).await?;
 
     rx.await?
 }
 
-pub(crate) async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
+pub async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
     let (tx, rx) = oneshot::channel();
 
-    logerr!(mgr.send(ExchangeManagerCommand::GetExchanges { result: tx }).await);
+    logerr!(mgr.send(ExchangeManagerCommand::GetExchanges(tx)).await);
 
     match rx.await {
         Ok(exchanges) => exchanges,
@@ -153,208 +118,166 @@ pub(crate) async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
     }
 }
 
-async fn command_loop(stream: &mut mpsc::Receiver<ExchangeManagerCommand>) -> Result<()> {
-    let mut exchanges = HashMap::<String, ExchangeState>::new();
+// -------------------------------------------------------------------
 
-    while let Some(command) = stream.recv().await {
-        debug!("Command {:?}", command);
-
-        handle_command(&mut exchanges, command).await;
-    }
-
-    Ok(())
+struct ExchangeManagerState {
+    command_stream: mpsc::Receiver<ExchangeManagerCommand>,
+    exchanges: HashMap<String, ExchangeState>,
 }
 
-async fn handle_command(mut exchanges: &mut HashMap<String, ExchangeState>, command: ExchangeManagerCommand) {
-    use ExchangeManagerCommand::*;
+impl ExchangeManagerState {
+    async fn command_loop(&mut self) -> Result<()> {
+        while let Some(command) = self.command_stream.recv().await {
+            debug!("Command {:?}", command);
 
-    match command {
-        DeclareExchange {
-            channel,
-            exchange,
-            passive,
-            outgoing,
-            result,
-        } => {
-            logerr!(result.send(handle_declare_exchange(
-                &mut exchanges,
-                channel,
-                exchange,
-                passive,
-                outgoing
-            )));
+            self.handle_command(command).await;
         }
-        BindQueue {
-            channel,
-            exchange_name,
-            queue_name,
-            routing_key,
-            queue_sink,
-            result,
-        } => {
-            logerr!(result.send(
-                handle_bind_queue(
-                    exchanges,
-                    channel,
-                    &exchange_name,
-                    &queue_name,
-                    &routing_key,
-                    queue_sink
-                )
-                .await
-            ));
-        }
-        UnbindQueue {
-            channel,
-            exchange_name,
-            queue_name,
-            routing_key,
-            result,
-        } => {
-            logerr!(
-                result.send(handle_unbind_queue(exchanges, channel, &exchange_name, &queue_name, &routing_key).await)
-            );
-        }
-        DeleteExchange {
-            channel,
-            exchange_name,
-            result,
-        } => {
-            logerr!(result.send(handle_delete_exchange(&mut exchanges, channel, &exchange_name).await));
-        }
-        GetExchanges { result } => {
-            logerr!(result.send(handle_exchange_list(exchanges)));
-        }
+
+        Ok(())
     }
-}
 
-/// Declare an exchange if it doesn't exist. If passive is true, the declaration is rather a
-/// check if the exchange exists.
-fn handle_declare_exchange(
-    exchanges: &mut HashMap<String, ExchangeState>,
-    channel: u16,
-    exchange: Exchange,
-    passive: bool,
-    outgoing: mpsc::Sender<Frame>,
-) -> Result<ExchangeCommandSink> {
-    debug!("Declare exchange {:?}", exchange);
+    async fn handle_command(&mut self, command: ExchangeManagerCommand) {
+        use ExchangeManagerCommand::*;
 
-    validate_exchange_name(channel, &exchange.name)?;
-    validate_exchange_type(&exchange.exchange_type)?;
-
-    match exchanges.get(&exchange.name) {
-        None if passive => channel_error(
-            channel,
-            frame::EXCHANGE_DECLARE,
-            ChannelError::NotFound,
-            &format!("NOT_FOUND - no exchange '{}' in vhost '/'", exchange.name),
-        ),
-        Some(exchg) => {
-            if exchg.exchange != exchange {
-                channel_error(
-                    channel,
-                    frame::EXCHANGE_DECLARE,
-                    ChannelError::PreconditionFailed,
-                    "PRECONDITION_FAILED - Exchange exists but properties are different",
-                )
-            } else {
-                Ok(exchg.command_sink.clone())
+        match command {
+            DeclareExchange(command, tx) => {
+                logerr!(tx.send(self.handle_declare_exchange(command)));
+            }
+            BindQueue(command, tx) => {
+                logerr!(tx.send(self.handle_bind_queue(command).await));
+            }
+            UnbindQueue(command, tx) => {
+                logerr!(tx.send(self.handle_unbind_queue(command).await));
+            }
+            DeleteExchange(command, tx) => {
+                logerr!(tx.send(self.handle_delete_exchange(command).await));
+            }
+            GetExchanges(tx) => {
+                logerr!(tx.send(self.handle_exchange_list()));
             }
         }
-        None => {
-            let (command_sink, mut command_stream) = mpsc::channel(1);
-            let exchange_clone = exchange.clone();
+    }
 
-            tokio::spawn(async move {
-                handler::start(exchange_clone, &mut command_stream, outgoing).await;
-            });
+    /// Declare an exchange if it doesn't exist. If passive is true, the declaration is rather a
+    /// check if the exchange exists.
+    fn handle_declare_exchange(&mut self, command: DeclareExchangeCommand) -> Result<ExchangeCommandSink> {
+        debug!("Declare exchange {:?}", command.exchange);
 
-            let exchange_name = exchange.name.clone();
+        validate_exchange_name(command.channel, &command.exchange.name)?;
+        validate_exchange_type(&command.exchange.exchange_type)?;
 
-            let exchange_state = ExchangeState {
-                exchange,
-                command_sink: command_sink.clone(),
-            };
+        match self.exchanges.get(&command.exchange.name) {
+            None if command.passive => channel_error(
+                command.channel,
+                frame::EXCHANGE_DECLARE,
+                ChannelError::NotFound,
+                &format!("NOT_FOUND - no exchange '{}' in vhost '/'", command.exchange.name),
+            ),
+            Some(exchg) => {
+                if exchg.exchange != command.exchange {
+                    channel_error(
+                        command.channel,
+                        frame::EXCHANGE_DECLARE,
+                        ChannelError::PreconditionFailed,
+                        "PRECONDITION_FAILED - Exchange exists but properties are different",
+                    )
+                } else {
+                    Ok(exchg.command_sink.clone())
+                }
+            }
+            None => {
+                let (command_sink, mut command_stream) = mpsc::channel(1);
+                let exchange_clone = command.exchange.clone();
+                // FIXME this leaves the outgoing in the original command, but we need to clone
+                // here
+                let outgoing_clone = command.outgoing.clone();
 
-            exchanges.insert(exchange_name, exchange_state);
+                tokio::spawn(async move {
+                    handler::start(exchange_clone, &mut command_stream, outgoing_clone).await;
+                });
 
-            Ok(command_sink)
+                let exchange_name = command.exchange.name.clone();
+                let exchange_state = ExchangeState {
+                    exchange: command.exchange,
+                    command_sink: command_sink.clone(),
+                };
+
+                self.exchanges.insert(exchange_name, exchange_state);
+
+                Ok(command_sink)
+            }
         }
     }
-}
 
-async fn handle_bind_queue(
-    exchanges: &HashMap<String, ExchangeState>,
-    channel: u16,
-    exchange_name: &str,
-    queue_name: &str,
-    routing_key: &str,
-    queue_channel: QueueCommandSink,
-) -> Result<()> {
-    match exchanges.get(exchange_name) {
-        Some(exchange_state) => {
+    async fn handle_bind_queue(&self, command: BindQueueCommand) -> Result<()> {
+        match self.exchanges.get(&command.exchange_name) {
+            Some(exchange_state) => {
+                let (tx, rx) = oneshot::channel();
+
+                let cmd = ExchangeCommand::QueueBind {
+                    queue_name: command.queue_name.to_string(),
+                    routing_key: command.routing_key.to_string(),
+                    sink: command.queue_sink,
+                    result: tx,
+                };
+
+                exchange_state.command_sink.send(cmd).await?;
+                rx.await?;
+
+                Ok(())
+            }
+            None => channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
+        }
+    }
+
+    async fn handle_unbind_queue(&self, command: UnbindQueueCommand) -> Result<()> {
+        match self.exchanges.get(&command.exchange_name) {
+            Some(exchange_state) => {
+                let (tx, rx) = oneshot::channel();
+
+                let cmd = ExchangeCommand::QueueUnbind {
+                    queue_name: command.queue_name.to_string(),
+                    routing_key: command.routing_key.to_string(),
+                    result: tx,
+                };
+
+                exchange_state.command_sink.send(cmd).await?;
+                rx.await?;
+
+                Ok(())
+            }
+            None => channel_error(
+                command.channel,
+                frame::QUEUE_UNBIND,
+                ChannelError::NotFound,
+                "Exchange not found",
+            ),
+        }
+
+        // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
+        // and channel belonging to them)
+    }
+
+    async fn handle_delete_exchange(&self, command: DeleteExchangeCommand) -> Result<()> {
+        if let Some(exchange) = self.exchanges.get(&command.exchange_name) {
             let (tx, rx) = oneshot::channel();
 
-            let cmd = ExchangeCommand::QueueBind {
-                queue_name: queue_name.to_string(),
-                routing_key: routing_key.to_string(),
-                sink: queue_channel,
-                result: tx,
-            };
+            exchange.command_sink.send(ExchangeCommand::Delete { result: tx }).await;
 
-            exchange_state.command_sink.send(cmd).await?;
-            rx.await?;
-
-            Ok(())
+            rx.await?
+        } else {
+            channel_error(
+                command.channel,
+                frame::EXCHANGE_DELETE,
+                ChannelError::NotFound,
+                "Exchange not found",
+            )
         }
-        None => channel_error(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
-    }
-}
-
-async fn handle_unbind_queue(
-    exchanges: &HashMap<String, ExchangeState>,
-    channel: u16,
-    exchange_name: &str,
-    queue_name: &str,
-    routing_key: &str,
-) -> Result<()> {
-    match exchanges.get(exchange_name) {
-        Some(exchange_state) => {
-            let (tx, rx) = oneshot::channel();
-
-            let cmd = ExchangeCommand::QueueUnbind {
-                queue_name: queue_name.to_string(),
-                routing_key: routing_key.to_string(),
-                result: tx,
-            };
-
-            exchange_state.command_sink.send(cmd).await?;
-            rx.await?;
-
-            Ok(())
-        }
-        None => channel_error(
-            channel,
-            frame::QUEUE_UNBIND,
-            ChannelError::NotFound,
-            "Exchange not found",
-        ),
     }
 
-    // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
-    // and channel belonging to them)
-}
-
-async fn handle_delete_exchange(
-    exchanges: &mut HashMap<String, ExchangeState>,
-    channel: u16,
-    exchange_name: &str,
-) -> Result<()> {
-    Ok(())
-}
-
-fn handle_exchange_list(exchanges: &HashMap<String, ExchangeState>) -> Vec<Exchange> {
-    exchanges.values().map(|e| e.exchange.clone()).collect()
+    fn handle_exchange_list(&self) -> Vec<Exchange> {
+        self.exchanges.values().map(|e| e.exchange.clone()).collect()
+    }
 }
 
 fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
@@ -395,13 +318,23 @@ mod tests {
 
     #[tokio::test]
     async fn passive_declare_exchange_does_not_exists_channel_error() {
-        let mut exchanges = HashMap::new();
+        let (cmd_tx, cmd_rx) = mpsc::channel(1);
+        let mut manager = ExchangeManagerState {
+            command_stream: cmd_rx,
+            exchanges: HashMap::new(),
+        };
         let exchange = Exchange {
             name: "passive-exchg".into(),
             ..Default::default()
         };
         let (tx, _rx) = mpsc::channel(1);
-        let result = handle_declare_exchange(&mut exchanges, 1, exchange, true, tx);
+        let cmd = DeclareExchangeCommand {
+            channel: 1,
+            exchange,
+            passive: true,
+            outgoing: tx,
+        };
+        let result = manager.handle_declare_exchange(cmd);
 
         assert!(result.is_err());
         let err = result.unwrap_err().downcast::<RuntimeError>().unwrap();
@@ -410,9 +343,13 @@ mod tests {
 
     #[tokio::test]
     async fn declare_exchange_exists_fields_different_error() {
+        let (cmd_tx, cmd_rx) = mpsc::channel(1);
+        let mut manager = ExchangeManagerState {
+            command_stream: cmd_rx,
+            exchanges: HashMap::new(),
+        };
         let (tx, _) = mpsc::channel(1);
-        let mut exchanges = HashMap::new();
-        exchanges.insert(
+        manager.exchanges.insert(
             "temp-changes".into(),
             ExchangeState {
                 exchange: Exchange {
@@ -431,8 +368,13 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::channel(1);
-
-        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false, tx);
+        let cmd = DeclareExchangeCommand {
+            channel: 1,
+            exchange,
+            passive: false,
+            outgoing: tx,
+        };
+        let result = manager.handle_declare_exchange(cmd);
 
         assert!(result.is_err());
 
@@ -443,7 +385,11 @@ mod tests {
 
     #[tokio::test]
     async fn declare_exchange_does_not_exist_created() {
-        let mut exchanges = HashMap::new();
+        let (cmd_tx, cmd_rx) = mpsc::channel(1);
+        let mut manager = ExchangeManagerState {
+            command_stream: cmd_rx,
+            exchanges: HashMap::new(),
+        };
         let exchange = Exchange {
             name: "transactions".into(),
             exchange_type: "direct".to_string(),
@@ -452,11 +398,17 @@ mod tests {
             internal: true,
         };
         let (tx, _rx) = mpsc::channel(1);
-        let result = handle_declare_exchange(&mut exchanges, 1, exchange, false, tx);
+        let cmd = DeclareExchangeCommand {
+            channel: 1,
+            exchange,
+            passive: false,
+            outgoing: tx,
+        };
+        let result = manager.handle_declare_exchange(cmd);
 
         assert!(result.is_ok());
 
-        let state = exchanges.get("transactions").unwrap();
+        let state = manager.exchanges.get("transactions").unwrap();
         assert_eq!(state.exchange.exchange_type, "direct");
         assert_eq!(state.exchange.durable, true);
         assert_eq!(state.exchange.auto_delete, true);

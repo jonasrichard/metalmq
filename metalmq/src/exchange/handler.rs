@@ -7,16 +7,16 @@ use metalmq_codec::codec::Frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
+pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
 
 #[derive(Debug)]
-pub(crate) enum MessageSentResult {
+pub enum MessageSentResult {
     None,
     MessageNotRouted(Message),
 }
 
 #[derive(Debug)]
-pub(crate) enum ExchangeCommand {
+pub enum ExchangeCommand {
     Message(Message),
     QueueBind {
         queue_name: String,
@@ -29,6 +29,9 @@ pub(crate) enum ExchangeCommand {
         routing_key: String,
         result: oneshot::Sender<bool>,
     },
+    Delete {
+        result: oneshot::Sender<Result<()>>,
+    },
 }
 
 struct ExchangeState {
@@ -38,11 +41,7 @@ struct ExchangeState {
     outgoing: mpsc::Sender<Frame>,
 }
 
-pub(crate) async fn start(
-    exchange: Exchange,
-    commands: &mut mpsc::Receiver<ExchangeCommand>,
-    outgoing: mpsc::Sender<Frame>,
-) {
+pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>, outgoing: mpsc::Sender<Frame>) {
     ExchangeState {
         exchange,
         queues: HashMap::new(),
@@ -54,7 +53,7 @@ pub(crate) async fn start(
 }
 
 impl ExchangeState {
-    pub(crate) async fn exchange_loop(&mut self, commands: &mut mpsc::Receiver<ExchangeCommand>) -> Result<()> {
+    pub async fn exchange_loop(&mut self, commands: &mut mpsc::Receiver<ExchangeCommand>) -> Result<()> {
         while let Some(command) = commands.recv().await {
             trace!("Command {:?}", command);
 
@@ -64,7 +63,7 @@ impl ExchangeState {
         Ok(())
     }
 
-    pub(crate) async fn handle_command(&mut self, command: ExchangeCommand) -> Result<()> {
+    pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<()> {
         match command {
             ExchangeCommand::Message(message) => {
                 match self.choose_queue_by_routing_key(&message.routing_key) {
@@ -124,6 +123,7 @@ impl ExchangeState {
 
                 logerr!(result.send(true));
             }
+            ExchangeCommand::Delete { result } => {}
         }
 
         Ok(())

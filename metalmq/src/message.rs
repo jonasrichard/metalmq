@@ -11,7 +11,7 @@ use std::fmt;
 //pub(crate) type MessageId = String;
 
 #[derive(Clone)]
-pub(crate) struct Message {
+pub struct Message {
     /// Id of the connection sent this message.
     pub(crate) source_connection: String,
     pub(crate) channel: u16, // TODO use channel type here
@@ -39,7 +39,7 @@ impl fmt::Debug for Message {
 //pub(crate) type MessageSink = mpsc::Sender<Message>;
 
 /// Create content header and content body frames from a message
-pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
+pub fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
     let mut ch = frame::content_header(message.channel, message.content.len() as u64);
     message.content_type.as_ref().map(|v| ch.with_content_type(v.clone()));
 
@@ -49,7 +49,7 @@ pub(crate) fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFra
     ]
 }
 
-pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
+pub async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
     let mut frames = message_to_content_frames(message);
 
     let basic_deliver = frame::basic_deliver(
@@ -67,7 +67,7 @@ pub(crate) async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameS
     Ok(())
 }
 
-pub(crate) async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Result<()> {
+pub async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Result<()> {
     let mut frames = message_to_content_frames(message);
 
     frames.insert(

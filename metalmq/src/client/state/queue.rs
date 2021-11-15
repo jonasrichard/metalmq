@@ -1,6 +1,7 @@
 use crate::client::state::{Connection, MaybeFrame};
 use crate::client::{self, ChannelError};
-use crate::queue::manager;
+use crate::exchange::manager::{self as em, BindQueueCommand, UnbindQueueCommand};
+use crate::queue::manager as qm;
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -8,23 +9,23 @@ impl Connection {
     pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let queue_name = args.name.clone();
 
-        manager::declare_queue(&self.qm, args.into(), &self.id, channel).await?;
+        qm::declare_queue(&self.qm, args.into(), &self.id, channel).await?;
 
         Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0))))
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
-        match manager::get_command_sink(&self.qm, channel, &args.queue_name).await {
+        match qm::get_command_sink(&self.qm, channel, &args.queue_name).await {
             Ok(sink) => {
-                crate::exchange::manager::bind_queue(
-                    &self.em,
+                let cmd = BindQueueCommand {
                     channel,
-                    &args.exchange_name,
-                    &args.queue_name,
-                    &args.routing_key,
-                    sink,
-                )
-                .await?;
+                    exchange_name: args.exchange_name,
+                    queue_name: args.queue_name,
+                    routing_key: args.routing_key,
+                    queue_sink: sink,
+                };
+
+                em::bind_queue(&self.em, cmd).await?;
 
                 Ok(Some(Frame::Frame(frame::queue_bind_ok(channel))))
             }
@@ -38,14 +39,14 @@ impl Connection {
     }
 
     pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
-        crate::exchange::manager::unbind_queue(
-            &self.em,
+        let cmd = UnbindQueueCommand {
             channel,
-            &args.exchange_name,
-            &args.queue_name,
-            &args.routing_key,
-        )
-        .await?;
+            exchange_name: args.exchange_name,
+            queue_name: args.queue_name,
+            routing_key: args.routing_key,
+        };
+
+        em::unbind_queue(&self.em, cmd).await?;
 
         Ok(Some(Frame::Frame(frame::queue_unbind_ok(channel))))
     }
