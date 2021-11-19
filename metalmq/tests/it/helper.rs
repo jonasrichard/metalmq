@@ -102,23 +102,28 @@ pub(crate) async fn consume_messages<'a>(
     flags: Option<BasicConsumeFlags>,
     n: usize,
 ) -> Result<oneshot::Receiver<Vec<Message>>> {
+    use tokio::time;
+
     let (tx, rx) = oneshot::channel();
     let mut handler = client_channel.basic_consume(queue, ctag, flags).await?;
 
     tokio::spawn(async move {
         let mut messages = vec![];
 
-        while let Some(signal) = handler.signal_stream.recv().await {
-            match signal {
-                ConsumerSignal::Delivered(message) => {
+        loop {
+            match time::timeout(time::Duration::from_secs(5), handler.signal_stream.recv()).await {
+                Ok(Some(ConsumerSignal::Delivered(message))) => {
                     messages.push(message);
 
                     if messages.len() >= n {
                         break;
                     }
                 }
-                _ => {
-                    panic!("Unexpected signal {:?}", signal);
+                Ok(unexpected) => {
+                    panic!("Unexpected signal {:?}", unexpected);
+                }
+                Err(e) => {
+                    panic!("Error {:?}", e);
                 }
             }
         }

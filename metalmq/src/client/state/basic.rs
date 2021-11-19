@@ -4,14 +4,14 @@ use crate::exchange::handler::ExchangeCommand;
 use crate::logerr;
 use crate::message;
 use crate::queue::handler as queue_handler;
-use crate::queue::manager as qm;
+use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
 use log::{error, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 use tokio::time;
 
 impl Connection {
-    pub(crate) async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
+    pub async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> MaybeFrame {
         if !self.exchanges.contains_key(&args.exchange_name) {
             client::channel_error(
                 channel,
@@ -37,19 +37,19 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
-        match qm::consume(
-            &self.qm,
-            &self.id,
+    pub async fn basic_consume(&mut self, channel: Channel, args: frame::BasicConsumeArgs) -> MaybeFrame {
+        let queue_clone = args.queue.clone();
+        let consumer_tag_clone = args.consumer_tag.clone();
+        let cmd = QueueConsumeCommand {
+            conn_id: self.id.clone(),
             channel,
-            &args.queue,
-            &args.consumer_tag,
-            args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
-            args.flags.contains(frame::BasicConsumeFlags::EXCLUSIVE),
-            self.outgoing.clone(),
-        )
-        .await
-        {
+            queue_name: queue_clone,
+            consumer_tag: consumer_tag_clone,
+            no_ack: args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
+            exclusive: args.flags.contains(frame::BasicConsumeFlags::EXCLUSIVE),
+            outgoing: self.outgoing.clone(),
+        };
+        match qm::consume(&self.qm, cmd).await {
             Ok(queue_sink) => {
                 self.consumed_queues.push(ConsumedQueue {
                     channel,
@@ -63,7 +63,7 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
+    pub async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> MaybeFrame {
         if let Some(pos) = self
             .consumed_queues
             .iter()
@@ -71,7 +71,12 @@ impl Connection {
         {
             let cq = &self.consumed_queues[pos];
 
-            qm::cancel_consume(&self.qm, channel, &cq.queue_name, &args.consumer_tag).await?;
+            let cmd = QueueCancelConsume {
+                channel: cq.channel,
+                queue_name: cq.queue_name.clone(),
+                consumer_tag: cq.consumer_tag.clone(),
+            };
+            qm::cancel_consume(&self.qm, cmd).await?;
 
             self.consumed_queues.retain(|cq| cq.consumer_tag != args.consumer_tag);
             Ok(Some(Frame::Frame(frame::basic_cancel_ok(channel, &args.consumer_tag))))
@@ -81,7 +86,7 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> MaybeFrame {
+    pub async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> MaybeFrame {
         match self.consumed_queues.iter().position(|cq| cq.channel == channel) {
             Some(p) => {
                 let cq = self.consumed_queues.get(p).unwrap();
@@ -104,11 +109,11 @@ impl Connection {
         Ok(None)
     }
 
-    pub(crate) async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> MaybeFrame {
+    pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> MaybeFrame {
         Ok(Some(Frame::Frame(frame::confirm_select_ok(channel))))
     }
 
-    pub(crate) async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
+    pub async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> MaybeFrame {
         // TODO collect info into a data struct
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
             pc.length = Some(header.body_size);
@@ -118,7 +123,7 @@ impl Connection {
         Ok(None)
     }
 
-    pub(crate) async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
+    pub async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> MaybeFrame {
         if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
             let msg = message::Message {
                 source_connection: self.id.clone(),

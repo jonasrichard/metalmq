@@ -104,7 +104,9 @@ async fn handle_outgoing(
         let OutgoingFrame { frame, written } = f;
 
         sink.send(frame).await.unwrap();
-        written.map(|w| w.send(Ok(())).unwrap());
+        if let Some(w) = written {
+            w.send(Ok(())).unwrap();
+        }
     }
 
     Ok(())

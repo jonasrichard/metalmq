@@ -5,7 +5,7 @@ use crate::client::{channel_error, ChannelError};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
-use log::{error, trace};
+use log::{error, info, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::BASIC_CONSUME;
 use std::collections::{HashSet, VecDeque};
@@ -177,11 +177,9 @@ impl QueueState {
     }
 
     async fn handle_command(&mut self, command: QueueCommand) -> Result<bool> {
-        let start = Instant::now();
+        //let start = Instant::now();
 
-        trace!("Command {:?}", command);
-
-        let r = match command {
+        match command {
             QueueCommand::PublishMessage(message) => {
                 logerr!(self.send_out_message(message).await);
 
@@ -211,6 +209,11 @@ impl QueueState {
                 sink,
                 result,
             } => {
+                info!(
+                    "Queue {} is consumed by {} ctag is {}",
+                    self.queue.name, conn_id, consumer_tag
+                );
+
                 if self.queue.exclusive && self.declaring_connection != conn_id {
                     logerr!(result.send(channel_error(
                         channel,
@@ -241,6 +244,11 @@ impl QueueState {
                 Ok(true)
             }
             QueueCommand::CancelConsuming { consumer_tag, result } => {
+                info!(
+                    "Queue {} is stopped consuming by ctag {}",
+                    self.queue.name, consumer_tag
+                );
+
                 self.consumers.retain(|c| !c.consumer_tag.eq(&consumer_tag));
                 self.next_consumer = 0;
 
@@ -254,11 +262,7 @@ impl QueueState {
             }
             QueueCommand::MessageRejected => Ok(true),
             QueueCommand::Recover => Ok(true),
-        };
-
-        trace!("End {:?}", Instant::elapsed(&start));
-
-        r
+        }
     }
 
     async fn send_out_message(&mut self, message: Message) -> Result<()> {

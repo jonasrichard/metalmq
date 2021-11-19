@@ -88,12 +88,11 @@ async fn delete_not_existing_exchange_error_404() -> Result<()> {
 
     let result = ch.exchange_delete("x-not-existing", false).await;
 
-    assert!(result.is_ok());
+    assert!(result.is_err());
 
-    // FIXME here standard says something else, RabbitMQ sends DeleteOk
-    //let err = helper::to_client_error(result);
-    //assert_eq!(err.channel, Some(9));
-    //assert_eq!(err.code, 404);
+    let err = helper::to_client_error(result);
+    assert_eq!(err.channel, Some(9));
+    assert_eq!(err.code, 404);
 
     ch.close().await?;
     c.close().await?;

@@ -6,7 +6,7 @@ use crate::queue::manager as qm;
 use crate::{Context, Result};
 use log::info;
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{Channel, ContentHeaderFrame};
+use metalmq_codec::frame::Channel;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;

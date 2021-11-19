@@ -128,8 +128,6 @@ struct ExchangeManagerState {
 impl ExchangeManagerState {
     async fn command_loop(&mut self) -> Result<()> {
         while let Some(command) = self.command_stream.recv().await {
-            debug!("Command {:?}", command);
-
             self.handle_command(command).await;
         }
 
@@ -258,13 +256,19 @@ impl ExchangeManagerState {
         // and channel belonging to them)
     }
 
-    async fn handle_delete_exchange(&self, command: DeleteExchangeCommand) -> Result<()> {
+    async fn handle_delete_exchange(&mut self, command: DeleteExchangeCommand) -> Result<()> {
         if let Some(exchange) = self.exchanges.get(&command.exchange_name) {
             let (tx, rx) = oneshot::channel();
 
-            exchange.command_sink.send(ExchangeCommand::Delete { result: tx }).await;
+            exchange.command_sink.send(ExchangeCommand::Delete(tx)).await.unwrap();
 
-            rx.await?
+            let delete_result = rx.await?;
+
+            if delete_result.is_ok() {
+                self.exchanges.remove(&command.exchange_name);
+            }
+
+            delete_result
         } else {
             channel_error(
                 command.channel,

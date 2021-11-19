@@ -6,16 +6,26 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
-    pub(crate) async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
+    pub async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> MaybeFrame {
         let queue_name = args.name.clone();
 
-        qm::declare_queue(&self.qm, args.into(), &self.id, channel).await?;
+        let cmd = qm::QueueDeclareCommand {
+            conn_id: self.id.clone(),
+            channel,
+            queue: args.into(),
+        };
+        qm::declare_queue(&self.qm, cmd).await?;
 
         Ok(Some(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0))))
     }
 
-    pub(crate) async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
-        match qm::get_command_sink(&self.qm, channel, &args.queue_name).await {
+    pub async fn queue_bind(&mut self, channel: Channel, args: frame::QueueBindArgs) -> MaybeFrame {
+        let cmd = qm::GetQueueSinkQuery {
+            channel,
+            queue_name: args.queue_name.clone(),
+        };
+
+        match qm::get_command_sink(&self.qm, cmd).await {
             Ok(sink) => {
                 let cmd = BindQueueCommand {
                     channel,
@@ -33,12 +43,12 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
+    pub async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> MaybeFrame {
         // TODO delete the queue
         Ok(Some(Frame::Frame(frame::queue_delete_ok(channel, 0))))
     }
 
-    pub(crate) async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
+    pub async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> MaybeFrame {
         let cmd = UnbindQueueCommand {
             channel,
             exchange_name: args.exchange_name,

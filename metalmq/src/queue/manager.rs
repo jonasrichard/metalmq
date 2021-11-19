@@ -34,51 +34,62 @@ use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 struct QueueState {
-    queue: Queue,
-    command_sink: QueueCommandSink,
+    pub queue: Queue,
+    pub command_sink: QueueCommandSink,
 }
 
 #[derive(Debug)]
-pub(crate) enum QueueManagerCommand {
-    Declare {
-        queue: Queue,
-        conn_id: String,
-        channel: u16,
-        result: oneshot::Sender<Result<()>>,
-    },
-    Consume {
-        conn_id: String,
-        channel: u16,
-        queue_name: String,
-        consumer_tag: String,
-        no_ack: bool,
-        exclusive: bool,
-        outgoing: mpsc::Sender<Frame>,
-        result: oneshot::Sender<Result<QueueCommandSink>>,
-    },
-    CancelConsume {
-        channel: u16,
-        queue_name: String,
-        consumer_tag: String,
-        result: oneshot::Sender<Result<()>>,
-    },
-    GetQueueSink {
-        channel: u16,
-        queue_name: String,
-        result: oneshot::Sender<Result<QueueCommandSink>>,
-    },
-    GetQueues {
-        result: oneshot::Sender<Vec<Queue>>,
-    },
+pub struct QueueDeclareCommand {
+    pub queue: Queue,
+    pub conn_id: String,
+    pub channel: u16,
 }
 
-pub(crate) type QueueManagerSink = mpsc::Sender<QueueManagerCommand>;
+#[derive(Debug)]
+pub struct QueueConsumeCommand {
+    pub conn_id: String,
+    pub channel: u16,
+    pub queue_name: String,
+    pub consumer_tag: String,
+    pub no_ack: bool,
+    pub exclusive: bool,
+    pub outgoing: mpsc::Sender<Frame>,
+}
 
-pub(crate) fn start() -> QueueManagerSink {
+#[derive(Debug)]
+pub struct QueueCancelConsume {
+    pub channel: u16,
+    pub queue_name: String,
+    pub consumer_tag: String,
+}
+
+#[derive(Debug)]
+pub struct GetQueueSinkQuery {
+    pub channel: u16,
+    pub queue_name: String,
+}
+
+#[derive(Debug)]
+pub enum QueueManagerCommand {
+    Declare(QueueDeclareCommand, oneshot::Sender<Result<()>>),
+    Consume(QueueConsumeCommand, oneshot::Sender<Result<QueueCommandSink>>),
+    CancelConsume(QueueCancelConsume, oneshot::Sender<Result<()>>),
+    GetQueueSink(GetQueueSinkQuery, oneshot::Sender<Result<QueueCommandSink>>),
+    GetQueues(oneshot::Sender<Vec<Queue>>),
+}
+
+pub type QueueManagerSink = mpsc::Sender<QueueManagerCommand>;
+
+pub fn start() -> QueueManagerSink {
     let (sink, stream) = mpsc::channel(1);
 
     tokio::spawn(async move {
-        if let Err(e) = command_loop(stream).await {
+        let mut manager = QueueManagerState {
+            command_stream: stream,
+            queues: HashMap::new(),
+        };
+
+        if let Err(e) = manager.command_loop().await {
             error!("Queue manager exited {:?}", e);
         }
     });
@@ -86,95 +97,42 @@ pub(crate) fn start() -> QueueManagerSink {
     sink
 }
 
-pub(crate) async fn declare_queue(mgr: &QueueManagerSink, queue: Queue, conn_id: &str, channel: u16) -> Result<()> {
+pub async fn declare_queue(mgr: &QueueManagerSink, cmd: QueueDeclareCommand) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    send!(
-        mgr,
-        QueueManagerCommand::Declare {
-            queue,
-            conn_id: conn_id.to_string(),
-            channel,
-            result: tx,
-        }
-    )?;
+    send!(mgr, QueueManagerCommand::Declare(cmd, tx))?;
 
     rx.await?
 }
 
-pub(crate) async fn consume(
-    mgr: &QueueManagerSink,
-    conn_id: &str,
-    channel: u16,
-    queue_name: &str,
-    consumer_tag: &str,
-    no_ack: bool,
-    exclusive: bool,
-    outgoing: mpsc::Sender<Frame>,
-) -> Result<QueueCommandSink> {
+pub async fn consume(mgr: &QueueManagerSink, cmd: QueueConsumeCommand) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
-    send!(
-        mgr,
-        QueueManagerCommand::Consume {
-            conn_id: conn_id.to_string(),
-            channel,
-            queue_name: queue_name.to_string(),
-            consumer_tag: consumer_tag.to_string(),
-            no_ack,
-            exclusive,
-            outgoing,
-            result: tx,
-        }
-    )?;
+    send!(mgr, QueueManagerCommand::Consume(cmd, tx))?;
 
     rx.await?
 }
 
-pub(crate) async fn cancel_consume(
-    mgr: &QueueManagerSink,
-    channel: u16,
-    queue_name: &str,
-    consumer_tag: &str,
-) -> Result<()> {
+pub async fn cancel_consume(mgr: &QueueManagerSink, cmd: QueueCancelConsume) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
-    chk!(send!(
-        mgr,
-        QueueManagerCommand::CancelConsume {
-            channel,
-            queue_name: queue_name.to_string(),
-            consumer_tag: consumer_tag.to_string(),
-            result: tx,
-        }
-    ))?;
+    chk!(send!(mgr, QueueManagerCommand::CancelConsume(cmd, tx)))?;
 
     rx.await?
 }
 
-pub(crate) async fn get_command_sink(
-    mgr: &QueueManagerSink,
-    channel: u16,
-    queue_name: &str,
-) -> Result<QueueCommandSink> {
+pub async fn get_command_sink(mgr: &QueueManagerSink, cmd: GetQueueSinkQuery) -> Result<QueueCommandSink> {
     let (tx, rx) = oneshot::channel();
 
-    send!(
-        mgr,
-        QueueManagerCommand::GetQueueSink {
-            channel,
-            queue_name: queue_name.to_string(),
-            result: tx,
-        }
-    )?;
+    send!(mgr, QueueManagerCommand::GetQueueSink(cmd, tx))?;
 
     rx.await?
 }
 
-pub(crate) async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
+pub async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
     let (tx, rx) = oneshot::channel();
 
-    logerr!(mgr.send(QueueManagerCommand::GetQueues { result: tx }).await);
+    logerr!(mgr.send(QueueManagerCommand::GetQueues(tx)).await);
 
     match rx.await {
         Ok(queues) => queues,
@@ -182,190 +140,150 @@ pub(crate) async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
     }
 }
 
-async fn command_loop(mut stream: mpsc::Receiver<QueueManagerCommand>) -> Result<()> {
-    use QueueManagerCommand::*;
+struct QueueManagerState {
+    command_stream: mpsc::Receiver<QueueManagerCommand>,
+    queues: HashMap<String, QueueState>,
+}
 
-    let mut queues = HashMap::<String, QueueState>::new();
+impl QueueManagerState {
+    async fn command_loop(&mut self) -> Result<()> {
+        use QueueManagerCommand::*;
 
-    while let Some(command) = stream.recv().await {
-        debug!("Manager command {:?}", command);
+        while let Some(command) = self.command_stream.recv().await {
+            match command {
+                Declare(cmd, tx) => {
+                    logerr!(tx.send(self.handle_declare(cmd).await));
+                }
+                Consume(cmd, tx) => {
+                    logerr!(tx.send(self.handle_consume(cmd).await));
+                }
+                CancelConsume(cmd, tx) => {
+                    match self.handle_cancel(cmd).await {
+                        Ok(still_alive) => {
+                            logerr!(tx.send(Ok(())));
 
-        match command {
-            Declare {
-                queue,
-                conn_id,
-                channel,
-                result,
-            } => {
-                logerr!(result.send(handle_declare(&mut queues, queue, conn_id, channel).await));
-            }
-            Consume {
-                conn_id,
-                channel,
-                queue_name,
-                consumer_tag,
-                no_ack,
-                exclusive,
-                outgoing,
-                result,
-            } => {
-                logerr!(result.send(
-                    handle_consume(
-                        &queues,
-                        &conn_id,
-                        channel,
-                        &queue_name,
-                        &consumer_tag,
-                        no_ack,
-                        exclusive,
-                        outgoing
-                    )
-                    .await
-                ));
-            }
-            CancelConsume {
-                channel,
-                queue_name,
-                consumer_tag,
-                result,
-            } => {
-                match handle_cancel(&queues, channel, &queue_name, &consumer_tag).await {
-                    Ok(still_alive) => {
-                        logerr!(result.send(Ok(())));
+                            if !still_alive {
+                                // Queue is auto delete and the last consumer has cancelled.
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error {:?}", e);
 
-                        if !still_alive {
-                            // Queue is auto delete and the last consumer has cancelled.
-                            break;
+                            logerr!(tx.send(Ok(())));
                         }
                     }
-                    Err(e) => {
-                        error!("Error {:?}", e);
+                }
+                GetQueueSink(cmd, tx) => {
+                    logerr!(tx.send(self.handle_get_command_sink(cmd)));
+                }
+                GetQueues(tx) => {
+                    let qs = self.queues.iter().map(|kv| kv.1.queue.clone()).collect();
 
-                        logerr!(result.send(Ok(())));
+                    logerr!(tx.send(qs));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
+    /// creates that.
+    async fn handle_declare(&mut self, command: QueueDeclareCommand) -> Result<()> {
+        // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
+        match self.queues.get(&command.queue.name) {
+            Some(_) => Ok(()),
+            None => {
+                let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+                let queue_name = command.queue.name.clone();
+                let queue_state = QueueState {
+                    queue: command.queue.clone(),
+                    command_sink: cmd_tx,
+                };
+
+                tokio::spawn(async move {
+                    handler::start(command.queue, command.conn_id, &mut cmd_rx).await;
+                });
+
+                self.queues.insert(queue_name, queue_state);
+
+                Ok(())
+            }
+        }
+    }
+
+    async fn handle_consume(&self, command: QueueConsumeCommand) -> Result<QueueCommandSink> {
+        match self.queues.get(&command.queue_name) {
+            Some(queue) => {
+                let (tx, rx) = oneshot::channel();
+
+                send!(
+                    queue.command_sink,
+                    QueueCommand::StartConsuming {
+                        conn_id: command.conn_id,
+                        channel: command.channel,
+                        consumer_tag: command.consumer_tag,
+                        no_ack: command.no_ack,
+                        exclusive: command.exclusive,
+                        sink: command.outgoing,
+                        result: tx,
                     }
+                )?;
+
+                if let Err(e) = rx.await? {
+                    error!("Error on queue {} {:?}", command.queue_name, e);
+
+                    return Err(e);
                 }
-            }
-            GetQueueSink {
-                channel,
-                queue_name,
-                result,
-            } => {
-                logerr!(result.send(handle_get_command_sink(&queues, channel, &queue_name)));
-            }
-            GetQueues { result } => {
-                let qs = queues.iter().map(|kv| kv.1.queue.clone()).collect();
 
-                logerr!(result.send(qs));
+                Ok(queue.command_sink.clone())
             }
+            None => channel_error(
+                command.channel,
+                frame::BASIC_CONSUME,
+                ChannelError::NotFound,
+                "Not found",
+            ),
         }
     }
 
-    Ok(())
-}
+    async fn handle_cancel(&self, command: QueueCancelConsume) -> Result<bool> {
+        match self.queues.get(&command.queue_name) {
+            Some(queue) => {
+                let (tx, rx) = oneshot::channel();
 
-/// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
-/// creates that.
-async fn handle_declare(
-    queues: &mut HashMap<String, QueueState>,
-    queue: Queue,
-    conn_id: String,
-    channel: u16,
-) -> Result<()> {
-    // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
-    match queues.get(&queue.name) {
-        Some(_) => Ok(()),
-        None => {
-            let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
-            let queue_name = queue.name.clone();
-            let queue_state = QueueState {
-                queue: queue.clone(),
-                command_sink: cmd_tx,
-            };
+                send!(
+                    queue.command_sink,
+                    QueueCommand::CancelConsuming {
+                        consumer_tag: command.consumer_tag,
+                        result: tx,
+                    }
+                )?;
 
-            tokio::spawn(async move {
-                handler::start(queue, conn_id, &mut cmd_rx).await;
-            });
-
-            queues.insert(queue_name, queue_state);
-
-            Ok(())
-        }
-    }
-}
-
-fn handle_get_command_sink(queues: &HashMap<String, QueueState>, channel: u16, name: &str) -> Result<QueueCommandSink> {
-    match queues.get(name) {
-        Some(queue) => Ok(queue.command_sink.clone()),
-        None => channel_error(channel, frame::QUEUE_DECLARE, ChannelError::NotFound, "Not found"),
-    }
-}
-
-async fn handle_consume(
-    queues: &HashMap<String, QueueState>,
-    conn_id: &str,
-    channel: u16,
-    name: &str,
-    consumer_tag: &str,
-    no_ack: bool,
-    exclusive: bool,
-    outgoing: mpsc::Sender<Frame>,
-) -> Result<QueueCommandSink> {
-    match queues.get(name) {
-        Some(queue) => {
-            let (tx, rx) = oneshot::channel();
-
-            send!(
-                queue.command_sink,
-                QueueCommand::StartConsuming {
-                    conn_id: conn_id.to_string(),
-                    channel,
-                    consumer_tag: consumer_tag.to_string(),
-                    no_ack,
-                    exclusive,
-                    sink: outgoing,
-                    result: tx,
-                }
-            )?;
-
-            if let Err(e) = rx.await? {
-                error!("Error on queue {} {:?}", name, e);
-
-                return Err(e);
+                Ok(rx.await?)
             }
-
-            Ok(queue.command_sink.clone())
+            None => Ok(true),
         }
-        None => channel_error(channel, frame::BASIC_CONSUME, ChannelError::NotFound, "Not found"),
     }
-}
 
-async fn handle_cancel(
-    queues: &HashMap<String, QueueState>,
-    channel: u16,
-    name: &str,
-    consumer_tag: &str,
-) -> Result<bool> {
-    match queues.get(name) {
-        Some(queue) => {
-            let (tx, rx) = oneshot::channel();
-
-            send!(
-                queue.command_sink,
-                QueueCommand::CancelConsuming {
-                    consumer_tag: consumer_tag.to_string(),
-                    result: tx,
-                }
-            )?;
-
-            Ok(rx.await?)
+    fn handle_get_command_sink(&self, command: GetQueueSinkQuery) -> Result<QueueCommandSink> {
+        match self.queues.get(&command.queue_name) {
+            Some(queue) => Ok(queue.command_sink.clone()),
+            None => channel_error(
+                command.channel,
+                frame::QUEUE_DECLARE,
+                ChannelError::NotFound,
+                "Not found",
+            ),
         }
-        None => Ok(true),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::Message;
 
     #[tokio::test]
     async fn declare_queue_works() {
@@ -375,12 +293,21 @@ mod tests {
             ..Default::default()
         };
 
-        declare_queue(&queue_sink, queue, "conn_id", 4u16).await.unwrap();
+        let cmd = QueueDeclareCommand {
+            queue,
+            conn_id: "conn_id".to_string(),
+            channel: 4u16,
+        };
+        declare_queue(&queue_sink, cmd).await.unwrap();
 
-        let qsink = get_command_sink(&queue_sink, 4u16, "new-queue").await.unwrap();
+        let cmd = GetQueueSinkQuery {
+            channel: 4u16,
+            queue_name: "new-queue".to_string(),
+        };
+        let qsink = get_command_sink(&queue_sink, cmd).await.unwrap();
 
         // TODO create func to generate message
-        let message = crate::message::Message {
+        let message = Message {
             source_connection: "src".to_string(),
             channel: 4u16,
             content: b"Heyya".to_vec(),
@@ -392,9 +319,16 @@ mod tests {
         };
 
         let (tx, mut rx) = mpsc::channel(16);
-        consume(&queue_sink, "other", 4u16, "new-queue", "ctag", false, false, tx)
-            .await
-            .unwrap();
+        let cmd = QueueConsumeCommand {
+            conn_id: "conn_id".to_string(),
+            channel: 4u16,
+            queue_name: "new-queue".to_string(),
+            consumer_tag: "ctag".to_string(),
+            no_ack: false,
+            exclusive: false,
+            outgoing: tx,
+        };
+        consume(&queue_sink, cmd).await.unwrap();
 
         qsink.send(QueueCommand::PublishMessage(message)).await.unwrap();
 

@@ -168,8 +168,6 @@ async fn start_amqp(context: Context, url: &str) -> Result<()> {
             if let Err(e) = client::conn::handle_client(socket, ctx).await {
                 error!("Error handling client {:?}", e)
             }
-
-            info!("Connection is closed");
         });
     }
 }

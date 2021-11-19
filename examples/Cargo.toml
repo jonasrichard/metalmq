@@ -7,7 +7,7 @@ edition = "2018"
 [dev-dependencies]
 anyhow = "1.0"
 #console-subscriber = { version = "0", path="../../../rust/console/console-subscriber" }
-env_logger = "0.7"
+env_logger = "0.9"
 log = "0.4"
 metalmq-client = { version = "0.2", path = "../metalmq-client" }
 rand = "0"

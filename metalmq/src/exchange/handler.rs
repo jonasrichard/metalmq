@@ -29,9 +29,7 @@ pub enum ExchangeCommand {
         routing_key: String,
         result: oneshot::Sender<bool>,
     },
-    Delete {
-        result: oneshot::Sender<Result<()>>,
-    },
+    Delete(oneshot::Sender<Result<()>>),
 }
 
 struct ExchangeState {
@@ -57,13 +55,15 @@ impl ExchangeState {
         while let Some(command) = commands.recv().await {
             trace!("Command {:?}", command);
 
-            self.handle_command(command).await.unwrap();
+            if !self.handle_command(command).await.unwrap() {
+                break;
+            }
         }
 
         Ok(())
     }
 
-    pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<()> {
+    pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
             ExchangeCommand::Message(message) => {
                 match self.choose_queue_by_routing_key(&message.routing_key) {
@@ -91,6 +91,8 @@ impl ExchangeState {
                         }
                     }
                 }
+
+                Ok(true)
             }
             ExchangeCommand::QueueBind {
                 queue_name,
@@ -106,6 +108,8 @@ impl ExchangeState {
                     }
                 ));
                 logerr!(result.send(true));
+
+                Ok(true)
             }
             ExchangeCommand::QueueUnbind {
                 queue_name,
@@ -122,11 +126,18 @@ impl ExchangeState {
                 }
 
                 logerr!(result.send(true));
-            }
-            ExchangeCommand::Delete { result } => {}
-        }
 
-        Ok(())
+                Ok(true)
+            }
+            ExchangeCommand::Delete(tx) => {
+                tx.send(Ok(()));
+                // TODO
+                // check if if_unused option is true, so maybe we cannot delete this exchange
+                // unbind all queues
+                // send messages to the queues, maybe they want to be deleted
+                Ok(false)
+            }
+        }
     }
 
     fn choose_queue_by_routing_key(&self, routing_key: &str) -> Option<&QueueCommandSink> {

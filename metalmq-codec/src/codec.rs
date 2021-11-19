@@ -41,7 +41,7 @@ impl Decoder for AMQPCodec {
 
     // TODO here we can decode more frames until the buffer contains data
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 7 || !is_full_frame(&src) {
+        if src.len() < 7 || !is_full_frame(src) {
             return Ok(None);
         }
 
@@ -819,20 +819,46 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
     fr_buf.put_u64(hf.body_size);
     fr_buf.put_u16(hf.prop_flags.bits());
 
-    hf.content_type.as_ref().map(|s| encode_short_string(buf, s));
-    hf.content_encoding.as_ref().map(|s| encode_short_string(buf, s));
+    if let Some(s) = hf.content_type.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.content_encoding.as_ref() {
+        encode_short_string(buf, s);
+    }
     // TODO write headers
-    hf.delivery_mode.map(|v| buf.put_u8(v));
-    hf.priority.map(|v| buf.put_u8(v));
-    hf.correlation_id.as_ref().map(|s| encode_short_string(buf, s));
-    hf.reply_to.as_ref().map(|s| encode_short_string(buf, s));
-    hf.expiration.as_ref().map(|s| encode_short_string(buf, s));
-    hf.message_id.as_ref().map(|s| encode_short_string(buf, s));
-    hf.timestamp.map(|v| buf.put_u64(v));
-    hf.message_type.as_ref().map(|s| encode_short_string(buf, s));
-    hf.user_id.as_ref().map(|s| encode_short_string(buf, s));
-    hf.app_id.as_ref().map(|s| encode_short_string(buf, s));
-    hf.cluster_id.as_ref().map(|s| encode_short_string(buf, s));
+    if let Some(v) = hf.delivery_mode {
+        buf.put_u8(v);
+    }
+    if let Some(v) = hf.priority {
+        buf.put_u8(v);
+    }
+    if let Some(s) = hf.correlation_id.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.reply_to.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.expiration.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.message_id.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(v) = hf.timestamp {
+        buf.put_u64(v);
+    }
+    if let Some(s) = hf.message_type.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.user_id.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.app_id.as_ref() {
+        encode_short_string(buf, s);
+    }
+    if let Some(s) = hf.cluster_id.as_ref() {
+        encode_short_string(buf, s);
+    }
 
     buf.put_u32(fr_buf.len() as u32);
     buf.put(fr_buf);

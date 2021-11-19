@@ -58,8 +58,8 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let ch = c.channel_open(4).await?;
 
-    ch.queue_delete(queue, false, false).await?;
-    ch.exchange_delete(exchange, false).await?;
+    //ch.queue_delete(queue, false, false).await?;
+    //ch.exchange_delete(exchange, false).await?;
 
     let mut ex_flags = ExchangeDeclareFlags::empty();
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
@@ -76,7 +76,9 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let mut bc_flags = BasicConsumeFlags::empty();
     bc_flags |= BasicConsumeFlags::EXCLUSIVE;
-    let res = helper::consume_messages(&ch, queue, "ctag", Some(bc_flags), 1).await?;
+    let res = helper::consume_messages(&ch, queue, "ctag", Some(bc_flags), 1).await;
+
+    assert!(res.is_ok());
 
     let mut c2 = helper::default().connect().await?;
 

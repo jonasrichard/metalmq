@@ -7,7 +7,7 @@ use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
     // TODO here we should send back the frames in outgoing channel with a buffer - avoid deadlock
-    pub(crate) async fn connection_start_ok(&self, channel: Channel, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
+    pub async fn connection_start_ok(&self, channel: Channel, args: frame::ConnectionStartOkArgs) -> MaybeFrame {
         let mut authenticated = false;
 
         if args.mechanism.eq(&"PLAIN") {
@@ -33,7 +33,7 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
+    pub async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> MaybeFrame {
         if args.virtual_host != "/" {
             client::connection_error(
                 frame::CONNECTION_OPEN,
@@ -45,7 +45,7 @@ impl Connection {
         }
     }
 
-    pub(crate) async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
+    pub async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> MaybeFrame {
         info!("Connection {} is being closed", self.id);
 
         // TODO cleanup
@@ -56,7 +56,12 @@ impl Connection {
         for cq in &self.consumed_queues {
             trace!("Cleaning up consumers {:?}", cq);
 
-            if let Err(e) = manager::cancel_consume(&self.qm, cq.channel, &cq.queue_name, &cq.consumer_tag).await {
+            let cmd = manager::QueueCancelConsume {
+                channel: cq.channel,
+                queue_name: cq.queue_name.clone(),
+                consumer_tag: cq.consumer_tag.clone(),
+            };
+            if let Err(e) = manager::cancel_consume(&self.qm, cmd).await {
                 error!("Err {:?}", e);
             }
         }

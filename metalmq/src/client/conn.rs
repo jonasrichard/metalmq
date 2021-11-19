@@ -28,6 +28,8 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
         }
     }
 
+    conn.cleanup().await?;
+
     Ok(())
 }
 
@@ -50,29 +52,27 @@ async fn handle_in_stream_data(
     data: std::result::Result<Frame, std::io::Error>,
 ) -> Result<bool> {
     match data {
-        Ok(Frame::Frame(frame)) => {
-            match handle_client_frame(&mut conn, frame).await? {
-                Some(response) => {
-                    let closed = !send_out_frame_response(&mut sink, response).await?;
+        Ok(Frame::Frame(frame)) => match handle_client_frame(&mut conn, frame).await? {
+            Some(response) => {
+                let closed = !send_out_frame_response(&mut sink, response).await?;
 
-                    if closed {
-                        // TODO cleanup
+                if closed {
+                    conn.cleanup().await?;
 
-                        return Ok(false);
-                    }
-
-                    Ok(true)
+                    return Ok(false);
                 }
-                None => Ok(true),
+
+                Ok(true)
             }
-        }
+            None => Ok(true),
+        },
         Ok(Frame::Frames(frames)) => {
             for frame in frames {
                 if let Some(response) = handle_client_frame(&mut conn, frame).await? {
                     let closed = !send_out_frame_response(&mut sink, response).await?;
 
                     if closed {
-                        // TODO cleanup
+                        conn.cleanup().await?;
 
                         return Ok(false);
                     }
