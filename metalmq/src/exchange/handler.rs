@@ -1,9 +1,11 @@
+use crate::client;
 use crate::exchange::Exchange;
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
 use log::{error, info, trace};
 use metalmq_codec::codec::Frame;
+use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -29,7 +31,11 @@ pub enum ExchangeCommand {
         routing_key: String,
         result: oneshot::Sender<bool>,
     },
-    Delete(oneshot::Sender<Result<()>>),
+    Delete {
+        channel: u16,
+        if_unused: bool,
+        result: oneshot::Sender<Result<()>>,
+    },
 }
 
 struct ExchangeState {
@@ -129,13 +135,43 @@ impl ExchangeState {
 
                 Ok(true)
             }
-            ExchangeCommand::Delete(tx) => {
-                tx.send(Ok(()));
-                // TODO
-                // check if if_unused option is true, so maybe we cannot delete this exchange
-                // unbind all queues
-                // send messages to the queues, maybe they want to be deleted
-                Ok(false)
+            ExchangeCommand::Delete {
+                channel,
+                if_unused,
+                result,
+            } => {
+                if if_unused {
+                    if self.queues.is_empty() {
+                        result.send(Ok(()));
+
+                        Ok(false)
+                    } else {
+                        let err = client::channel_error(
+                            channel,
+                            frame::EXCHANGE_DELETE,
+                            client::ChannelError::PreconditionFailed,
+                            "Exchange is in use",
+                        );
+
+                        result.send(err);
+
+                        Ok(true)
+                    }
+                } else {
+                    for q in &self.queues {
+                        let cmd = QueueCommand::ExchangeUnbound {
+                            exchange_name: self.exchange.name.clone(),
+                        };
+
+                        logerr!(q.1.send(cmd).await);
+                    }
+
+                    self.queues.clear();
+
+                    result.send(Ok(()));
+
+                    Ok(false)
+                }
             }
         }
     }

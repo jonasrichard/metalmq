@@ -42,6 +42,7 @@ pub struct UnbindQueueCommand {
 #[derive(Debug)]
 pub struct DeleteExchangeCommand {
     pub channel: u16,
+    pub if_unused: bool,
     pub exchange_name: String,
 }
 
@@ -260,7 +261,12 @@ impl ExchangeManagerState {
         if let Some(exchange) = self.exchanges.get(&command.exchange_name) {
             let (tx, rx) = oneshot::channel();
 
-            exchange.command_sink.send(ExchangeCommand::Delete(tx)).await.unwrap();
+            let cmd = ExchangeCommand::Delete {
+                channel: command.channel,
+                if_unused: command.if_unused,
+                result: tx,
+            };
+            exchange.command_sink.send(cmd).await.unwrap();
 
             let delete_result = rx.await?;
 

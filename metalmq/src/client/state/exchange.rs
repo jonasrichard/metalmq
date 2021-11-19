@@ -48,6 +48,7 @@ impl Connection {
         let exchange_name = args.exchange_name.clone();
         let cmd = DeleteExchangeCommand {
             channel,
+            if_unused: args.flags.contains(frame::ExchangeDeleteFlags::IF_UNUSED),
             exchange_name: args.exchange_name,
         };
 

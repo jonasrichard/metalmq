@@ -59,7 +59,7 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
     let mut c = helper::connect().await?;
 
     let ch = c.channel_open(9).await?;
-    ch.exchange_delete("x-conflict", false).await?;
+    //ch.exchange_delete("x-conflict", false).await?;
     ch.exchange_declare("x-conflict", "direct", None).await?;
 
     let result = ch.exchange_declare("x-conflict", "fanout", None).await;
@@ -104,7 +104,7 @@ async fn delete_not_existing_exchange_error_404() -> Result<()> {
 async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
     let mut c = helper::connect().await?;
     let ch = c.channel_open(14).await?;
-    ch.exchange_delete("x-used", false).await?;
+    //ch.exchange_delete("x-used", false).await?;
 
     ch.exchange_declare("x-used", "fanout", None).await?;
     ch.queue_declare("q-used", None).await?;

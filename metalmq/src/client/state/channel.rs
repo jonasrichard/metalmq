@@ -30,6 +30,7 @@ impl Connection {
                 // I don't know if await yield release that locks but I doubt it.
                 let cmd = DeleteExchangeCommand {
                     channel,
+                    if_unused: false,
                     exchange_name: exchange_name.to_owned(),
                 };
 
