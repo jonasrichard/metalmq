@@ -2,7 +2,7 @@
 name = "metalmq-client"
 version = "0.2.1"
 authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 keywords = ["amqp", "messaging"]
 repository = "https://github.com/jonasrichard/metalmq"

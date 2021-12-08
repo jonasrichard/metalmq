@@ -132,7 +132,7 @@ pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mp
 }
 
 impl QueueState {
-    pub async fn queue_loop(&mut self, mut commands: &mut mpsc::Receiver<QueueCommand>) {
+    pub async fn queue_loop(&mut self, commands: &mut mpsc::Receiver<QueueCommand>) {
         // TODO we need to store the delivery tags by consumers
         // Also we need to mark a message that it is sent, so we need to wait
         // for the ack, until that we cannot send new messages out - or depending
@@ -150,7 +150,7 @@ impl QueueState {
 
                 logerr!(self.send_out_message(message).await);
 
-                match poll_command_chan(&mut commands) {
+                match poll_command_chan(commands) {
                     Poll::Pending => (), // no commands, so we can keep sending out messages
                     Poll::Ready(Some(command)) => {
                         if let Ok(false) = self.handle_command(command).await {

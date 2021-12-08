@@ -115,7 +115,7 @@ async fn handle_outgoing(
 // TODO we shouldn't register waiter always, only when the client wants blocking call
 async fn handle_request(
     request: client_api::ClientRequest,
-    mut client: &mut state::ClientState,
+    client: &mut state::ClientState,
     feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>,
 ) -> Result<()> {
     use frame::{AMQPFrame, MethodFrameArgs};
@@ -133,7 +133,7 @@ async fn handle_request(
             client.basic_ack(ch, args, request.response).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
-            handle_out_frame(ch, ma, &mut client).await?;
+            handle_out_frame(ch, ma, client).await?;
             register_wait_for(feedback, ch, request.response)?;
         }
         Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {

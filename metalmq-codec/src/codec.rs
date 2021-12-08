@@ -21,12 +21,12 @@ pub enum Frame {
 impl Encoder<Frame> for AMQPCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, event: Frame, mut buf: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, event: Frame, buf: &mut BytesMut) -> Result<(), Self::Error> {
         match event {
-            Frame::Frame(frame) => encode_amqp_frame(&mut buf, frame),
+            Frame::Frame(frame) => encode_amqp_frame(buf, frame),
             Frame::Frames(frames) => {
                 for frame in frames {
-                    encode_amqp_frame(&mut buf, frame);
+                    encode_amqp_frame(buf, frame);
                 }
             }
         }
@@ -131,43 +131,43 @@ fn is_full_frame(src: &BytesMut) -> bool {
 }
 
 // TODO have an Error type here, and it should be result<>
-fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
+fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
     let class_method = src.get_u32();
 
     let method_frame_args = match class_method {
-        CONNECTION_START => decode_connection_start(&mut src),
-        CONNECTION_START_OK => decode_connection_start_ok(&mut src),
-        CONNECTION_TUNE => decode_connection_tune(&mut src),
-        CONNECTION_TUNE_OK => decode_connection_tune_ok(&mut src),
-        CONNECTION_OPEN => decode_connection_open(&mut src),
-        CONNECTION_OPEN_OK => decode_connection_open_ok(&mut src),
-        CONNECTION_CLOSE => decode_connection_close(&mut src),
+        CONNECTION_START => decode_connection_start(src),
+        CONNECTION_START_OK => decode_connection_start_ok(src),
+        CONNECTION_TUNE => decode_connection_tune(src),
+        CONNECTION_TUNE_OK => decode_connection_tune_ok(src),
+        CONNECTION_OPEN => decode_connection_open(src),
+        CONNECTION_OPEN_OK => decode_connection_open_ok(src),
+        CONNECTION_CLOSE => decode_connection_close(src),
         CONNECTION_CLOSE_OK => MethodFrameArgs::ConnectionCloseOk,
-        CHANNEL_OPEN => decode_channel_open(&mut src),
-        CHANNEL_OPEN_OK => decode_channel_open_ok(&mut src),
-        CHANNEL_CLOSE => decode_channel_close(&mut src),
+        CHANNEL_OPEN => decode_channel_open(src),
+        CHANNEL_OPEN_OK => decode_channel_open_ok(src),
+        CHANNEL_CLOSE => decode_channel_close(src),
         CHANNEL_CLOSE_OK => MethodFrameArgs::ChannelCloseOk,
-        EXCHANGE_DECLARE => decode_exchange_declare(&mut src),
+        EXCHANGE_DECLARE => decode_exchange_declare(src),
         EXCHANGE_DECLARE_OK => MethodFrameArgs::ExchangeDeclareOk,
-        EXCHANGE_DELETE => decode_exchange_delete(&mut src),
+        EXCHANGE_DELETE => decode_exchange_delete(src),
         EXCHANGE_DELETE_OK => MethodFrameArgs::ExchangeDeleteOk,
-        QUEUE_DECLARE => decode_queue_declare(&mut src),
-        QUEUE_DECLARE_OK => decode_queue_declare_ok(&mut src),
-        QUEUE_BIND => decode_queue_bind(&mut src),
+        QUEUE_DECLARE => decode_queue_declare(src),
+        QUEUE_DECLARE_OK => decode_queue_declare_ok(src),
+        QUEUE_BIND => decode_queue_bind(src),
         QUEUE_BIND_OK => MethodFrameArgs::QueueBindOk,
-        QUEUE_DELETE => decode_queue_delete(&mut src),
-        QUEUE_DELETE_OK => decode_queue_delete_ok(&mut src),
-        QUEUE_UNBIND => decode_queue_unbind(&mut src),
+        QUEUE_DELETE => decode_queue_delete(src),
+        QUEUE_DELETE_OK => decode_queue_delete_ok(src),
+        QUEUE_UNBIND => decode_queue_unbind(src),
         QUEUE_UNBIND_OK => MethodFrameArgs::QueueUnbindOk,
-        BASIC_CONSUME => decode_basic_consume(&mut src),
-        BASIC_CONSUME_OK => decode_basic_consume_ok(&mut src),
-        BASIC_CANCEL => decode_basic_cancel(&mut src),
-        BASIC_CANCEL_OK => decode_basic_cancel_ok(&mut src),
-        BASIC_PUBLISH => decode_basic_publish(&mut src),
-        BASIC_RETURN => decode_basic_return(&mut src),
-        BASIC_DELIVER => decode_basic_deliver(&mut src),
-        BASIC_ACK => decode_basic_ack(&mut src),
-        CONFIRM_SELECT => decode_confirm_select(&mut src),
+        BASIC_CONSUME => decode_basic_consume(src),
+        BASIC_CONSUME_OK => decode_basic_consume_ok(src),
+        BASIC_CANCEL => decode_basic_cancel(src),
+        BASIC_CANCEL_OK => decode_basic_cancel_ok(src),
+        BASIC_PUBLISH => decode_basic_publish(src),
+        BASIC_RETURN => decode_basic_return(src),
+        BASIC_DELIVER => decode_basic_deliver(src),
+        BASIC_ACK => decode_basic_ack(src),
+        CONFIRM_SELECT => decode_confirm_select(src),
         CONFIRM_SELECT_OK => MethodFrameArgs::ConfirmSelectOk,
         _ => unimplemented!("{:08X}", class_method),
     };
@@ -175,13 +175,13 @@ fn decode_method_frame(mut src: &mut BytesMut, channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, class_method, method_frame_args)
 }
 
-fn decode_connection_start(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_connection_start(src: &mut BytesMut) -> MethodFrameArgs {
     let args = ConnectionStartArgs {
         version_major: src.get_u8(),
         version_minor: src.get_u8(),
-        properties: decode_field_table(&mut src),
-        mechanisms: decode_long_string(&mut src),
-        locales: decode_long_string(&mut src),
+        properties: decode_field_table(src),
+        mechanisms: decode_long_string(src),
+        locales: decode_long_string(src),
         ..Default::default()
     };
 
@@ -194,12 +194,12 @@ fn decode_connection_start(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::ConnectionStart(args)
 }
 
-fn decode_connection_start_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_connection_start_ok(src: &mut BytesMut) -> MethodFrameArgs {
     let args = ConnectionStartOkArgs {
-        properties: decode_field_table(&mut src),
-        mechanism: decode_short_string(&mut src),
-        response: decode_long_string(&mut src),
-        locale: decode_short_string(&mut src),
+        properties: decode_field_table(src),
+        mechanism: decode_short_string(src),
+        response: decode_long_string(src),
+        locale: decode_short_string(src),
         ..Default::default()
     };
 
@@ -228,9 +228,9 @@ fn decode_connection_tune_ok(src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::ConnectionTuneOk(args)
 }
 
-fn decode_connection_open(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let virtual_host = decode_short_string(&mut src);
-    let _reserved = decode_short_string(&mut src);
+fn decode_connection_open(src: &mut BytesMut) -> MethodFrameArgs {
+    let virtual_host = decode_short_string(src);
+    let _reserved = decode_short_string(src);
     let flags = src.get_u8();
 
     MethodFrameArgs::ConnectionOpen(ConnectionOpenArgs {
@@ -239,16 +239,16 @@ fn decode_connection_open(mut src: &mut BytesMut) -> MethodFrameArgs {
     })
 }
 
-fn decode_connection_open_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let _ = decode_short_string(&mut src);
+fn decode_connection_open_ok(src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = decode_short_string(src);
 
     MethodFrameArgs::ConnectionOpenOk
 }
 
-fn decode_connection_close(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_connection_close(src: &mut BytesMut) -> MethodFrameArgs {
     let args = ConnectionCloseArgs {
         code: src.get_u16(),
-        text: decode_short_string(&mut src),
+        text: decode_short_string(src),
         class_id: src.get_u16(),
         method_id: src.get_u16(),
     };
@@ -256,22 +256,22 @@ fn decode_connection_close(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::ConnectionClose(args)
 }
 
-fn decode_channel_open(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let _ = decode_short_string(&mut src);
+fn decode_channel_open(src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = decode_short_string(src);
 
     MethodFrameArgs::ChannelOpen
 }
 
-fn decode_channel_open_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
-    let _ = decode_long_string(&mut src);
+fn decode_channel_open_ok(src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = decode_long_string(src);
 
     MethodFrameArgs::ChannelOpenOk
 }
 
-fn decode_channel_close(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_channel_close(src: &mut BytesMut) -> MethodFrameArgs {
     let args = ChannelCloseArgs {
         code: src.get_u16(),
-        text: decode_short_string(&mut src),
+        text: decode_short_string(src),
         class_id: src.get_u16(),
         method_id: src.get_u16(),
     };
@@ -279,39 +279,39 @@ fn decode_channel_close(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::ChannelClose(args)
 }
 
-fn decode_exchange_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_exchange_declare(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = ExchangeDeclareArgs::default();
     let _ = src.get_u16();
-    args.exchange_name = decode_short_string(&mut src);
-    args.exchange_type = decode_short_string(&mut src);
+    args.exchange_name = decode_short_string(src);
+    args.exchange_type = decode_short_string(src);
     args.flags = ExchangeDeclareFlags::from_bits(src.get_u8()).unwrap_or_default();
-    args.args = decode_field_table(&mut src);
+    args.args = decode_field_table(src);
 
     MethodFrameArgs::ExchangeDeclare(args)
 }
 
-fn decode_exchange_delete(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_exchange_delete(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = ExchangeDeleteArgs::default();
     let _ = src.get_u16();
-    args.exchange_name = decode_short_string(&mut src);
+    args.exchange_name = decode_short_string(src);
     args.flags = ExchangeDeleteFlags::from_bits(src.get_u8()).unwrap_or_default();
 
     MethodFrameArgs::ExchangeDelete(args)
 }
 
-fn decode_queue_declare(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_queue_declare(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = QueueDeclareArgs::default();
     let _ = src.get_u16();
-    args.name = decode_short_string(&mut src);
+    args.name = decode_short_string(src);
     args.flags = QueueDeclareFlags::from_bits(src.get_u8()).unwrap_or_default();
-    args.args = decode_field_table(&mut src);
+    args.args = decode_field_table(src);
 
     MethodFrameArgs::QueueDeclare(args)
 }
 
-fn decode_queue_declare_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_queue_declare_ok(src: &mut BytesMut) -> MethodFrameArgs {
     let args = QueueDeclareOkArgs {
-        name: decode_short_string(&mut src),
+        name: decode_short_string(src),
         message_count: src.get_u32(),
         consumer_count: src.get_u32(),
     };
@@ -319,23 +319,23 @@ fn decode_queue_declare_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::QueueDeclareOk(args)
 }
 
-fn decode_queue_bind(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_queue_bind(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = QueueBindArgs::default();
     let _ = src.get_u16();
-    args.queue_name = decode_short_string(&mut src);
-    args.exchange_name = decode_short_string(&mut src);
-    args.routing_key = decode_short_string(&mut src);
+    args.queue_name = decode_short_string(src);
+    args.exchange_name = decode_short_string(src);
+    args.routing_key = decode_short_string(src);
 
     args.no_wait = src.get_u8() != 0;
-    args.args = decode_field_table(&mut src);
+    args.args = decode_field_table(src);
 
     MethodFrameArgs::QueueBind(args)
 }
 
-fn decode_queue_delete(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_queue_delete(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = QueueDeleteArgs::default();
     let _ = src.get_u16();
-    args.queue_name = decode_short_string(&mut src);
+    args.queue_name = decode_short_string(src);
     args.flags = QueueDeleteFlags::from_bits(src.get_u8()).unwrap_or_default();
 
     MethodFrameArgs::QueueDelete(args)
@@ -349,81 +349,81 @@ fn decode_queue_delete_ok(src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::QueueDeleteOk(args)
 }
 
-fn decode_queue_unbind(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_queue_unbind(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = QueueUnbindArgs::default();
     let _ = src.get_u16();
-    args.queue_name = decode_short_string(&mut src);
-    args.exchange_name = decode_short_string(&mut src);
-    args.routing_key = decode_short_string(&mut src);
-    args.args = decode_field_table(&mut src);
+    args.queue_name = decode_short_string(src);
+    args.exchange_name = decode_short_string(src);
+    args.routing_key = decode_short_string(src);
+    args.args = decode_field_table(src);
 
     MethodFrameArgs::QueueUnbind(args)
 }
 
-fn decode_basic_consume(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_consume(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = BasicConsumeArgs::default();
     let _ = src.get_u16();
-    args.queue = decode_short_string(&mut src);
-    args.consumer_tag = decode_short_string(&mut src);
+    args.queue = decode_short_string(src);
+    args.consumer_tag = decode_short_string(src);
     args.flags = BasicConsumeFlags::from_bits(src.get_u8()).unwrap_or_default();
-    args.args = decode_field_table(&mut src);
+    args.args = decode_field_table(src);
 
     MethodFrameArgs::BasicConsume(args)
 }
 
-fn decode_basic_consume_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_consume_ok(src: &mut BytesMut) -> MethodFrameArgs {
     let args = BasicConsumeOkArgs {
-        consumer_tag: decode_short_string(&mut src),
+        consumer_tag: decode_short_string(src),
     };
 
     MethodFrameArgs::BasicConsumeOk(args)
 }
 
-fn decode_basic_cancel(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_cancel(src: &mut BytesMut) -> MethodFrameArgs {
     let args = BasicCancelArgs {
-        consumer_tag: decode_short_string(&mut src),
+        consumer_tag: decode_short_string(src),
         no_wait: src.get_u8() != 0,
     };
 
     MethodFrameArgs::BasicCancel(args)
 }
 
-fn decode_basic_cancel_ok(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_cancel_ok(src: &mut BytesMut) -> MethodFrameArgs {
     let args = BasicCancelOkArgs {
-        consumer_tag: decode_short_string(&mut src),
+        consumer_tag: decode_short_string(src),
     };
 
     MethodFrameArgs::BasicCancelOk(args)
 }
 
-fn decode_basic_publish(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_publish(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = BasicPublishArgs::default();
     let _ = src.get_u16();
-    args.exchange_name = decode_short_string(&mut src);
-    args.routing_key = decode_short_string(&mut src);
+    args.exchange_name = decode_short_string(src);
+    args.routing_key = decode_short_string(src);
     args.flags = BasicPublishFlags::from_bits(src.get_u8()).unwrap_or_default();
 
     MethodFrameArgs::BasicPublish(args)
 }
 
-fn decode_basic_return(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_return(src: &mut BytesMut) -> MethodFrameArgs {
     let args = BasicReturnArgs {
         reply_code: src.get_u16(),
-        reply_text: decode_short_string(&mut src),
-        exchange_name: decode_short_string(&mut src),
-        routing_key: decode_short_string(&mut src),
+        reply_text: decode_short_string(src),
+        exchange_name: decode_short_string(src),
+        routing_key: decode_short_string(src),
     };
 
     MethodFrameArgs::BasicReturn(args)
 }
 
-fn decode_basic_deliver(mut src: &mut BytesMut) -> MethodFrameArgs {
+fn decode_basic_deliver(src: &mut BytesMut) -> MethodFrameArgs {
     let args = BasicDeliverArgs {
-        consumer_tag: decode_short_string(&mut src),
+        consumer_tag: decode_short_string(src),
         delivery_tag: src.get_u64(),
         redelivered: src.get_u8() != 0,
-        exchange_name: decode_short_string(&mut src),
-        routing_key: decode_short_string(&mut src),
+        exchange_name: decode_short_string(src),
+        routing_key: decode_short_string(src),
     };
 
     MethodFrameArgs::BasicDeliver(args)
@@ -514,7 +514,7 @@ fn decode_short_string_flag(
     }
 }
 
-fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
+fn decode_value(buf: &mut BytesMut) -> AMQPFieldValue {
     match buf.get_u8() {
         b't' => {
             let bool_value = buf.get_u8() != 0;
@@ -522,11 +522,11 @@ fn decode_value(mut buf: &mut BytesMut) -> AMQPFieldValue {
             AMQPFieldValue::Bool(bool_value)
         }
         b'S' => {
-            let string_value = decode_long_string(&mut buf);
+            let string_value = decode_long_string(buf);
 
             AMQPFieldValue::LongString(string_value)
         }
-        b'F' => match decode_field_table(&mut buf) {
+        b'F' => match decode_field_table(buf) {
             None => AMQPFieldValue::EmptyFieldTable,
             Some(table) => AMQPFieldValue::FieldTable(Box::new(table)),
         },
@@ -572,17 +572,17 @@ fn decode_field_table(buf: &mut BytesMut) -> Option<HashMap<String, AMQPFieldVal
     Some(table)
 }
 
-fn encode_amqp_frame(mut buf: &mut BytesMut, frame: AMQPFrame) {
+fn encode_amqp_frame(buf: &mut BytesMut, frame: AMQPFrame) {
     match frame {
         AMQPFrame::Header => buf.put(&b"AMQP\x00\x00\x09\x01"[..]),
 
-        AMQPFrame::Method(ch, cm, args) => encode_method_frame(&mut buf, ch, cm, &args),
+        AMQPFrame::Method(ch, cm, args) => encode_method_frame(buf, ch, cm, &args),
 
-        AMQPFrame::ContentHeader(header_frame) => encode_content_header_frame(&mut buf, &header_frame),
+        AMQPFrame::ContentHeader(header_frame) => encode_content_header_frame(buf, &header_frame),
 
-        AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(&mut buf, &body_frame),
+        AMQPFrame::ContentBody(body_frame) => encode_content_body_frame(buf, &body_frame),
 
-        AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(&mut buf, channel),
+        AMQPFrame::Heartbeat(channel) => encode_heartbeat_frame(buf, channel),
     }
 }
 
@@ -635,19 +635,19 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
     buf.put_u8(0xCE);
 }
 
-fn encode_connection_start(mut buf: &mut BytesMut, args: &ConnectionStartArgs) {
+fn encode_connection_start(buf: &mut BytesMut, args: &ConnectionStartArgs) {
     buf.put_u8(args.version_major);
     buf.put_u8(args.version_minor);
-    encode_field_table(&mut buf, args.properties.as_ref());
-    encode_long_string(&mut buf, &args.mechanisms);
-    encode_long_string(&mut buf, &args.locales);
+    encode_field_table(buf, args.properties.as_ref());
+    encode_long_string(buf, &args.mechanisms);
+    encode_long_string(buf, &args.locales);
 }
 
-fn encode_connection_start_ok(mut buf: &mut BytesMut, args: &ConnectionStartOkArgs) {
-    encode_field_table(&mut buf, args.properties.as_ref());
-    encode_short_string(&mut buf, &args.mechanism);
-    encode_long_string(&mut buf, &args.response);
-    encode_short_string(&mut buf, &args.locale);
+fn encode_connection_start_ok(buf: &mut BytesMut, args: &ConnectionStartOkArgs) {
+    encode_field_table(buf, args.properties.as_ref());
+    encode_short_string(buf, &args.mechanism);
+    encode_long_string(buf, &args.response);
+    encode_short_string(buf, &args.locale);
 }
 
 fn encode_connection_tune(buf: &mut BytesMut, args: &ConnectionTuneArgs) {
@@ -679,9 +679,9 @@ fn encode_connection_open_ok(buf: &mut BytesMut) {
     buf.put_u8(0);
 }
 
-fn encode_connection_close(mut buf: &mut BytesMut, args: &ConnectionCloseArgs) {
+fn encode_connection_close(buf: &mut BytesMut, args: &ConnectionCloseArgs) {
     buf.put_u16(args.code);
-    encode_short_string(&mut buf, &args.text);
+    encode_short_string(buf, &args.text);
     buf.put_u16(args.class_id);
     buf.put_u16(args.method_id);
 }
@@ -696,52 +696,52 @@ fn encode_channel_open_ok(buf: &mut BytesMut) {
     buf.put_u32(0);
 }
 
-fn encode_channel_close(mut buf: &mut BytesMut, args: &ChannelCloseArgs) {
+fn encode_channel_close(buf: &mut BytesMut, args: &ChannelCloseArgs) {
     buf.put_u16(args.code);
-    encode_short_string(&mut buf, &args.text);
+    encode_short_string(buf, &args.text);
     buf.put_u16(args.class_id);
     buf.put_u16(args.method_id);
 }
 
-fn encode_exchange_declare(mut buf: &mut BytesMut, args: &ExchangeDeclareArgs) {
+fn encode_exchange_declare(buf: &mut BytesMut, args: &ExchangeDeclareArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.exchange_type);
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.exchange_type);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(&mut buf);
+    encode_empty_field_table(buf);
 }
 
-fn encode_exchange_delete(mut buf: &mut BytesMut, args: &ExchangeDeleteArgs) {
+fn encode_exchange_delete(buf: &mut BytesMut, args: &ExchangeDeleteArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.exchange_name);
+    encode_short_string(buf, &args.exchange_name);
     buf.put_u8(args.flags.bits());
 }
 
-fn encode_queue_declare(mut buf: &mut BytesMut, args: &QueueDeclareArgs) {
+fn encode_queue_declare(buf: &mut BytesMut, args: &QueueDeclareArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.name);
+    encode_short_string(buf, &args.name);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(&mut buf);
+    encode_empty_field_table(buf);
 }
 
-fn encode_queue_declare_ok(mut buf: &mut BytesMut, args: &QueueDeclareOkArgs) {
-    encode_short_string(&mut buf, &args.name);
+fn encode_queue_declare_ok(buf: &mut BytesMut, args: &QueueDeclareOkArgs) {
+    encode_short_string(buf, &args.name);
     buf.put_u32(args.message_count);
     buf.put_u32(args.consumer_count);
 }
 
-fn encode_queue_bind(mut buf: &mut BytesMut, args: &QueueBindArgs) {
+fn encode_queue_bind(buf: &mut BytesMut, args: &QueueBindArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.queue_name);
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.routing_key);
+    encode_short_string(buf, &args.queue_name);
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.routing_key);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
-    encode_empty_field_table(&mut buf);
+    encode_empty_field_table(buf);
 }
 
-fn encode_queue_delete(mut buf: &mut BytesMut, args: &QueueDeleteArgs) {
+fn encode_queue_delete(buf: &mut BytesMut, args: &QueueDeleteArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.queue_name);
+    encode_short_string(buf, &args.queue_name);
     buf.put_u8(args.flags.bits());
 }
 
@@ -749,55 +749,55 @@ fn encode_queue_delete_ok(buf: &mut BytesMut, args: &QueueDeleteOkArgs) {
     buf.put_u32(args.message_count);
 }
 
-fn encode_queue_unbind(mut buf: &mut BytesMut, args: &QueueUnbindArgs) {
+fn encode_queue_unbind(buf: &mut BytesMut, args: &QueueUnbindArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.queue_name);
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.routing_key);
-    encode_empty_field_table(&mut buf);
+    encode_short_string(buf, &args.queue_name);
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.routing_key);
+    encode_empty_field_table(buf);
 }
 
-fn encode_basic_consume(mut buf: &mut BytesMut, args: &BasicConsumeArgs) {
+fn encode_basic_consume(buf: &mut BytesMut, args: &BasicConsumeArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.queue);
-    encode_short_string(&mut buf, &args.consumer_tag);
+    encode_short_string(buf, &args.queue);
+    encode_short_string(buf, &args.consumer_tag);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(&mut buf);
+    encode_empty_field_table(buf);
 }
 
-fn encode_basic_consume_ok(mut buf: &mut BytesMut, args: &BasicConsumeOkArgs) {
-    encode_short_string(&mut buf, &args.consumer_tag);
+fn encode_basic_consume_ok(buf: &mut BytesMut, args: &BasicConsumeOkArgs) {
+    encode_short_string(buf, &args.consumer_tag);
 }
 
-fn encode_basic_cancel(mut buf: &mut BytesMut, args: &BasicCancelArgs) {
-    encode_short_string(&mut buf, &args.consumer_tag);
+fn encode_basic_cancel(buf: &mut BytesMut, args: &BasicCancelArgs) {
+    encode_short_string(buf, &args.consumer_tag);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
 }
 
-fn encode_basic_cancel_ok(mut buf: &mut BytesMut, args: &BasicCancelOkArgs) {
-    encode_short_string(&mut buf, &args.consumer_tag);
+fn encode_basic_cancel_ok(buf: &mut BytesMut, args: &BasicCancelOkArgs) {
+    encode_short_string(buf, &args.consumer_tag);
 }
 
-fn encode_basic_publish(mut buf: &mut BytesMut, args: &BasicPublishArgs) {
+fn encode_basic_publish(buf: &mut BytesMut, args: &BasicPublishArgs) {
     buf.put_u16(0);
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.routing_key);
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.routing_key);
     buf.put_u8(args.flags.bits());
 }
 
-fn encode_basic_return(mut buf: &mut BytesMut, args: &BasicReturnArgs) {
+fn encode_basic_return(buf: &mut BytesMut, args: &BasicReturnArgs) {
     buf.put_u16(args.reply_code);
-    encode_short_string(&mut buf, &args.reply_text);
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.routing_key);
+    encode_short_string(buf, &args.reply_text);
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.routing_key);
 }
 
-fn encode_basic_deliver(mut buf: &mut BytesMut, args: &BasicDeliverArgs) {
-    encode_short_string(&mut buf, &args.consumer_tag);
+fn encode_basic_deliver(buf: &mut BytesMut, args: &BasicDeliverArgs) {
+    encode_short_string(buf, &args.consumer_tag);
     buf.put_u64(args.delivery_tag);
     buf.put_u8(if args.redelivered { 1 } else { 0 });
-    encode_short_string(&mut buf, &args.exchange_name);
-    encode_short_string(&mut buf, &args.routing_key);
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.routing_key);
 }
 
 fn encode_basic_ack(buf: &mut BytesMut, args: &BasicAckArgs) {
@@ -899,10 +899,10 @@ fn encode_empty_field_table(buf: &mut BytesMut) {
     buf.put_u32(0);
 }
 
-fn encode_field_table(mut buf: &mut BytesMut, ft: Option<&HashMap<String, AMQPFieldValue>>) {
+fn encode_field_table(buf: &mut BytesMut, ft: Option<&HashMap<String, AMQPFieldValue>>) {
     match ft {
         None => buf.put_u32(0),
-        Some(t) => encode_field_table2(&mut buf, t),
+        Some(t) => encode_field_table2(buf, t),
     }
 }
 
@@ -910,7 +910,7 @@ fn encode_field_table2(buf: &mut BytesMut, ft: &HashMap<String, AMQPFieldValue>)
     let mut ft_buf = BytesMut::with_capacity(4096);
 
     for (name, value) in ft {
-        encode_short_string(&mut ft_buf, &name);
+        encode_short_string(&mut ft_buf, name);
 
         match value {
             AMQPFieldValue::Bool(v) => {

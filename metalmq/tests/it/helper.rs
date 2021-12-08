@@ -108,6 +108,7 @@ pub(crate) async fn consume_messages<'a>(
     let mut handler = client_channel.basic_consume(queue, ctag, flags).await?;
 
     tokio::spawn(async move {
+        let _ = &handler;
         let mut messages = vec![];
 
         loop {

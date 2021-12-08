@@ -2,7 +2,7 @@
 name = "metalmq"
 version = "0.2.1"
 authors = ["Richard Jonas <richard.jonas@erlang-solutions.com>"]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 keywords = ["amqp", "messaging"]
 readme = "../README.md"

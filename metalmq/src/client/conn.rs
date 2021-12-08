@@ -47,14 +47,14 @@ async fn outgoing_loop(
 }
 
 async fn handle_in_stream_data(
-    mut conn: &mut Connection,
-    mut sink: &mut mpsc::Sender<Frame>,
+    conn: &mut Connection,
+    sink: &mut mpsc::Sender<Frame>,
     data: std::result::Result<Frame, std::io::Error>,
 ) -> Result<bool> {
     match data {
-        Ok(Frame::Frame(frame)) => match handle_client_frame(&mut conn, frame).await? {
+        Ok(Frame::Frame(frame)) => match handle_client_frame(conn, frame).await? {
             Some(response) => {
-                let closed = !send_out_frame_response(&mut sink, response).await?;
+                let closed = !send_out_frame_response(sink, response).await?;
 
                 if closed {
                     conn.cleanup().await?;
@@ -68,8 +68,8 @@ async fn handle_in_stream_data(
         },
         Ok(Frame::Frames(frames)) => {
             for frame in frames {
-                if let Some(response) = handle_client_frame(&mut conn, frame).await? {
-                    let closed = !send_out_frame_response(&mut sink, response).await?;
+                if let Some(response) = handle_client_frame(conn, frame).await? {
+                    let closed = !send_out_frame_response(sink, response).await?;
 
                     if closed {
                         conn.cleanup().await?;
@@ -113,7 +113,7 @@ async fn send_out_frame_response(sink: &mut mpsc::Sender<Frame>, response: Frame
 fn has_connection_close_ok(frame: &Frame) -> bool {
     match frame {
         Frame::Frame(f) => is_connection_close_ok(f),
-        Frame::Frames(fs) => fs.iter().any(|f| is_connection_close_ok(f)),
+        Frame::Frames(fs) => fs.iter().any(is_connection_close_ok),
     }
 }
 
