@@ -1,11 +1,12 @@
-use crate::client::state::{Connection, MaybeFrame};
+use crate::client;
+use crate::client::state::Connection;
 use crate::exchange::manager::{self, DeclareExchangeCommand, DeleteExchangeCommand};
-use crate::{ErrorScope, RuntimeError};
+use crate::Result;
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, AMQPFrame, Channel};
+use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
-    pub async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> MaybeFrame {
+    pub async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> Result<()> {
         let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
@@ -23,26 +24,20 @@ impl Connection {
                 self.exchanges.insert(exchange_name.clone(), ch);
 
                 if no_wait {
-                    Ok(None)
+                    Ok(())
                 } else {
-                    Ok(Some(Frame::Frame(frame::exchange_declare_ok(channel))))
+                    self.send_frame(Frame::Frame(frame::exchange_declare_ok(channel))).await
                 }
             }
-            // TODO is it automatic now?
-            Err(e) => match e.downcast::<RuntimeError>() {
-                Ok(mut rte) => match rte.scope {
-                    ErrorScope::Connection => Ok(Some(Frame::Frame(AMQPFrame::from(*rte)))),
-                    ErrorScope::Channel => {
-                        rte.channel = channel;
-                        Ok(Some(Frame::Frame(AMQPFrame::from(*rte))))
-                    }
-                },
-                Err(e2) => Err(e2),
-            },
+            Err(err) => {
+                let rte = client::to_runtime_error(err);
+
+                self.handle_error(rte).await
+            }
         }
     }
 
-    pub async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> MaybeFrame {
+    pub async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> Result<()> {
         // FIXME this is a hack for borrow checker. We need to pass the reference of the command
         // to the enum. The command is read-only, so it must be easy.
         let exchange_name = args.exchange_name.clone();
@@ -56,6 +51,6 @@ impl Connection {
 
         self.exchanges.remove(&exchange_name);
 
-        Ok(Some(Frame::Frame(frame::exchange_delete_ok(channel))))
+        self.send_frame(Frame::Frame(frame::exchange_delete_ok(channel))).await
     }
 }

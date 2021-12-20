@@ -1,19 +1,30 @@
-use crate::client::state::{self, Connection, MaybeFrame};
-use crate::{Context, Result, RuntimeError};
+use crate::client::state::{self, Connection};
+use crate::{Context, Result};
 use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;
 use log::{error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::Framed;
+
+#[derive(Debug)]
+pub enum SendFrame {
+    Async(Frame),
+    Sync(Frame, oneshot::Sender<bool>),
+}
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
     let (sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let (mut consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
+    let (mut consume_sink, mut consume_stream) = mpsc::channel::<SendFrame>(1);
     let mut conn = state::new(context, consume_sink.clone());
 
+    // FIXME support feedback of sending out frames. Sometimes we need to wait for the sream to
+    // fully send out frames and only after that we can execute logic. For example we need to wait
+    // for sending out basic-consume-ok before sending basic-deliver. Or we need to wait for
+    // sending out basic-publish and tell the caller if publish was successful. This later is
+    // rather client logic but we need to support this anyway.
     tokio::spawn(async move {
         if let Err(e) = outgoing_loop(sink, &mut consume_stream).await {
             error!("Error {:?}", e);
@@ -33,14 +44,25 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     Ok(())
 }
 
+/// Handle sending of outgoing frames. If send is sync the oneshot channel will be notified with
+/// the result of the send as a bool value.
 async fn outgoing_loop(
     mut socket_sink: SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
-    frame_stream: &mut mpsc::Receiver<Frame>,
+    frame_stream: &mut mpsc::Receiver<SendFrame>,
 ) -> Result<()> {
     while let Some(frame) = frame_stream.recv().await {
         trace!("Outgoing {:?}", frame);
 
-        socket_sink.send(frame).await?;
+        match frame {
+            SendFrame::Async(f) => socket_sink.send(f).await?,
+            SendFrame::Sync(f, tx) => {
+                let r = socket_sink.send(f).await;
+
+                tx.send(r.is_ok());
+
+                r?
+            }
+        }
     }
 
     Ok(())
@@ -48,34 +70,25 @@ async fn outgoing_loop(
 
 async fn handle_in_stream_data(
     conn: &mut Connection,
-    sink: &mut mpsc::Sender<Frame>,
+    sink: &mut mpsc::Sender<SendFrame>,
     data: std::result::Result<Frame, std::io::Error>,
 ) -> Result<bool> {
     match data {
-        Ok(Frame::Frame(frame)) => match handle_client_frame(conn, frame).await? {
-            Some(response) => {
-                let closed = !send_out_frame_response(sink, response).await?;
+        Ok(Frame::Frame(frame)) => {
+            if handle_client_frame(conn, frame).await.is_err() {
+                conn.cleanup().await?;
 
-                if closed {
+                return Ok(false);
+            }
+
+            Ok(true)
+        }
+        Ok(Frame::Frames(frames)) => {
+            for frame in frames {
+                if handle_client_frame(conn, frame).await.is_err() {
                     conn.cleanup().await?;
 
                     return Ok(false);
-                }
-
-                Ok(true)
-            }
-            None => Ok(true),
-        },
-        Ok(Frame::Frames(frames)) => {
-            for frame in frames {
-                if let Some(response) = handle_client_frame(conn, frame).await? {
-                    let closed = !send_out_frame_response(sink, response).await?;
-
-                    if closed {
-                        conn.cleanup().await?;
-
-                        return Ok(false);
-                    }
                 }
             }
 
@@ -83,28 +96,30 @@ async fn handle_in_stream_data(
         }
         Err(e) => Err(Box::new(e)),
     }
+
+    // TODO here we need to do the cleanup
 }
 
 /// Send out response frames and returns false if the connection needs to be closed
 /// because the reponse contains a connection close ok frame.
-async fn send_out_frame_response(sink: &mut mpsc::Sender<Frame>, response: Frame) -> Result<bool> {
+async fn send_out_frame_response(sink: &mut mpsc::Sender<SendFrame>, response: Frame) -> Result<bool> {
     match response {
         Frame::Frame(frame) => {
-            trace!("Outgoing {:?}", frame);
-
             let f = Frame::Frame(frame);
             let closed = has_connection_close_ok(&f);
 
-            sink.send(f).await?;
+            //trace!("Outgoing {:?}", f);
+
+            sink.send(SendFrame::Async(f)).await?;
             Ok(!closed)
         }
         Frame::Frames(frames) => {
-            trace!("Outgoing {:?}", frames);
-
             let fs = Frame::Frames(frames);
             let closed = has_connection_close_ok(&fs);
 
-            sink.send(fs).await?;
+            //trace!("Outgoing {:?}", fs);
+
+            sink.send(SendFrame::Async(fs)).await?;
             Ok(!closed)
         }
     }
@@ -121,33 +136,33 @@ fn is_connection_close_ok(frame: &AMQPFrame) -> bool {
     matches!(frame, &AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, _))
 }
 
-async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> MaybeFrame {
+async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> {
     use AMQPFrame::*;
 
-    let result = match f {
-        Header => Ok(Some(Frame::Frame(frame::connection_start(0)))),
+    match f {
+        Header => conn.send_frame(Frame::Frame(frame::connection_start(0))).await,
         Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
         ContentHeader(ch) => conn.receive_content_header(ch).await,
         ContentBody(cb) => conn.receive_content_body(cb).await,
-        Heartbeat(_) => Ok(None),
-    };
+        Heartbeat(_) => Ok(()),
+    }
 
     // Convert runtime error to AMQP frame
-    match result {
-        Err(e) => match e.downcast::<RuntimeError>() {
-            Ok(conn_err) => Ok(Some(Frame::Frame((*conn_err).into()))),
-            Err(e2) => Err(e2),
-        },
-        _ => result,
-    }
+    //match result {
+    //    Err(e) => match e.downcast::<RuntimeError>() {
+    //        Ok(conn_err) => Ok(Some(Frame::Frame((*conn_err).into()))),
+    //        Err(e2) => Err(e2),
+    //    },
+    //    _ => result,
+    //}
 }
 
-async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma: frame::MethodFrameArgs) -> MaybeFrame {
+async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma: frame::MethodFrameArgs) -> Result<()> {
     use MethodFrameArgs::*;
 
     match ma {
         ConnectionStartOk(args) => conn.connection_start_ok(channel, args).await,
-        ConnectionTuneOk(_) => Ok(None),
+        ConnectionTuneOk(_) => Ok(()),
         ConnectionOpen(args) => conn.connection_open(channel, args).await,
         ConnectionClose(args) => conn.connection_close(args).await,
         ChannelOpen => conn.channel_open(channel).await,
@@ -166,7 +181,7 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma:
         ConfirmSelect(args) => conn.confirm_select(channel, args).await,
         _ => {
             error!("Unhandler method frame type {:?}", ma);
-            Ok(None)
+            Ok(())
         }
     }
 }

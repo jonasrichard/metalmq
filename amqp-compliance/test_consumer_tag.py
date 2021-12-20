@@ -59,7 +59,7 @@ class PublishConsumeTest():
         self.channel.stop_consuming()
 
 
-def test_xyz():
+def _test_xyz():
     """
     TODO this will test the redelivery of un-acked messages. We publish
     messages in an exchange, consume without acking and closing the connection.
@@ -129,6 +129,8 @@ def test_server_generated_consumer_tags_one_by_one_ack(caplog):
 
 
 def test_publish_and_then_consume(caplog):
+    caplog.set_level(logging.DEBUG)
+
     received_messages = 0
 
     def on_message(obj, channel, method, props, body):
@@ -138,7 +140,7 @@ def test_publish_and_then_consume(caplog):
         channel.basic_ack(delivery_tag=method.delivery_tag, multiple=False)
         received_messages += 1
 
-        if received_messages == 10:
+        if received_messages == 2:
             obj.cancel_consume()
 
     s = PublishConsumeTest(
@@ -147,7 +149,7 @@ def test_publish_and_then_consume(caplog):
         queue_name='q-late-consume')
     s.declare_exchange()
 
-    for i in range(0, 10):
+    for i in range(0, 2):
         s.publish('Message {}'.format(i))
 
     s.close(without_cleanup=True)

@@ -18,7 +18,7 @@ async fn passive_exchange_existing_exchange() -> Result<()> {
     Ok(())
 }
 
-//#[tokio::test]
+#[tokio::test]
 async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     let mut c1 = helper::default().connect().await?;
     let mut c2 = helper::default().connect().await?;
@@ -27,8 +27,10 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
 
     ch1.exchange_declare("xchg-shared", "direct", None).await?;
 
-    ch1.basic_publish("xcgh-shared", "", "Content".to_string(), false, false).await?;
-    ch2.basic_publish("xcgh-shared", "", "Content".to_string(), false, false).await?;
+    ch1.basic_publish("xcgh-shared", "", "Content".to_string(), false, false)
+        .await?;
+    ch2.basic_publish("xcgh-shared", "", "Content".to_string(), false, false)
+        .await?;
 
     ch1.close().await?;
     ch2.close().await?;

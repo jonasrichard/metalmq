@@ -1,5 +1,6 @@
 //! Messages are sent to exchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
+use crate::client::conn::SendFrame;
 use crate::client::ChannelError;
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
@@ -8,20 +9,20 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::fmt;
 
-//pub(crate) type MessageId = String;
+//pub type MessageId = String;
 
 #[derive(Clone)]
 pub struct Message {
     /// Id of the connection sent this message.
-    pub(crate) source_connection: String,
-    pub(crate) channel: u16, // TODO use channel type here
-    pub(crate) content: Vec<u8>,
-    pub(crate) exchange: String,
-    pub(crate) routing_key: String,
-    pub(crate) mandatory: bool,
-    pub(crate) immediate: bool,
+    pub source_connection: String,
+    pub channel: u16, // TODO use channel type here
+    pub content: Vec<u8>,
+    pub exchange: String,
+    pub routing_key: String,
+    pub mandatory: bool,
+    pub immediate: bool,
     // TODO add here all the necessary content header properties
-    pub(crate) content_type: Option<String>,
+    pub content_type: Option<String>,
 }
 
 impl fmt::Debug for Message {
@@ -36,7 +37,7 @@ impl fmt::Debug for Message {
     }
 }
 
-//pub(crate) type MessageSink = mpsc::Sender<Message>;
+//pub type MessageSink = mpsc::Sender<Message>;
 
 /// Create content header and content body frames from a message
 pub fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
@@ -62,7 +63,7 @@ pub async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) ->
     );
     frames.insert(0, basic_deliver);
 
-    chk!(send!(outgoing, Frame::Frames(frames)))?;
+    chk!(send!(outgoing, SendFrame::Async(Frame::Frames(frames))))?;
 
     Ok(())
 }
@@ -83,7 +84,7 @@ pub async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Resul
 
     frames.push(frame::basic_ack(message.channel, 1u64, false));
 
-    chk!(send!(outgoing, Frame::Frames(frames)))?;
+    chk!(send!(outgoing, SendFrame::Async(Frame::Frames(frames))))?;
 
     Ok(())
 }
@@ -114,4 +115,22 @@ async fn x() -> Result<()> {
     tx.send(data).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::Message;
+
+    pub fn empty_message() -> Message {
+        Message {
+            channel: 1,
+            source_connection: "".to_owned(),
+            content: b"".to_vec(),
+            exchange: "".to_owned(),
+            immediate: false,
+            mandatory: false,
+            routing_key: "".to_owned(),
+            content_type: None,
+        }
+    }
 }

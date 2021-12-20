@@ -1,8 +1,9 @@
+use crate::client::conn::SendFrame;
 use crate::client::{channel_error, ChannelError};
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, send, Result};
-use log::{debug, error};
+use log::error;
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -53,7 +54,7 @@ pub struct QueueConsumeCommand {
     pub consumer_tag: String,
     pub no_ack: bool,
     pub exclusive: bool,
-    pub outgoing: mpsc::Sender<Frame>,
+    pub outgoing: mpsc::Sender<SendFrame>,
 }
 
 #[derive(Debug)]
@@ -193,6 +194,8 @@ impl QueueManagerState {
     async fn handle_declare(&mut self, command: QueueDeclareCommand) -> Result<()> {
         // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
         match self.queues.get(&command.queue.name) {
+            // FIXME we need to check here if in case of passive declare the properties match or
+            // we need to raise an error if queue is already declared
             Some(_) => Ok(()),
             None => {
                 let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
@@ -283,7 +286,7 @@ impl QueueManagerState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::Message;
+    use crate::message::tests;
 
     #[tokio::test]
     async fn declare_queue_works() {
@@ -307,16 +310,7 @@ mod tests {
         let qsink = get_command_sink(&queue_sink, cmd).await.unwrap();
 
         // TODO create func to generate message
-        let message = Message {
-            source_connection: "src".to_string(),
-            channel: 4u16,
-            content: b"Heyya".to_vec(),
-            exchange: "new-exchange".to_string(),
-            routing_key: "".to_string(),
-            mandatory: false,
-            immediate: false,
-            content_type: None,
-        };
+        let message = tests::empty_message();
 
         let (tx, mut rx) = mpsc::channel(16);
         let cmd = QueueConsumeCommand {
@@ -333,7 +327,7 @@ mod tests {
         qsink.send(QueueCommand::PublishMessage(message)).await.unwrap();
 
         let frames = rx.recv().await.unwrap();
-        if let Frame::Frames(fs) = frames {
+        if let SendFrame::Async(Frame::Frames(fs)) = frames {
             // TODO make an assert function for checking the 3 frames
             assert_eq!(fs.len(), 3);
         }

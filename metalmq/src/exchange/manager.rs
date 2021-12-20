@@ -1,10 +1,10 @@
-use crate::client::{channel_error, connection_error, ChannelError, ConnectionError};
+use crate::client::conn::SendFrame;
+use crate::client::{self, ChannelError, ConnectionError};
 use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
 use log::{debug, error};
-use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -19,7 +19,7 @@ pub struct DeclareExchangeCommand {
     pub channel: u16,
     pub exchange: Exchange,
     pub passive: bool,
-    pub outgoing: mpsc::Sender<Frame>,
+    pub outgoing: mpsc::Sender<SendFrame>,
 }
 
 #[derive(Debug)]
@@ -166,7 +166,7 @@ impl ExchangeManagerState {
         validate_exchange_type(&command.exchange.exchange_type)?;
 
         match self.exchanges.get(&command.exchange.name) {
-            None if command.passive => channel_error(
+            None if command.passive => client::channel_error(
                 command.channel,
                 frame::EXCHANGE_DECLARE,
                 ChannelError::NotFound,
@@ -174,7 +174,7 @@ impl ExchangeManagerState {
             ),
             Some(exchg) => {
                 if exchg.exchange != command.exchange {
-                    channel_error(
+                    client::channel_error(
                         command.channel,
                         frame::EXCHANGE_DECLARE,
                         ChannelError::PreconditionFailed,
@@ -225,7 +225,7 @@ impl ExchangeManagerState {
 
                 Ok(())
             }
-            None => channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
+            None => client::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
         }
     }
 
@@ -245,7 +245,7 @@ impl ExchangeManagerState {
 
                 Ok(())
             }
-            None => channel_error(
+            None => client::channel_error(
                 command.channel,
                 frame::QUEUE_UNBIND,
                 ChannelError::NotFound,
@@ -276,7 +276,7 @@ impl ExchangeManagerState {
 
             delete_result
         } else {
-            channel_error(
+            client::channel_error(
                 command.channel,
                 frame::EXCHANGE_DELETE,
                 ChannelError::NotFound,
@@ -295,7 +295,7 @@ fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
 
     for c in exchange_name.chars() {
         if !c.is_alphanumeric() && spec.find(c).is_none() {
-            return channel_error(
+            return client::channel_error(
                 channel,
                 frame::EXCHANGE_DECLARE,
                 ChannelError::PreconditionFailed,
@@ -311,7 +311,7 @@ fn validate_exchange_type(exchange_type: &str) -> Result<()> {
     let allowed_type = ["direct", "topic", "fanout"];
 
     if !allowed_type.contains(&exchange_type) {
-        return connection_error(
+        return client::connection_error(
             frame::EXCHANGE_DECLARE,
             ConnectionError::CommandInvalid,
             "COMMAND_INVALID - Exchange type is invalid",

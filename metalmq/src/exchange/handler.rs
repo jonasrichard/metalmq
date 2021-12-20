@@ -1,4 +1,5 @@
 use crate::client;
+use crate::client::conn::SendFrame;
 use crate::exchange::Exchange;
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
@@ -42,10 +43,10 @@ struct ExchangeState {
     exchange: super::Exchange,
     /// Queues bound by routing key
     queues: HashMap<String, QueueCommandSink>,
-    outgoing: mpsc::Sender<Frame>,
+    outgoing: mpsc::Sender<SendFrame>,
 }
 
-pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>, outgoing: mpsc::Sender<Frame>) {
+pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>, outgoing: mpsc::Sender<SendFrame>) {
     ExchangeState {
         exchange,
         queues: HashMap::new(),
@@ -186,13 +187,17 @@ mod tests {
     use super::*;
     use metalmq_codec::frame;
 
-    async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
+    async fn recv_timeout(rx: &mut mpsc::Receiver<SendFrame>) -> Option<Frame> {
         let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
         tokio::pin!(sleep);
 
         tokio::select! {
             frame = rx.recv() => {
-                return frame;
+                match frame {
+                    Some(SendFrame::Async(f)) => return Some(f),
+                    Some(SendFrame::Sync(f, _)) => return Some(f),
+                    None => return None,
+                }
             }
             _ = &mut sleep => {
                 return None;

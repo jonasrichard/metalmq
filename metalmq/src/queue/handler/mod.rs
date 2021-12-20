@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests;
 
+use crate::client::conn::SendFrame;
 use crate::client::{channel_error, ChannelError};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
 use log::{error, info, trace};
-use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::BASIC_CONSUME;
 use std::collections::{HashSet, VecDeque};
 use std::task::Poll;
@@ -14,7 +14,6 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 pub type QueueCommandSink = mpsc::Sender<QueueCommand>;
-//pub type FrameStream = mpsc::Receiver<frame::AMQPFrame>;
 
 #[derive(Clone, Debug)]
 pub struct Tag {
@@ -44,6 +43,11 @@ pub enum QueueCommand {
         sink: FrameSink,
         result: oneshot::Sender<Result<()>>,
     },
+    StartDelivering {
+        conn_id: String,
+        channel: u16,
+        consumer_tag: String,
+    },
     CancelConsuming {
         consumer_tag: String,
         result: oneshot::Sender<bool>,
@@ -60,7 +64,7 @@ pub enum SendResult {
     ConsumerInvalid(String, Message),
 }
 
-pub type FrameSink = mpsc::Sender<Frame>;
+pub type FrameSink = mpsc::Sender<SendFrame>;
 
 /// Information about the queue instance
 struct QueueState {
@@ -68,6 +72,7 @@ struct QueueState {
     declaring_connection: String,
     messages: VecDeque<Message>,
     outbox: Outbox,
+    candidate_consumers: Vec<Consumer>,
     consumers: Vec<Consumer>,
     next_consumer: usize,
     bound_exchanges: HashSet<String>,
@@ -123,6 +128,7 @@ pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mp
         outbox: Outbox {
             outgoing_messages: vec![],
         },
+        candidate_consumers: vec![],
         consumers: vec![],
         next_consumer: 0,
         bound_exchanges: HashSet::new(),
@@ -143,6 +149,13 @@ impl QueueState {
             // tried and we don't go into an infinite loop. So in this case we can
             // safely go to the other branch doing blocking wait.
             // If we get a message we can clear this 'state flag'.
+            //
+            // FIXME When client sends basic consume, we reply with basic consume ok,
+            // but right before that we start to deliver messages. That is a race
+            // condition what we need to send with a coordination.
+            // Probably we need to have StartConsuming and ConsumerSubscribed messages
+            // and we need to wait the client state machine to send us an ok message
+            // back, that it sent out the consume-ok message.
             if !self.messages.is_empty() && !self.consumers.is_empty() {
                 trace!("There are queued messages, sending out one...");
 
@@ -158,6 +171,7 @@ impl QueueState {
                         }
                     }
                     Poll::Ready(None) => {
+                        // Command channel is closed, let us exit from the command queue loop.
                         break;
                     } // TODO break the loop and cleanup
                 }
@@ -200,6 +214,22 @@ impl QueueState {
                 self.bound_exchanges.remove(&exchange_name);
                 Ok(true)
             }
+            QueueCommand::StartDelivering {
+                conn_id,
+                channel,
+                consumer_tag,
+            } => {
+                if let Some(p) = self
+                    .candidate_consumers
+                    .iter()
+                    .position(|c| c.consumer_tag.eq(&consumer_tag))
+                {
+                    let consumer = self.candidate_consumers.remove(p);
+
+                    self.consumers.push(consumer);
+                }
+                Ok(true)
+            }
             QueueCommand::StartConsuming {
                 conn_id,
                 channel,
@@ -236,7 +266,7 @@ impl QueueState {
                         sink,
                         delivery_tag_counter: 1u64,
                     };
-                    self.consumers.push(consumer);
+                    self.candidate_consumers.push(consumer);
 
                     logerr!(result.send(Ok(())));
                 }

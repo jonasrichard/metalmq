@@ -19,13 +19,17 @@ fn default_queue_state() -> QueueState {
         next_consumer: 0,
     }
 }
-async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
+async fn recv_timeout(rx: &mut mpsc::Receiver<SendFrame>) -> Option<Frame> {
     let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
     tokio::pin!(sleep);
 
     tokio::select! {
         frame = rx.recv() => {
-            return frame;
+            match frame {
+                Some(SendFrame::Async(f)) => return Some(f),
+                Some(SendFrame::Sync(f, _)) => return Some(f),
+                None => return None,
+            }
         }
         _ = &mut sleep => {
             return None;

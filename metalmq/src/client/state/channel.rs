@@ -1,28 +1,44 @@
-use crate::client::state::{Connection, MaybeFrame};
+use crate::client::state::Connection;
 use crate::client::{self, ConnectionError};
 use crate::exchange::manager::{self, DeleteExchangeCommand};
 use crate::logerr;
 use crate::queue::manager::{self as qm, QueueCancelConsume};
-use anyhow::Result;
+use crate::Result;
 use log::{error, info};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
-    pub async fn channel_open(&mut self, channel: Channel) -> MaybeFrame {
+    pub async fn channel_open(&mut self, channel: Channel) -> Result<()> {
         if self.open_channels.iter().any(|&c| c == channel) {
-            client::connection_error(
-                frame::CHANNEL_OPEN,
-                ConnectionError::ChannelError,
-                "Channel already opened",
-            )
+            let (class_id, method_id) = frame::split_class_method(frame::CHANNEL_OPEN);
+            let err = crate::RuntimeError {
+                scope: crate::ErrorScope::Connection,
+                channel: 0,
+                code: client::ChannelError::PreconditionFailed as u16,
+                text: "Channel is already opened".to_owned(),
+                class_id,
+                method_id,
+            };
+
+            self.send_frame(client::runtime_error_to_frame(&err)).await?;
+
+            return Err(Box::new(err));
         } else {
             self.open_channels.push(channel);
-            Ok(Some(Frame::Frame(frame::channel_open_ok(channel))))
+            self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
         }
+
+        Ok(())
+
+        // TODO here we need to send out the frame, at least to the output channel,
+        // so we can be sure that the order of the emitted frames are correct.
+        // Also it can give us sync points, like I need to send out basic-consume-ok,
+        // so then I can tell the queue that now you can send out basic-deliver
+        // frames.
     }
 
-    pub async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> MaybeFrame {
+    pub async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> Result<()> {
         // TODO close all exchanges and queues it needs to.
         if !self.auto_delete_exchanges.is_empty() {
             for exchange_name in &self.auto_delete_exchanges {
@@ -56,13 +72,15 @@ impl Connection {
 
         self.open_channels.retain(|c| c != &channel);
 
-        Ok(Some(Frame::Frame(frame::channel_close_ok(channel))))
+        self.send_frame(Frame::Frame(frame::channel_close_ok(channel))).await?;
+
+        Ok(())
     }
 
-    pub async fn channel_close_ok(&mut self, channel: Channel) -> MaybeFrame {
+    pub async fn channel_close_ok(&mut self, channel: Channel) -> Result<()> {
         self.consumed_queues.retain(|cq| cq.channel != channel);
 
-        Ok(None)
+        Ok(())
     }
 
     pub async fn cleanup(&mut self) -> Result<()> {

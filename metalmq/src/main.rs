@@ -20,13 +20,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Clone)]
-pub(crate) struct Context {
-    pub(crate) exchange_manager: exchange::manager::ExchangeManagerSink,
-    pub(crate) queue_manager: queue::manager::QueueManagerSink,
+pub struct Context {
+    pub exchange_manager: exchange::manager::ExchangeManagerSink,
+    pub queue_manager: queue::manager::QueueManagerSink,
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum ErrorScope {
+pub enum ErrorScope {
     Connection,
     Channel,
 }
@@ -38,13 +38,13 @@ impl Default for ErrorScope {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct RuntimeError {
-    pub(crate) scope: ErrorScope,
-    pub(crate) channel: metalmq_codec::frame::Channel,
-    pub(crate) code: u16,
-    pub(crate) text: String,
-    pub(crate) class_id: u16,
-    pub(crate) method_id: u16,
+pub struct RuntimeError {
+    pub scope: ErrorScope,
+    pub channel: metalmq_codec::frame::Channel,
+    pub code: u16,
+    pub text: String,
+    pub class_id: u16,
+    pub method_id: u16,
 }
 
 impl From<RuntimeError> for metalmq_codec::frame::AMQPFrame {
@@ -67,6 +67,12 @@ impl std::fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
+
+impl RuntimeError {
+    fn to_err<T>(self) -> Result<T> {
+        Err(Box::new(self))
+    }
+}
 
 #[macro_export]
 macro_rules! chk {
