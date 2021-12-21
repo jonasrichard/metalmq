@@ -820,44 +820,44 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
     fr_buf.put_u16(hf.prop_flags.bits());
 
     if let Some(s) = hf.content_type.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.content_encoding.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     // TODO write headers
     if let Some(v) = hf.delivery_mode {
-        buf.put_u8(v);
+        fr_buf.put_u8(v);
     }
     if let Some(v) = hf.priority {
-        buf.put_u8(v);
+        fr_buf.put_u8(v);
     }
     if let Some(s) = hf.correlation_id.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.reply_to.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.expiration.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.message_id.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(v) = hf.timestamp {
-        buf.put_u64(v);
+        fr_buf.put_u64(v);
     }
     if let Some(s) = hf.message_type.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.user_id.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.app_id.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
     if let Some(s) = hf.cluster_id.as_ref() {
-        encode_short_string(buf, s);
+        encode_short_string(&mut fr_buf, s);
     }
 
     buf.put_u32(fr_buf.len() as u32);

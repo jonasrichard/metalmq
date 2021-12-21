@@ -15,6 +15,7 @@ fn default_queue_state() -> QueueState {
             outgoing_messages: vec![],
         },
         bound_exchanges: HashSet::new(),
+        candidate_consumers: vec![],
         consumers: vec![],
         next_consumer: 0,
     }
@@ -83,10 +84,19 @@ async fn publish_to_queue_with_one_consumer() {
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
-    assert_eq!(qs.consumers.len(), 1);
+    assert_eq!(qs.candidate_consumers.len(), 1);
 
     let cmd_result = rx.await;
     assert!(cmd_result.is_ok());
+
+    let cmd = QueueCommand::StartDelivering {
+        conn_id: "consumer-conn".to_string(),
+        channel: 1,
+        consumer_tag: "myctag".to_string(),
+    };
+    let result = qs.handle_command(cmd).await;
+    assert!(result.is_ok());
+    assert_eq!(qs.consumers.len(), 1);
 
     let cmd = QueueCommand::PublishMessage(Message {
         source_connection: "conn-id".to_string(),
