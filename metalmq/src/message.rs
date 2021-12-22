@@ -9,25 +9,45 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::fmt;
 
-//pub type MessageId = String;
-
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Message {
     /// Id of the connection sent this message.
     pub source_connection: String,
-    pub channel: u16, // TODO use channel type here
-    pub content: Vec<u8>,
+    pub channel: frame::Channel,
     pub exchange: String,
     pub routing_key: String,
     pub mandatory: bool,
     pub immediate: bool,
-    // TODO add here all the necessary content header properties
+    pub content: MessageContent,
+}
+
+#[derive(Clone, Default)]
+pub struct MessageContent {
+    pub class_id: frame::ClassId,
+    pub weight: frame::Weight,
+    pub body: Vec<u8>,
+    pub body_size: u64,
+    pub prop_flags: frame::HeaderPropertyFlags,
+    pub cluster_id: Option<String>,
+    pub app_id: Option<String>,
+    pub user_id: Option<String>,
+    pub message_type: Option<String>,
+    pub timestamp: Option<u64>,
+    pub message_id: Option<String>,
+    pub expiration: Option<String>,
+    pub reply_to: Option<String>,
+    pub correlation_id: Option<String>,
+    pub priority: Option<u8>,
+    pub delivery_mode: Option<u8>,
+    //pub headers: Option<frame::FieldTable>,
+    pub content_encoding: Option<String>,
     pub content_type: Option<String>,
 }
 
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let body = String::from_utf8_lossy(&self.content[..std::cmp::min(64usize, self.content.len())]);
+        let body_len = std::cmp::min(64usize, self.content.body.len());
+        let body = String::from_utf8_lossy(&self.content.body[..body_len]);
 
         f.debug_struct("Message")
             .field("connection", &self.source_connection)
@@ -37,21 +57,38 @@ impl fmt::Debug for Message {
     }
 }
 
-//pub type MessageSink = mpsc::Sender<Message>;
-
 /// Create content header and content body frames from a message
-pub fn message_to_content_frames(message: &Message) -> Vec<frame::AMQPFrame> {
-    let mut ch = frame::content_header(message.channel, message.content.len() as u64);
-    message.content_type.as_ref().map(|v| ch.with_content_type(v.clone()));
+pub fn message_to_content_frames(channel: frame::Channel, content: MessageContent) -> Vec<frame::AMQPFrame> {
+    let header = frame::ContentHeaderFrame {
+        channel,
+        class_id: content.class_id, // TODO ???
+        weight: content.weight,
+        body_size: content.body_size,
+        prop_flags: content.prop_flags,
+        cluster_id: content.cluster_id,
+        app_id: content.app_id,
+        user_id: content.user_id,
+        message_type: content.message_type,
+        timestamp: content.timestamp,
+        message_id: content.message_id,
+        expiration: content.expiration,
+        reply_to: content.reply_to,
+        correlation_id: content.correlation_id,
+        priority: content.priority,
+        delivery_mode: content.delivery_mode,
+        headers: None,
+        content_encoding: content.content_encoding,
+        content_type: content.content_type,
+    };
 
     vec![
-        AMQPFrame::ContentHeader(ch),
-        AMQPFrame::ContentBody(frame::content_body(message.channel, message.content.as_slice())),
+        AMQPFrame::ContentHeader(header),
+        AMQPFrame::ContentBody(frame::content_body(channel, content.body.as_slice())),
     ]
 }
 
-pub async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(message);
+pub async fn send_message(message: Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
+    let mut frames = message_to_content_frames(message.channel, message.content);
 
     let basic_deliver = frame::basic_deliver(
         message.channel,
@@ -68,8 +105,8 @@ pub async fn send_message(message: &Message, tag: &Tag, outgoing: &FrameSink) ->
     Ok(())
 }
 
-pub async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(message);
+pub async fn send_basic_return(message: Message, outgoing: &FrameSink) -> Result<()> {
+    let mut frames = message_to_content_frames(message.channel, message.content);
 
     frames.insert(
         0,
@@ -89,48 +126,21 @@ pub async fn send_basic_return(message: &Message, outgoing: &FrameSink) -> Resul
     Ok(())
 }
 
-async fn x() -> Result<()> {
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-
-    let data = Arc::new(Message {
-        channel: 1u16,
-        content: "Hello".to_string().as_bytes().to_vec(),
-        exchange: "test".to_string(),
-        immediate: false,
-        mandatory: false,
-        routing_key: "*".to_string(),
-        source_connection: "1".to_string(),
-        content_type: None,
-    });
-
-    let (tx, mut rx) = mpsc::channel::<Arc<Message>>(1);
-
-    tokio::spawn(async move {
-        if let Some(m) = rx.recv().await {
-            let _ = m.channel;
-        }
-    });
-
-    tx.send(data).await?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 pub mod tests {
-    use super::Message;
+    use super::*;
 
     pub fn empty_message() -> Message {
         Message {
             channel: 1,
             source_connection: "".to_owned(),
-            content: b"".to_vec(),
             exchange: "".to_owned(),
-            immediate: false,
-            mandatory: false,
             routing_key: "".to_owned(),
-            content_type: None,
+            content: MessageContent {
+                body: b"".to_vec(),
+                ..Default::default()
+            },
+            ..Default::default()
         }
     }
 }

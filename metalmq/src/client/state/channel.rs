@@ -1,10 +1,10 @@
+use crate::client;
 use crate::client::state::Connection;
-use crate::client::{self, ConnectionError};
 use crate::exchange::manager::{self, DeleteExchangeCommand};
 use crate::logerr;
 use crate::queue::manager::{self as qm, QueueCancelConsume};
 use crate::Result;
-use log::{error, info};
+use log::{debug, error, info};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -87,6 +87,11 @@ impl Connection {
         info!("Cleanup connection {}", self.id);
 
         for cq in &self.consumed_queues {
+            debug!(
+                "Cancel consumer channel: {} queue: {} consumer tag: {}",
+                cq.channel, cq.queue_name, cq.consumer_tag
+            );
+
             let cmd = QueueCancelConsume {
                 channel: cq.channel,
                 queue_name: cq.queue_name.clone(),

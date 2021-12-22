@@ -142,8 +142,7 @@ impl Connection {
     pub async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> Result<()> {
         // TODO collect info into a data struct
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
-            pc.length = Some(header.body_size);
-            pc.content_type = header.content_type;
+            pc.content_header = header;
         }
 
         Ok(())
@@ -154,12 +153,24 @@ impl Connection {
             let msg = message::Message {
                 source_connection: self.id.clone(),
                 channel: pc.channel,
-                content: body.body,
                 exchange: pc.exchange.clone(),
                 routing_key: pc.routing_key,
                 mandatory: pc.mandatory,
                 immediate: pc.immediate,
-                content_type: pc.content_type,
+                content: message::MessageContent {
+                    class_id: pc.content_header.class_id,
+                    weight: pc.content_header.weight,
+                    body: body.body,
+                    body_size: pc.content_header.body_size,
+                    prop_flags: pc.content_header.prop_flags,
+                    content_encoding: pc.content_header.content_encoding,
+                    content_type: pc.content_header.content_type,
+                    delivery_mode: pc.content_header.delivery_mode,
+                    message_id: pc.content_header.message_id,
+                    timestamp: pc.content_header.timestamp,
+                    ..Default::default()
+                },
+                ..Default::default()
             };
 
             match self.exchanges.get(&pc.exchange) {
@@ -173,7 +184,7 @@ impl Connection {
                 }
                 None => {
                     if msg.mandatory {
-                        logerr!(message::send_basic_return(&msg, &self.outgoing).await);
+                        logerr!(message::send_basic_return(msg, &self.outgoing).await);
                         Ok(())
                     } else {
                         Ok(())

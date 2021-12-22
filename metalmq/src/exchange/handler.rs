@@ -46,7 +46,11 @@ struct ExchangeState {
     outgoing: mpsc::Sender<SendFrame>,
 }
 
-pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>, outgoing: mpsc::Sender<SendFrame>) {
+pub async fn start(
+    exchange: Exchange,
+    commands: &mut mpsc::Receiver<ExchangeCommand>,
+    outgoing: mpsc::Sender<SendFrame>,
+) {
     ExchangeState {
         exchange,
         queues: HashMap::new(),
@@ -75,26 +79,18 @@ impl ExchangeState {
             ExchangeCommand::Message(message) => {
                 match self.choose_queue_by_routing_key(&message.routing_key) {
                     Some(queue) => {
-                        // TODO here we need to check if this exchange is bound to a queue, or
-                        // if routing key will send this message to a queue.
-                        //   If not, we need to check if the message is mandatory, we need to
-                        //   send back a basic-return with an error.
                         // FIXME we can close a message as far as we don't use Vec but Bytes.
                         // Vec is cloned by cloning the underlying array, but Buffer is a bit
                         // more specialized, and it uses a reference counter pointer.
-                        info!(
-                            "Publish message {}",
-                            String::from_utf8(message.content.clone()).unwrap()
-                        );
+                        info!("Publish message {:?}", message);
 
-                        // FIXME this causes deadlock
                         if let Err(e) = send!(queue, QueueCommand::PublishMessage(message)) {
                             error!("Send error {:?}", e);
                         }
                     }
                     None => {
                         if message.mandatory {
-                            message::send_basic_return(&message, &self.outgoing).await?;
+                            message::send_basic_return(message, &self.outgoing).await?;
                         }
                     }
                 }

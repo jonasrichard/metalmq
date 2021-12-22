@@ -59,9 +59,7 @@ struct PublishedContent {
     routing_key: String,
     mandatory: bool,
     immediate: bool,
-    content_type: Option<String>,
-    length: Option<u64>,
-    content: Option<Vec<u8>>,
+    content_header: frame::ContentHeaderFrame,
 }
 
 pub fn new(context: Context, outgoing: mpsc::Sender<SendFrame>) -> Connection {

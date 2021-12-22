@@ -310,7 +310,8 @@ impl QueueState {
                     delivery_tag: consumer.delivery_tag_counter,
                 };
 
-                let res = message::send_message(&message, &tag, &consumer.sink).await;
+                // FIXME solve this without cloning
+                let res = message::send_message(message.clone(), &tag, &consumer.sink).await;
                 match res {
                     Ok(()) => {
                         self.outbox.on_sent_out(OutgoingMessage {
