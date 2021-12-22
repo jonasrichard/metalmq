@@ -175,11 +175,14 @@ impl Connection {
 
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
+                    // FIXME again, this is not good, we shouldn't clone outgoing channels all the
+                    // time
+                    let cmd = ExchangeCommand::Message {
+                        message: msg,
+                        outgoing: self.outgoing.clone(),
+                    };
                     // TODO is this the correct way of returning Err(_)
-                    logerr!(
-                        ch.send_timeout(ExchangeCommand::Message(msg), time::Duration::from_secs(1))
-                            .await
-                    );
+                    logerr!(ch.send_timeout(cmd, time::Duration::from_secs(1)).await);
                     Ok(())
                 }
                 None => {

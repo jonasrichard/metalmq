@@ -20,7 +20,10 @@ pub enum MessageSentResult {
 
 #[derive(Debug)]
 pub enum ExchangeCommand {
-    Message(Message),
+    Message {
+        message: Message,
+        outgoing: mpsc::Sender<SendFrame>,
+    },
     QueueBind {
         queue_name: String,
         routing_key: String,
@@ -43,7 +46,6 @@ struct ExchangeState {
     exchange: super::Exchange,
     /// Queues bound by routing key
     queues: HashMap<String, QueueCommandSink>,
-    outgoing: mpsc::Sender<SendFrame>,
 }
 
 pub async fn start(
@@ -54,7 +56,6 @@ pub async fn start(
     ExchangeState {
         exchange,
         queues: HashMap::new(),
-        outgoing,
     }
     .exchange_loop(commands)
     .await
@@ -76,7 +77,7 @@ impl ExchangeState {
 
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
-            ExchangeCommand::Message(message) => {
+            ExchangeCommand::Message { message, outgoing } => {
                 match self.choose_queue_by_routing_key(&message.routing_key) {
                     Some(queue) => {
                         // FIXME we can close a message as far as we don't use Vec but Bytes.
@@ -90,7 +91,9 @@ impl ExchangeState {
                     }
                     None => {
                         if message.mandatory {
-                            message::send_basic_return(message, &self.outgoing).await?;
+                            // FIXME here self.outgoing is fatal, makes no sense, exchanges can be
+                            // written by more than one producer!
+                            message::send_basic_return(message, &outgoing).await?;
                         }
                     }
                 }
