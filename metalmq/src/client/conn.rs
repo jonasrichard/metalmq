@@ -17,7 +17,8 @@ pub enum SendFrame {
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
     let (sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
-    let (mut consume_sink, mut consume_stream) = mpsc::channel::<SendFrame>(1);
+    // We use channels with only one item long, so we can block until the frame is sent out.
+    let (mut consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
     let mut conn = state::new(context, consume_sink.clone());
 
     // FIXME support feedback of sending out frames. Sometimes we need to wait for the sream to
@@ -44,25 +45,16 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     Ok(())
 }
 
-/// Handle sending of outgoing frames. If send is sync the oneshot channel will be notified with
-/// the result of the send as a bool value.
+/// Handle sending of outgoing frames. The underlying futures sink flushes the sent items, so
+/// when we get back the control it means that the frames have already been sent.
 async fn outgoing_loop(
     mut socket_sink: SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
-    frame_stream: &mut mpsc::Receiver<SendFrame>,
+    frame_stream: &mut mpsc::Receiver<Frame>,
 ) -> Result<()> {
     while let Some(frame) = frame_stream.recv().await {
         trace!("Outgoing {:?}", frame);
 
-        match frame {
-            SendFrame::Async(f) => socket_sink.send(f).await?,
-            SendFrame::Sync(f, tx) => {
-                let r = socket_sink.send(f).await;
-
-                tx.send(r.is_ok());
-
-                r?
-            }
-        }
+        socket_sink.send(frame).await?;
     }
 
     Ok(())
@@ -70,7 +62,7 @@ async fn outgoing_loop(
 
 async fn handle_in_stream_data(
     conn: &mut Connection,
-    sink: &mut mpsc::Sender<SendFrame>,
+    sink: &mut mpsc::Sender<Frame>,
     data: std::result::Result<Frame, std::io::Error>,
 ) -> Result<bool> {
     match data {

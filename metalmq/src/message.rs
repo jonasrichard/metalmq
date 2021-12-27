@@ -1,6 +1,5 @@
 //! Messages are sent to exchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
-use crate::client::conn::SendFrame;
 use crate::client::ChannelError;
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
@@ -100,7 +99,7 @@ pub async fn send_message(message: Message, tag: &Tag, outgoing: &FrameSink) -> 
     );
     frames.insert(0, basic_deliver);
 
-    chk!(send!(outgoing, SendFrame::Async(Frame::Frames(frames))))?;
+    chk!(send!(outgoing, Frame::Frames(frames)))?;
 
     Ok(())
 }
@@ -121,7 +120,7 @@ pub async fn send_basic_return(message: Message, outgoing: &FrameSink) -> Result
 
     frames.push(frame::basic_ack(message.channel, 1u64, false));
 
-    chk!(send!(outgoing, SendFrame::Async(Frame::Frames(frames))))?;
+    chk!(send!(outgoing, Frame::Frames(frames)))?;
 
     Ok(())
 }

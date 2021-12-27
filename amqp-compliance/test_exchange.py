@@ -88,3 +88,53 @@ def test_exchange_mandatory_error(caplog):
     channel.exchange_delete('not-routed')
     channel.close()
     client.close()
+
+def test_direct_exchange_two_queues(caplog):
+    caplog.set_level(logging.INFO)
+    messages = []
+
+    def consume(queue_name):
+        def on_message(channel, method, props, body):
+            LOG.info("consume %s", body)
+            messages.append(body)
+            channel.basic_ack(method.delivery_tag)
+            channel.basic_cancel("ct1")
+
+        consumer = helper.connect()
+        consumer_channel = consumer.channel()
+
+        LOG.info("Sending basic consume %s", queue_name)
+        consumer_channel.basic_consume(queue_name, on_message_callback=on_message, consumer_tag="ct1")
+        consumer_channel.start_consuming()
+
+        LOG.info("After start consuming")
+
+        consumer_channel.close()
+        consumer.close()
+
+    client = helper.connect()
+    channel = client.channel(channel_number=8)
+
+    channel.exchange_declare(exchange="2-exchange", exchange_type="direct")
+    channel.queue_declare("1-queue")
+    channel.queue_bind("1-queue", "2-exchange", "1-queue")
+    channel.queue_declare("2-queue")
+    channel.queue_bind("2-queue", "2-exchange", "2-queue")
+
+    consumer1 = threading.Thread(target=consume, args=("1-queue",))
+    consumer1.start()
+
+    channel.basic_publish("2-exchange", "1-queue", "This goes to the first queue")
+
+    consumer1.join()
+    channel.queue_unbind("1-queue", "2-exchange", "1-queue")
+    channel.queue_unbind("2-queue", "2-exchange", "2-queue")
+    channel.exchange_delete("2-exchange")
+    channel.queue_delete("1-queue")
+    channel.queue_delete("2-queue")
+
+    channel.close()
+    client.close()
+
+    assert 1 == len(messages)
+    LOG.info("Messages %r", messages[0])

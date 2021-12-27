@@ -1,6 +1,5 @@
 // Do we need to expose the messages of a 'process' or hide it in an erlang-style?
 use crate::client;
-use crate::client::conn::SendFrame;
 use crate::exchange::handler::ExchangeCommandSink;
 use crate::exchange::manager as em;
 use crate::queue::handler as queue_handler;
@@ -11,7 +10,6 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use uuid::Uuid;
 
 pub mod basic;
@@ -49,7 +47,7 @@ pub struct Connection {
     // pain that we don't know if we have written frames on the wire or haven't. If there is no
     // blocking coming from channel send, we can put here the outgoing as socket write end.
     /// Sink for AMQP frames toward the client
-    outgoing: mpsc::Sender<SendFrame>,
+    outgoing: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug, Default)]
@@ -62,7 +60,7 @@ struct PublishedContent {
     content_header: frame::ContentHeaderFrame,
 }
 
-pub fn new(context: Context, outgoing: mpsc::Sender<SendFrame>) -> Connection {
+pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
     let conn_id = Uuid::new_v4().to_hyphenated().to_string();
 
     info!("Client connected id = {}", conn_id);
@@ -83,18 +81,7 @@ pub fn new(context: Context, outgoing: mpsc::Sender<SendFrame>) -> Connection {
 impl Connection {
     /// Send frame out to client asynchronously.
     pub async fn send_frame(&self, f: Frame) -> Result<()> {
-        self.outgoing.send(SendFrame::Async(f)).await?;
-
-        Ok(())
-    }
-
-    /// Send frame out to client asynchronously.
-    pub async fn send_sync_frame(&self, f: Frame) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-
-        self.outgoing.send(SendFrame::Sync(f, tx)).await?;
-
-        rx.await?;
+        self.outgoing.send(f).await?;
 
         Ok(())
     }

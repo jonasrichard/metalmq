@@ -65,7 +65,7 @@ impl Connection {
                     queue_sink,
                 });
 
-                self.send_sync_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
+                self.send_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
                     .await?;
 
                 let start_deliver_cmd = queue_handler::QueueCommand::StartDelivering {

@@ -15,8 +15,8 @@ impl Connection {
             let err = crate::RuntimeError {
                 scope: crate::ErrorScope::Connection,
                 channel: 0,
-                code: client::ChannelError::PreconditionFailed as u16,
-                text: "Channel is already opened".to_owned(),
+                code: client::ConnectionError::ChannelError as u16,
+                text: "CHANNEL_ERROR - Channel is already opened".to_owned(),
                 class_id,
                 method_id,
             };

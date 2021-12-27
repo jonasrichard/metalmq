@@ -19,3 +19,16 @@ def test_connect_fail_bad_password():
 
     assert 403 == exp.value.reply_code
     assert str(exp.value.reply_text).startswith("ACCESS_REFUSED")
+
+def test_reopen_the_same_channel():
+    """
+    Open the same channel results in a channel error.
+    """
+    conn = helper.connect()
+    conn.channel(17)
+
+    with pytest.raises(pika.exceptions.ConnectionClosedByBroker) as exp:
+        conn.channel(17)
+
+    assert 504 == exp.value.reply_code
+    assert str(exp.value.reply_text).startswith("CHANNEL_ERROR")

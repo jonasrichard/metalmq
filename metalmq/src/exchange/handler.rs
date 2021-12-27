@@ -1,5 +1,4 @@
 use crate::client;
-use crate::client::conn::SendFrame;
 use crate::exchange::Exchange;
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
@@ -22,7 +21,7 @@ pub enum MessageSentResult {
 pub enum ExchangeCommand {
     Message {
         message: Message,
-        outgoing: mpsc::Sender<SendFrame>,
+        outgoing: mpsc::Sender<Frame>,
     },
     QueueBind {
         queue_name: String,
@@ -48,11 +47,7 @@ struct ExchangeState {
     queues: HashMap<String, QueueCommandSink>,
 }
 
-pub async fn start(
-    exchange: Exchange,
-    commands: &mut mpsc::Receiver<ExchangeCommand>,
-    outgoing: mpsc::Sender<SendFrame>,
-) {
+pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>, outgoing: mpsc::Sender<Frame>) {
     ExchangeState {
         exchange,
         queues: HashMap::new(),

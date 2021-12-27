@@ -1,10 +1,10 @@
-use crate::client::conn::SendFrame;
 use crate::client::{self, ChannelError, ConnectionError};
 use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
 use log::{debug, error};
+use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -19,7 +19,7 @@ pub struct DeclareExchangeCommand {
     pub channel: u16,
     pub exchange: Exchange,
     pub passive: bool,
-    pub outgoing: mpsc::Sender<SendFrame>,
+    pub outgoing: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug)]

@@ -1,4 +1,3 @@
-use crate::client::conn::SendFrame;
 use crate::client::{channel_error, ChannelError};
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
@@ -54,7 +53,7 @@ pub struct QueueConsumeCommand {
     pub consumer_tag: String,
     pub no_ack: bool,
     pub exclusive: bool,
-    pub outgoing: mpsc::Sender<SendFrame>,
+    pub outgoing: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug)]
@@ -327,9 +326,13 @@ mod tests {
         qsink.send(QueueCommand::PublishMessage(message)).await.unwrap();
 
         let frames = rx.recv().await.unwrap();
-        if let SendFrame::Async(Frame::Frames(fs)) = frames {
+
+        if let Frame::Frames(fs) = frames {
             // TODO make an assert function for checking the 3 frames
             assert_eq!(fs.len(), 3);
+            // TODO it would be nice to have some function we can match the enum inside the method
+            // frame like `let arg = get_arg_from_frame<T>(fs[0])` it should panic if it is not a
+            // method frame and later we can assert or `assert!(matches!(arg, BasicCancelArgs {}))`
         }
     }
 }

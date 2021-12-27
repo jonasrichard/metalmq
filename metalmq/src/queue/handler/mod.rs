@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests;
 
-use crate::client::conn::SendFrame;
 use crate::client::{channel_error, ChannelError};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
 use log::{error, info, trace};
+use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::BASIC_CONSUME;
 use std::collections::{HashSet, VecDeque};
 use std::task::Poll;
@@ -64,7 +64,7 @@ pub enum SendResult {
     ConsumerInvalid(String, Message),
 }
 
-pub type FrameSink = mpsc::Sender<SendFrame>;
+pub type FrameSink = mpsc::Sender<Frame>;
 
 /// Information about the queue instance
 struct QueueState {
