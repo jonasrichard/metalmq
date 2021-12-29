@@ -78,7 +78,7 @@ impl RuntimeError {
 macro_rules! chk {
     ($val:expr) => {
         match $val {
-            Ok(ok) => Ok(ok),
+            ok @ Ok(_) => ok,
             Err(e) => {
                 log::error!("Error {:?}", e);
 

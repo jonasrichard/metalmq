@@ -1,4 +1,4 @@
-use crate::client::{self, ChannelError, ConnectionError};
+use crate::client::{self, ChannelError};
 use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
@@ -163,7 +163,6 @@ impl ExchangeManagerState {
         debug!("Declare exchange {:?}", command.exchange);
 
         validate_exchange_name(command.channel, &command.exchange.name)?;
-        validate_exchange_type(&command.exchange.exchange_type)?;
 
         match self.exchanges.get(&command.exchange.name) {
             None if command.passive => client::channel_error(
@@ -187,12 +186,9 @@ impl ExchangeManagerState {
             None => {
                 let (command_sink, mut command_stream) = mpsc::channel(1);
                 let exchange_clone = command.exchange.clone();
-                // FIXME this leaves the outgoing in the original command, but we need to clone
-                // here
-                let outgoing_clone = command.outgoing.clone();
 
                 tokio::spawn(async move {
-                    handler::start(exchange_clone, &mut command_stream, outgoing_clone).await;
+                    handler::start(exchange_clone, &mut command_stream).await;
                 });
 
                 let exchange_name = command.exchange.name.clone();
@@ -307,23 +303,10 @@ fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_exchange_type(exchange_type: &str) -> Result<()> {
-    let allowed_type = ["direct", "topic", "fanout"];
-
-    if !allowed_type.contains(&exchange_type) {
-        return client::connection_error(
-            frame::EXCHANGE_DECLARE,
-            ConnectionError::CommandInvalid,
-            "COMMAND_INVALID - Exchange type is invalid",
-        );
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exchange::ExchangeType;
     use crate::{ErrorScope, RuntimeError};
 
     #[tokio::test]
@@ -364,7 +347,7 @@ mod tests {
             ExchangeState {
                 exchange: Exchange {
                     name: "temp-changes".to_string(),
-                    exchange_type: "topic".to_string(),
+                    exchange_type: ExchangeType::Topic,
                     ..Default::default()
                 },
                 command_sink: tx,
@@ -373,7 +356,7 @@ mod tests {
 
         let exchange = Exchange {
             name: "temp-changes".into(),
-            exchange_type: "direct".to_string(),
+            exchange_type: ExchangeType::Direct,
             ..Default::default()
         };
 
@@ -402,7 +385,7 @@ mod tests {
         };
         let exchange = Exchange {
             name: "transactions".into(),
-            exchange_type: "direct".to_string(),
+            exchange_type: ExchangeType::Direct,
             durable: true,
             auto_delete: true,
             internal: true,
@@ -419,7 +402,7 @@ mod tests {
         assert!(result.is_ok());
 
         let state = manager.exchanges.get("transactions").unwrap();
-        assert_eq!(state.exchange.exchange_type, "direct");
+        assert_eq!(state.exchange.exchange_type, ExchangeType::Direct);
         assert_eq!(state.exchange.durable, true);
         assert_eq!(state.exchange.auto_delete, true);
         assert_eq!(state.exchange.internal, true);

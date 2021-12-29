@@ -1,7 +1,8 @@
 use crate::client;
 use crate::client::state::Connection;
+use crate::exchange;
 use crate::exchange::manager::{self, DeclareExchangeCommand, DeleteExchangeCommand};
-use crate::Result;
+use crate::{handle_error, Result};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -10,6 +11,8 @@ impl Connection {
         let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
+
+        let _ = handle_error!(self, exchange::validate_exchange_type(&args.exchange_type));
 
         let cmd = DeclareExchangeCommand {
             channel,

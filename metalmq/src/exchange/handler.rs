@@ -1,5 +1,5 @@
 use crate::client;
-use crate::exchange::Exchange;
+use crate::exchange::{Exchange, ExchangeType};
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
@@ -41,16 +41,20 @@ pub enum ExchangeCommand {
     },
 }
 
-struct ExchangeState {
-    exchange: super::Exchange,
-    /// Queues bound by routing key
-    queues: HashMap<String, QueueCommandSink>,
+enum Binding {
+    Direct { routing_key: String, queue_name: String },
 }
 
-pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>, outgoing: mpsc::Sender<Frame>) {
+struct ExchangeState {
+    exchange: super::Exchange,
+    /// Queue bindings
+    queues: Vec<(Binding, QueueCommandSink)>,
+}
+
+pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>) {
     ExchangeState {
         exchange,
-        queues: HashMap::new(),
+        queues: vec![],
     }
     .exchange_loop(commands)
     .await
@@ -73,27 +77,23 @@ impl ExchangeState {
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
             ExchangeCommand::Message { message, outgoing } => {
-                match self.choose_queue_by_routing_key(&message.routing_key) {
-                    Some(queue) => {
-                        // FIXME we can close a message as far as we don't use Vec but Bytes.
-                        // Vec is cloned by cloning the underlying array, but Buffer is a bit
-                        // more specialized, and it uses a reference counter pointer.
-                        info!("Publish message {:?}", message);
-
-                        if let Err(e) = send!(queue, QueueCommand::PublishMessage(message)) {
-                            error!("Send error {:?}", e);
-                        }
-                    }
-                    None => {
-                        if message.mandatory {
-                            // FIXME here self.outgoing is fatal, makes no sense, exchanges can be
-                            // written by more than one producer!
-                            message::send_basic_return(message, &outgoing).await?;
-                        }
+                if let Some(failed_message) = self.route_message(message).await? {
+                    if failed_message.mandatory {
+                        message::send_basic_return(failed_message, &outgoing).await?;
                     }
                 }
 
                 Ok(true)
+                //Some(queue) => {
+                //    // FIXME we can close a message as far as we don't use Vec but Bytes.
+                //    // Vec is cloned by cloning the underlying array, but Buffer is a bit
+                //    // more specialized, and it uses a reference counter pointer.
+                //    info!("Publish message {:?}", message);
+
+                //    if let Err(e) = send!(queue, QueueCommand::PublishMessage(message)) {
+                //        error!("Send error {:?}", e);
+                //    }
+                //}
             }
             ExchangeCommand::QueueBind {
                 queue_name,
@@ -101,14 +101,25 @@ impl ExchangeState {
                 sink,
                 result,
             } => {
-                self.queues.insert(routing_key, sink.clone());
-                logerr!(send!(
-                    sink,
-                    QueueCommand::ExchangeBound {
-                        exchange_name: self.exchange.name.clone(),
+                match self.exchange.exchange_type {
+                    ExchangeType::Direct => {
+                        let binding = Binding::Direct {
+                            routing_key,
+                            queue_name,
+                        };
+                        self.queues.push((binding, sink.clone()));
+                        logerr!(send!(
+                            sink,
+                            QueueCommand::ExchangeBound {
+                                exchange_name: self.exchange.name.clone(),
+                            }
+                        ));
+                        logerr!(result.send(true));
                     }
-                ));
-                logerr!(result.send(true));
+                    _ => {
+                        logerr!(result.send(false));
+                    }
+                }
 
                 Ok(true)
             }
@@ -117,16 +128,28 @@ impl ExchangeState {
                 routing_key,
                 result,
             } => {
-                if let Some(sink) = self.queues.remove(&routing_key) {
-                    logerr!(send!(
-                        sink,
-                        QueueCommand::ExchangeUnbound {
-                            exchange_name: self.exchange.name.clone(),
+                match self.exchange.exchange_type {
+                    ExchangeType::Direct => {
+                        if let Some(pos) = self.queues.iter().position(|b| match &b.0 {
+                            Binding::Direct {
+                                routing_key: rk,
+                                queue_name: qn,
+                            } => &routing_key == rk && &queue_name == qn,
+                        }) {
+                            let binding = self.queues.remove(pos);
+                            logerr!(send!(
+                                binding.1,
+                                QueueCommand::ExchangeUnbound {
+                                    exchange_name: self.exchange.name.clone(),
+                                }
+                            ));
                         }
-                    ));
+                        logerr!(result.send(true));
+                    }
+                    _ => {
+                        result.send(false);
+                    }
                 }
-
-                logerr!(result.send(true));
 
                 Ok(true)
             }
@@ -171,8 +194,13 @@ impl ExchangeState {
         }
     }
 
-    fn choose_queue_by_routing_key(&self, routing_key: &str) -> Option<&QueueCommandSink> {
-        self.queues.get(routing_key)
+    /// Route the message according to the exchange type and the bindings. If there is no queue to
+    /// be send the message to, it gives back the messages in the Option.
+    async fn route_message(&self, message: Message) -> Result<Option<Message>> {
+        match self.exchange.exchange_type {
+            ExchangeType::Direct => Ok(None),
+            _ => Ok(Some(message)),
+        }
     }
 }
 
@@ -181,17 +209,13 @@ mod tests {
     use super::*;
     use metalmq_codec::frame;
 
-    async fn recv_timeout(rx: &mut mpsc::Receiver<SendFrame>) -> Option<Frame> {
+    async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
         let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
         tokio::pin!(sleep);
 
         tokio::select! {
             frame = rx.recv() => {
-                match frame {
-                    Some(SendFrame::Async(f)) => return Some(f),
-                    Some(SendFrame::Sync(f, _)) => return Some(f),
-                    None => return None,
-                }
+                frame
             }
             _ = &mut sleep => {
                 return None;
@@ -205,13 +229,12 @@ mod tests {
         let mut es = ExchangeState {
             exchange: Exchange {
                 name: "x-name".to_string(),
-                exchange_type: "direct".to_string(),
+                exchange_type: ExchangeType::Direct,
                 durable: false,
                 auto_delete: false,
                 internal: false,
             },
-            queues: HashMap::new(),
-            outgoing: msg_tx,
+            queues: vec![],
         };
 
         let msg = Message {
@@ -222,7 +245,6 @@ mod tests {
             routing_key: "".to_string(),
             mandatory: true,
             immediate: false,
-            content_type: None,
         };
         let cmd = ExchangeCommand::Message(msg);
 

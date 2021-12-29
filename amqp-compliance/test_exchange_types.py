@@ -4,6 +4,8 @@ import pika
 import pytest
 import threading
 
+TIMEOUT = 1
+
 class QueueConsumer():
     """
     Consume the queue and store the message_number messages.
@@ -63,8 +65,8 @@ def test_direct_exchange_two_queues(caplog):
                 f"Message {i:d}",
                 properties=pika.BasicProperties(message_id=f"id{i:d}"))
 
-    consumer1_thread.join()
-    consumer2_thread.join()
+    consumer1_thread.join(timeout=TIMEOUT)
+    consumer2_thread.join(timeout=TIMEOUT)
 
     channel.queue_unbind("1-queue", "2-exchange", "1-queue")
     channel.queue_unbind("2-queue", "2-exchange", "2-queue")
@@ -95,12 +97,10 @@ def test_direct_exchange_multi_queues(caplog):
     channel.queue_bind("multi-2-queue", "multi-exchange", "same")
 
     consumer1 = QueueConsumer("multi-1-queue", 5)
-    consumer1_thread = threading.Thread(target=consumer1.consume, args=())
-    consumer1_thread.start()
+    consumer1_thread = consumer1.start()
 
     consumer2 = QueueConsumer("multi-2-queue", 5)
-    consumer2_thread = threading.Thread(target=consumer2.consume, args=())
-    consumer2_thread.start()
+    consumer2_thread = consumer2.start()
 
     for i in range(0, 5):
         channel.basic_publish(
@@ -109,8 +109,8 @@ def test_direct_exchange_multi_queues(caplog):
                 f"Message {i:d}",
                 properties=pika.BasicProperties(message_id=f"id{i:d}"))
 
-    consumer1_thread.join()
-    consumer2_thread.join()
+    consumer1_thread.join(timeout=TIMEOUT)
+    consumer2_thread.join(timeout=TIMEOUT)
 
     channel.queue_unbind("multi-1-queue", "multi-exchange", "same")
     channel.queue_unbind("multi-2-queue", "multi-exchange", "same")
@@ -121,8 +121,8 @@ def test_direct_exchange_multi_queues(caplog):
     channel.close()
     client.close()
 
-    assert 5 == len(consumer1.messages)
-    assert 5 == len(consumer2.messages)
+    assert 5 == len(consumer1.messages), "multi-1-queue consumer hasn't got enough messages"
+    assert 5 == len(consumer2.messages), "multi-2-queue consumer hasn't got enough messages"
 
 def test_fanout_exchange_two_queues(caplog):
     """
@@ -154,8 +154,8 @@ def test_fanout_exchange_two_queues(caplog):
                 f"Message {i:d}",
                 properties=pika.BasicProperties(message_id=f"id{i:d}"))
 
-    consumer1_thread.join()
-    consumer2_thread.join()
+    consumer1_thread.join(timeout=TIMEOUT)
+    consumer2_thread.join(timeout=TIMEOUT)
 
     channel.queue_unbind("fan-1-queue", "fanout-exchange", "fan-1-queue")
     channel.queue_unbind("fan-2-queue", "fanout-exchange", "fan-2-queue")
@@ -205,9 +205,9 @@ def test_topic_exchange():
     send("nwse", "tsla", 1099.0)
     send("nwse", "orcl", 89.1)
 
-    all_thread.join()
-    dax_thread.join()
-    nwse_thread.join()
+    all_thread.join(timeout=TIMEOUT)
+    dax_thread.join(timeout=TIMEOUT)
+    nwse_thread.join(timeout=TIMEOUT)
 
     channel.queue_unbind("nwse", "prices", "stocks.nwse.*")
     channel.queue_unbind("dax", "prices", "stocks.dax.*")
@@ -255,8 +255,8 @@ def test_header_exchange():
     send("xml")
     send("other")
 
-    text_thread.join()
-    xml_thread.join()
+    text_thread.join(timeout=TIMEOUT)
+    xml_thread.join(timeout=TIMEOUT)
 
     channel.queue_unbind("text", "content", arguments={"header-type": "text"})
     channel.queue_unbind("xml", "content", arguments={"header-type": "xml"})

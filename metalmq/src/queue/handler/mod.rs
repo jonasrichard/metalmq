@@ -89,6 +89,8 @@ struct QueueState {
 // case of a message buffer, we can make independent the receive
 // of messages on client side, and to call the callback.
 struct Consumer {
+    /// The channel the consumer uses
+    channel: u16,
     /// Consumer tag, identifies the consumer
     consumer_tag: String,
     /// Consumer doesn't need ack, so we can delete sent-out messages promptly
@@ -260,6 +262,7 @@ impl QueueState {
                     )));
                 } else {
                     let consumer = Consumer {
+                        channel,
                         consumer_tag,
                         no_ack,
                         exclusive,
@@ -311,7 +314,7 @@ impl QueueState {
                 };
 
                 // FIXME solve this without cloning
-                let res = message::send_message(message.clone(), &tag, &consumer.sink).await;
+                let res = message::send_message(consumer.channel, message.clone(), &tag, &consumer.sink).await;
                 match res {
                     Ok(()) => {
                         self.outbox.on_sent_out(OutgoingMessage {

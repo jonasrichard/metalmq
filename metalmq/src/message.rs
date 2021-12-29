@@ -86,11 +86,12 @@ pub fn message_to_content_frames(channel: frame::Channel, content: MessageConten
     ]
 }
 
-pub async fn send_message(message: Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(message.channel, message.content);
+/// Send out a message to the specified channel.
+pub async fn send_message(channel: frame::Channel, message: Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
+    let mut frames = message_to_content_frames(channel, message.content);
 
     let basic_deliver = frame::basic_deliver(
-        message.channel,
+        channel,
         &tag.consumer_tag,
         tag.delivery_tag,
         false,

@@ -60,6 +60,18 @@ struct PublishedContent {
     content_header: frame::ContentHeaderFrame,
 }
 
+#[macro_export]
+macro_rules! handle_error {
+    ($self:expr, $val:expr) => {
+        match $val {
+            ok @ Ok(_) => ok,
+            Err(e) => {
+                return $self.handle_error(*e.downcast::<$crate::RuntimeError>().unwrap()).await;
+            }
+        }
+    };
+}
+
 pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
     let conn_id = Uuid::new_v4().to_hyphenated().to_string();
 
@@ -86,7 +98,13 @@ impl Connection {
         Ok(())
     }
 
+    async fn handle_connection_close(&self) -> Result<()> {
+        // TODO cleanup, like close all channels, delete temporal queues, etc
+        Ok(())
+    }
+
     async fn handle_channel_close(&self, channel: frame::Channel) -> Result<()> {
+        // TODO cleanup, like cancel all consumers, etc.
         Ok(())
     }
 
@@ -94,7 +112,11 @@ impl Connection {
         self.send_frame(client::runtime_error_to_frame(&err)).await?;
 
         match err.scope {
-            ErrorScope::Connection => Err(Box::new(err)),
+            ErrorScope::Connection => {
+                self.handle_connection_close().await?;
+
+                Err(Box::new(err))
+            }
             ErrorScope::Channel => {
                 self.handle_channel_close(err.channel).await?;
 
