@@ -43,6 +43,7 @@ pub enum ExchangeCommand {
 
 enum Binding {
     Direct { routing_key: String, queue_name: String },
+    Fanout { queue_name: String },
 }
 
 struct ExchangeState {
@@ -116,6 +117,16 @@ impl ExchangeState {
                         ));
                         logerr!(result.send(true));
                     }
+                    ExchangeType::Fanout => {
+                        self.queues.push((Binding::Fanout { queue_name }, sink.clone()));
+                        logerr!(send!(
+                            sink,
+                            QueueCommand::ExchangeBound {
+                                exchange_name: self.exchange.name.clone(),
+                            }
+                        ));
+                        logerr!(result.send(true));
+                    }
                     _ => {
                         logerr!(result.send(false));
                     }
@@ -135,6 +146,22 @@ impl ExchangeState {
                                 routing_key: rk,
                                 queue_name: qn,
                             } => &routing_key == rk && &queue_name == qn,
+                            _ => false,
+                        }) {
+                            let binding = self.queues.remove(pos);
+                            logerr!(send!(
+                                binding.1,
+                                QueueCommand::ExchangeUnbound {
+                                    exchange_name: self.exchange.name.clone(),
+                                }
+                            ));
+                        }
+                        logerr!(result.send(true));
+                    }
+                    ExchangeType::Fanout => {
+                        if let Some(pos) = self.queues.iter().position(|b| match &b.0 {
+                            Binding::Fanout { queue_name: qn } => &queue_name == qn,
+                            _ => false,
                         }) {
                             let binding = self.queues.remove(pos);
                             logerr!(send!(
@@ -186,7 +213,7 @@ impl ExchangeState {
 
                     self.queues.clear();
 
-                    result.send(Ok(()));
+                    logerr!(result.send(Ok(())));
 
                     Ok(false)
                 }
@@ -198,7 +225,38 @@ impl ExchangeState {
     /// be send the message to, it gives back the messages in the Option.
     async fn route_message(&self, message: Message) -> Result<Option<Message>> {
         match self.exchange.exchange_type {
-            ExchangeType::Direct => Ok(None),
+            ExchangeType::Direct => {
+                for binding in &self.queues {
+                    match &binding.0 {
+                        // If the exchange type is direct we need to check all the direct bindings
+                        // and send messages if routing key is exactly the same.
+                        Binding::Direct { routing_key, .. } if routing_key == &message.routing_key => {
+                            let cmd = QueueCommand::PublishMessage(message.clone());
+                            logerr!(binding.1.send(cmd).await);
+                        }
+                        // Other bindings are ignored now.
+                        _ => (),
+                    }
+                }
+
+                // FIXME if there are no match we need to send back the message (because it was
+                // unroutable)
+                Ok(None)
+            }
+            ExchangeType::Fanout => {
+                for binding in &self.queues {
+                    match &binding.0 {
+                        Binding::Fanout { .. } => {
+                            let cmd = QueueCommand::PublishMessage(message.clone());
+                            logerr!(binding.1.send(cmd).await);
+                        }
+                        _ => (),
+                    }
+                }
+
+                // FIXME same as in the other branch
+                Ok(None)
+            }
             _ => Ok(Some(message)),
         }
     }
