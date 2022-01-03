@@ -41,21 +41,164 @@ pub enum ExchangeCommand {
     },
 }
 
-enum Binding {
-    Direct { routing_key: String, queue_name: String },
-    Fanout { queue_name: String },
+struct DirectBinding {
+    routing_key: String,
+    queue_name: String,
+    queue: QueueCommandSink,
+}
+
+struct FanoutBinding {
+    queue_name: String,
+    queue: QueueCommandSink,
+}
+
+struct TopicBinding {
+    routing_key: String,
+    queue_name: String,
+    queue: QueueCommandSink,
+}
+
+struct HeadersBinding {
+    headers: HashMap<String, String>,
+    queue_name: String,
+    queue: QueueCommandSink,
+}
+
+enum Bindings {
+    Direct(Vec<DirectBinding>),
+    Fanout(Vec<FanoutBinding>),
+    Topic(Vec<TopicBinding>),
+    Headers(Vec<HeadersBinding>),
+}
+
+impl Bindings {
+    fn add_direct_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
+        if let Bindings::Direct(bs) = self {
+            if let Some(_) = bs
+                .iter()
+                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
+            {
+                // routing key and queue name are already bound
+                return false;
+            }
+
+            bs.push(DirectBinding {
+                routing_key,
+                queue_name,
+                queue,
+            });
+
+            return true;
+        }
+
+        false
+    }
+
+    fn remove_direct_binding(&mut self, routing_key: String, queue_name: String) -> Option<QueueCommandSink> {
+        if let Bindings::Direct(bs) = self {
+            if let Some(p) = bs
+                .iter()
+                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
+            {
+                let binding = bs.remove(p);
+
+                return Some(binding.queue);
+            }
+        }
+
+        None
+    }
+
+    fn add_topic_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
+        if let Bindings::Topic(bs) = self {
+            if let Some(_) = bs
+                .iter()
+                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
+            {
+                // routing key and queue name are already bound
+                return false;
+            }
+
+            bs.push(TopicBinding {
+                routing_key,
+                queue_name,
+                queue,
+            });
+
+            return true;
+        }
+
+        false
+    }
+
+    fn remove_topic_binding(&mut self, routing_key: String, queue_name: String) -> Option<QueueCommandSink> {
+        if let Bindings::Topic(bs) = self {
+            if let Some(p) = bs
+                .iter()
+                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
+            {
+                let binding = bs.remove(p);
+
+                return Some(binding.queue);
+            }
+        }
+
+        None
+    }
+
+    fn add_fanout_binding(&mut self, queue_name: String, queue: QueueCommandSink) -> bool {
+        if let Bindings::Fanout(bs) = self {
+            if let Some(_) = bs.iter().position(|b| b.queue_name == queue_name) {
+                return false;
+            }
+
+            bs.push(FanoutBinding { queue_name, queue });
+
+            return true;
+        }
+
+        false
+    }
+
+    fn remove_fanout_binding(&mut self, queue_name: String) -> Option<QueueCommandSink> {
+        if let Bindings::Fanout(bs) = self {
+            if let Some(p) = bs.iter().position(|b| b.queue_name == queue_name) {
+                let binding = bs.remove(p);
+
+                return Some(binding.queue);
+            }
+        }
+
+        return None;
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            Bindings::Direct(bs) => bs.is_empty(),
+            Bindings::Topic(bs) => bs.is_empty(),
+            Bindings::Fanout(bs) => bs.is_empty(),
+            Bindings::Headers(bs) => bs.is_empty(),
+        }
+    }
 }
 
 struct ExchangeState {
     exchange: super::Exchange,
     /// Queue bindings
-    queues: Vec<(Binding, QueueCommandSink)>,
+    bindings: Bindings,
 }
 
 pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>) {
+    let et = exchange.exchange_type.clone();
+
     ExchangeState {
         exchange,
-        queues: vec![],
+        bindings: match et {
+            ExchangeType::Direct => Bindings::Direct(vec![]),
+            ExchangeType::Fanout => Bindings::Fanout(vec![]),
+            ExchangeType::Topic => Bindings::Topic(vec![]),
+            ExchangeType::Headers => Bindings::Headers(vec![]),
+        },
     }
     .exchange_loop(commands)
     .await
@@ -102,35 +245,23 @@ impl ExchangeState {
                 sink,
                 result,
             } => {
-                match self.exchange.exchange_type {
-                    ExchangeType::Direct => {
-                        let binding = Binding::Direct {
-                            routing_key,
-                            queue_name,
-                        };
-                        self.queues.push((binding, sink.clone()));
-                        logerr!(send!(
-                            sink,
-                            QueueCommand::ExchangeBound {
-                                exchange_name: self.exchange.name.clone(),
-                            }
-                        ));
-                        logerr!(result.send(true));
-                    }
-                    ExchangeType::Fanout => {
-                        self.queues.push((Binding::Fanout { queue_name }, sink.clone()));
-                        logerr!(send!(
-                            sink,
-                            QueueCommand::ExchangeBound {
-                                exchange_name: self.exchange.name.clone(),
-                            }
-                        ));
-                        logerr!(result.send(true));
-                    }
-                    _ => {
-                        logerr!(result.send(false));
-                    }
+                let bind_result = match self.exchange.exchange_type {
+                    ExchangeType::Direct => self.bindings.add_direct_binding(routing_key, queue_name, sink.clone()),
+                    ExchangeType::Topic => self.bindings.add_topic_binding(routing_key, queue_name, sink.clone()),
+                    ExchangeType::Fanout => self.bindings.add_fanout_binding(queue_name, sink.clone()),
+                    _ => false,
+                };
+
+                if bind_result {
+                    logerr!(send!(
+                        sink,
+                        QueueCommand::ExchangeBound {
+                            exchange_name: self.exchange.name.clone(),
+                        }
+                    ));
                 }
+
+                logerr!(result.send(bind_result));
 
                 Ok(true)
             }
@@ -139,41 +270,24 @@ impl ExchangeState {
                 routing_key,
                 result,
             } => {
-                match self.exchange.exchange_type {
-                    ExchangeType::Direct => {
-                        if let Some(pos) = self.queues.iter().position(|b| match &b.0 {
-                            Binding::Direct {
-                                routing_key: rk,
-                                queue_name: qn,
-                            } => &routing_key == rk && &queue_name == qn,
-                            _ => false,
-                        }) {
-                            let binding = self.queues.remove(pos);
-                            logerr!(send!(
-                                binding.1,
-                                QueueCommand::ExchangeUnbound {
-                                    exchange_name: self.exchange.name.clone(),
-                                }
-                            ));
-                        }
-                        logerr!(result.send(true));
+                let sink = match self.exchange.exchange_type {
+                    ExchangeType::Direct => self.bindings.remove_direct_binding(routing_key, queue_name),
+                    ExchangeType::Topic => self.bindings.remove_topic_binding(routing_key, queue_name),
+                    ExchangeType::Fanout => self.bindings.remove_fanout_binding(queue_name),
+                    _ => None,
+                };
+
+                match sink {
+                    Some(s) => {
+                        logerr!(send!(
+                            s,
+                            QueueCommand::ExchangeUnbound {
+                                exchange_name: self.exchange.name.clone(),
+                            }
+                        ));
+                        result.send(true);
                     }
-                    ExchangeType::Fanout => {
-                        if let Some(pos) = self.queues.iter().position(|b| match &b.0 {
-                            Binding::Fanout { queue_name: qn } => &queue_name == qn,
-                            _ => false,
-                        }) {
-                            let binding = self.queues.remove(pos);
-                            logerr!(send!(
-                                binding.1,
-                                QueueCommand::ExchangeUnbound {
-                                    exchange_name: self.exchange.name.clone(),
-                                }
-                            ));
-                        }
-                        logerr!(result.send(true));
-                    }
-                    _ => {
+                    None => {
                         result.send(false);
                     }
                 }
@@ -186,7 +300,7 @@ impl ExchangeState {
                 result,
             } => {
                 if if_unused {
-                    if self.queues.is_empty() {
+                    if self.bindings.is_empty() {
                         result.send(Ok(()));
 
                         Ok(false)
@@ -203,15 +317,36 @@ impl ExchangeState {
                         Ok(true)
                     }
                 } else {
-                    for q in &self.queues {
-                        let cmd = QueueCommand::ExchangeUnbound {
-                            exchange_name: self.exchange.name.clone(),
-                        };
+                    match &self.bindings {
+                        Bindings::Direct(bs) => {
+                            for b in bs {
+                                let cmd = QueueCommand::ExchangeUnbound {
+                                    exchange_name: self.exchange.name.clone(),
+                                };
 
-                        logerr!(q.1.send(cmd).await);
+                                logerr!(b.queue.send(cmd).await);
+                            }
+                        }
+                        Bindings::Topic(bs) => {
+                            for b in bs {
+                                let cmd = QueueCommand::ExchangeUnbound {
+                                    exchange_name: self.exchange.name.clone(),
+                                };
+
+                                logerr!(b.queue.send(cmd).await);
+                            }
+                        }
+                        Bindings::Fanout(bs) => {
+                            for b in bs {
+                                let cmd = QueueCommand::ExchangeUnbound {
+                                    exchange_name: self.exchange.name.clone(),
+                                };
+
+                                logerr!(b.queue.send(cmd).await);
+                            }
+                        }
+                        _ => (),
                     }
-
-                    self.queues.clear();
 
                     logerr!(result.send(Ok(())));
 
@@ -224,48 +359,62 @@ impl ExchangeState {
     /// Route the message according to the exchange type and the bindings. If there is no queue to
     /// be send the message to, it gives back the messages in the Option.
     async fn route_message(&self, message: Message) -> Result<Option<Message>> {
-        match self.exchange.exchange_type {
-            ExchangeType::Direct => {
-                for binding in &self.queues {
-                    match &binding.0 {
-                        // If the exchange type is direct we need to check all the direct bindings
-                        // and send messages if routing key is exactly the same.
-                        Binding::Direct { routing_key, .. } if routing_key == &message.routing_key => {
-                            let cmd = QueueCommand::PublishMessage(message.clone());
-                            logerr!(binding.1.send(cmd).await);
-                        }
-                        // Other bindings are ignored now.
-                        _ => (),
+        let mut sent = false;
+
+        match &self.bindings {
+            Bindings::Direct(bs) => {
+                for binding in bs {
+                    if binding.routing_key == message.routing_key {
+                        let cmd = QueueCommand::PublishMessage(message.clone());
+                        logerr!(binding.queue.send(cmd).await);
+                        sent = true;
                     }
                 }
-
-                // FIXME if there are no match we need to send back the message (because it was
-                // unroutable)
-                Ok(None)
             }
-            ExchangeType::Fanout => {
-                for binding in &self.queues {
-                    match &binding.0 {
-                        Binding::Fanout { .. } => {
-                            let cmd = QueueCommand::PublishMessage(message.clone());
-                            logerr!(binding.1.send(cmd).await);
-                        }
-                        _ => (),
+            Bindings::Fanout(bs) => {
+                for binding in bs {
+                    let cmd = QueueCommand::PublishMessage(message.clone());
+                    logerr!(binding.queue.send(cmd).await);
+                    sent = true;
+                }
+            }
+            Bindings::Topic(bs) => {
+                for binding in bs {
+                    if match_routing_key(&binding.routing_key, &message.routing_key) {
+                        let cmd = QueueCommand::PublishMessage(message.clone());
+                        logerr!(binding.queue.send(cmd).await);
+                        sent = true;
                     }
                 }
-
-                // FIXME same as in the other branch
-                Ok(None)
             }
-            _ => Ok(Some(message)),
+            _ => (),
+        }
+
+        if sent {
+            Ok(None)
+        } else {
+            Ok(Some(message))
         }
     }
+}
+
+fn match_routing_key(binding_key: &str, message_routing_key: &str) -> bool {
+    let mut bks: Vec<_> = binding_key.split('.').collect();
+    let mut mks: Vec<_> = message_routing_key.split('.').collect();
+
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::MessageContent;
     use metalmq_codec::frame;
+
+    #[test]
+    fn test_match_routing_key() {
+        assert!(match_routing_key("stocks.nwse.goog", "stocks.nwse.goog"));
+    }
 
     async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
         let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
@@ -292,20 +441,25 @@ mod tests {
                 auto_delete: false,
                 internal: false,
             },
-            queues: vec![],
+            bindings: Bindings::Direct(vec![]),
         };
 
         let msg = Message {
             source_connection: "conn-id".to_string(),
             channel: 2,
-            content: b"Hello".to_vec(),
+            content: MessageContent {
+                body: b"Okay".to_vec(),
+                ..Default::default()
+            },
             exchange: "x-name".to_string(),
             routing_key: "".to_string(),
             mandatory: true,
             immediate: false,
         };
-        let cmd = ExchangeCommand::Message(msg);
-
+        let cmd = ExchangeCommand::Message {
+            message: msg,
+            outgoing: msg_tx,
+        };
         let res = es.handle_command(cmd).await;
         assert!(res.is_ok());
 

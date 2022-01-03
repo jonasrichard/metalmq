@@ -20,17 +20,13 @@ fn default_queue_state() -> QueueState {
         next_consumer: 0,
     }
 }
-async fn recv_timeout(rx: &mut mpsc::Receiver<SendFrame>) -> Option<Frame> {
+async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
     let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
     tokio::pin!(sleep);
 
     tokio::select! {
         frame = rx.recv() => {
-            match frame {
-                Some(SendFrame::Async(f)) => return Some(f),
-                Some(SendFrame::Sync(f, _)) => return Some(f),
-                None => return None,
-            }
+            frame
         }
         _ = &mut sleep => {
             return None;
@@ -42,16 +38,7 @@ async fn recv_timeout(rx: &mut mpsc::Receiver<SendFrame>) -> Option<Frame> {
 async fn publish_to_queue_without_consumers() {
     let mut qs = default_queue_state();
 
-    let cmd = QueueCommand::PublishMessage(Message {
-        source_connection: "conn-id".to_string(),
-        channel: 1,
-        content: b"Hello".to_vec(),
-        exchange: "test-exchange".to_string(),
-        immediate: false,
-        mandatory: false,
-        routing_key: "".to_string(),
-        content_type: None,
-    });
+    let cmd = QueueCommand::PublishMessage(crate::message::tests::empty_message());
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
@@ -60,7 +47,7 @@ async fn publish_to_queue_without_consumers() {
     let msg = qs.messages.get(0).unwrap();
     assert_eq!(msg.source_connection, "conn-id");
     assert_eq!(msg.channel, 1);
-    assert_eq!(msg.content, b"Hello".to_vec());
+    assert_eq!(msg.content.body, b"");
 }
 
 #[tokio::test]
@@ -98,16 +85,7 @@ async fn publish_to_queue_with_one_consumer() {
     assert!(result.is_ok());
     assert_eq!(qs.consumers.len(), 1);
 
-    let cmd = QueueCommand::PublishMessage(Message {
-        source_connection: "conn-id".to_string(),
-        channel: 1,
-        content: b"Hello".to_vec(),
-        exchange: "test-exchange".to_string(),
-        immediate: false,
-        mandatory: false,
-        routing_key: "".to_string(),
-        content_type: None,
-    });
+    let cmd = QueueCommand::PublishMessage(crate::message::tests::empty_message());
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
