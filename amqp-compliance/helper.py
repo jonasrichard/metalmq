@@ -29,31 +29,31 @@ def direct_exchange(channel, exchange, *queues):
     try:
         channel.exchange_declare(exchange, exchange_type="direct")
         for queue in queues:
-            match queue:
-                case (queue_name, routing_key):
-                    channel.queue_declare(queue_name)
-                    channel.queue_bind(queue_name, exchange, routing_key)
-                case queue_name:
-                    channel.queue_declare(queue_name)
-                    channel.queue_bind(queue_name, exchange, queue_name)
+            if type(queue) is tuple:
+                (queue_name, routing_key) = queue
+                channel.queue_declare(queue_name)
+                channel.queue_bind(queue_name, exchange, routing_key)
+            else:
+                channel.queue_declare(queue)
+                channel.queue_bind(queue, exchange, queue)
 
         yield
     finally:
         for queue in queues:
-            match queue:
-                case (queue_name, routing_key):
-                    channel.queue_unbind(queue_name, exchange, routing_key)
-                    channel.queue_delete(queue_name)
-                case queue_name:
-                    channel.queue_unbind(queue_name, exchange, queue_name)
-                    channel.queue_delete(queue_name)
+            if type(queue) is tuple:
+                (queue_name, routing_key) = queue
+                channel.queue_unbind(queue_name, exchange, routing_key)
+                channel.queue_delete(queue_name)
+            else:
+                channel.queue_unbind(queue, exchange, queue)
+                channel.queue_delete(queue)
 
         channel.exchange_delete(exchange)
 
 @contextmanager
 def topic_exchange(channel, exchange, *queues):
     try:
-        channel.exchange_declare(exchange, exchange_type="direct")
+        channel.exchange_declare(exchange, exchange_type="topic")
         for (queue_name, routing_key) in queues:
             channel.queue_declare(queue_name)
             channel.queue_bind(queue_name, exchange, routing_key)
@@ -73,12 +73,12 @@ def fanout_exchange(channel, exchange, *queues):
 
         for queue in queues:
             channel.queue_declare(queue)
-            channel.queue_bind(queue, exchange, queues)
+            channel.queue_bind(queue, exchange, queue)
 
         yield
     finally:
         for queue in queues:
-            channel.queue_unbind(queue, exchange, queues)
+            channel.queue_unbind(queue, exchange, queue)
             channel.queue_delete(queue)
 
         channel.exchange_delete(exchange)

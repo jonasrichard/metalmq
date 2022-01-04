@@ -89,9 +89,6 @@ def test_direct_exchange_multi_queues(caplog):
             consumer1_thread.join(timeout=TIMEOUT)
             consumer2_thread.join(timeout=TIMEOUT)
 
-    channel.close()
-    client.close()
-
     assert len(consumer1.messages) == 5, "multi-1-queue consumer hasn't got enough messages"
     assert len(consumer2.messages) == 5, "multi-2-queue consumer hasn't got enough messages"
 
@@ -135,7 +132,7 @@ def test_topic_exchange():
                     f"Price {price:f}",
                     properties=pika.BasicProperties(message_id=ticker))
 
-        with helper.topic_exchange(channel, "prices", ("nwse", "stocks.nwse.*"), ("day", "stocks.dax.*"), ("all", "stocks.#")):
+        with helper.topic_exchange(channel, "prices", ("nwse", "stocks.nwse.*"), ("dax", "stocks.dax.*"), ("all", "stocks.#")):
             all = QueueConsumer("all", 5)
             all_thread = all.start()
 

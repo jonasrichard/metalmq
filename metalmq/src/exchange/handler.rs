@@ -3,7 +3,7 @@ use crate::exchange::{Exchange, ExchangeType};
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
-use log::{error, info, trace};
+use log::{debug, error, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -41,29 +41,34 @@ pub enum ExchangeCommand {
     },
 }
 
+#[derive(Debug)]
 struct DirectBinding {
     routing_key: String,
     queue_name: String,
     queue: QueueCommandSink,
 }
 
+#[derive(Debug)]
 struct FanoutBinding {
     queue_name: String,
     queue: QueueCommandSink,
 }
 
+#[derive(Debug)]
 struct TopicBinding {
     routing_key: String,
     queue_name: String,
     queue: QueueCommandSink,
 }
 
+#[derive(Debug)]
 struct HeadersBinding {
     headers: HashMap<String, String>,
     queue_name: String,
     queue: QueueCommandSink,
 }
 
+#[derive(Debug)]
 enum Bindings {
     Direct(Vec<DirectBinding>),
     Fanout(Vec<FanoutBinding>),
@@ -252,6 +257,8 @@ impl ExchangeState {
                     _ => false,
                 };
 
+                debug!("Bindings {:?}", self.bindings);
+
                 if bind_result {
                     logerr!(send!(
                         sink,
@@ -361,10 +368,16 @@ impl ExchangeState {
     async fn route_message(&self, message: Message) -> Result<Option<Message>> {
         let mut sent = false;
 
+        debug!(
+            "Routing message {:?} to {}",
+            message.content.message_id, message.routing_key
+        );
+
         match &self.bindings {
             Bindings::Direct(bs) => {
                 for binding in bs {
                     if binding.routing_key == message.routing_key {
+                        debug!("Routing message to {}", binding.queue_name);
                         let cmd = QueueCommand::PublishMessage(message.clone());
                         logerr!(binding.queue.send(cmd).await);
                         sent = true;
@@ -373,6 +386,7 @@ impl ExchangeState {
             }
             Bindings::Fanout(bs) => {
                 for binding in bs {
+                    debug!("Routing message to {}", binding.queue_name);
                     let cmd = QueueCommand::PublishMessage(message.clone());
                     logerr!(binding.queue.send(cmd).await);
                     sent = true;
@@ -381,6 +395,7 @@ impl ExchangeState {
             Bindings::Topic(bs) => {
                 for binding in bs {
                     if match_routing_key(&binding.routing_key, &message.routing_key) {
+                        debug!("Routing message to {}", binding.queue_name);
                         let cmd = QueueCommand::PublishMessage(message.clone());
                         logerr!(binding.queue.send(cmd).await);
                         sent = true;
@@ -400,9 +415,26 @@ impl ExchangeState {
 
 fn match_routing_key(binding_key: &str, message_routing_key: &str) -> bool {
     let mut bks: Vec<_> = binding_key.split('.').collect();
-    let mut mks: Vec<_> = message_routing_key.split('.').collect();
+    let mks: Vec<_> = message_routing_key.split('.').collect();
 
-    false
+    // empty routing key?
+
+    for message_key in mks {
+        if bks.is_empty() {
+            return false;
+        }
+
+        let b_key = bks.remove(0);
+
+        match b_key {
+            "*" => continue,
+            "#" => return true,
+            _ if b_key == message_key => continue,
+            _ => return false,
+        }
+    }
+
+    bks.is_empty()
 }
 
 #[cfg(test)]
@@ -414,6 +446,10 @@ mod tests {
     #[test]
     fn test_match_routing_key() {
         assert!(match_routing_key("stocks.nwse.goog", "stocks.nwse.goog"));
+        assert!(match_routing_key("stocks.*.goog", "stocks.nwse.goog"));
+        assert!(match_routing_key("stocks.nwse.*", "stocks.nwse.goog"));
+        assert!(match_routing_key("stocks.*.*", "stocks.nwse.goog"));
+        assert!(match_routing_key("stocks.#", "stocks.nwse.goog"));
     }
 
     async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
