@@ -42,10 +42,6 @@ pub struct Connection {
     consumed_queues: Vec<ConsumedQueue>,
     /// Incoming messages come in different messages, we need to collect their properties
     in_flight_contents: HashMap<Channel, PublishedContent>,
-    // FIXME
-    // Why we cannot have here the sender end of the socket? Sometimes, it seems that it is a big
-    // pain that we don't know if we have written frames on the wire or haven't. If there is no
-    // blocking coming from channel send, we can put here the outgoing as socket write end.
     /// Sink for AMQP frames toward the client
     outgoing: mpsc::Sender<Frame>,
 }
@@ -103,12 +99,35 @@ impl Connection {
         Ok(())
     }
 
-    async fn handle_channel_close(&self, channel: frame::Channel) -> Result<()> {
+    async fn handle_channel_close(&mut self, channel: frame::Channel) -> Result<()> {
+        //let consumes_to_cancel = self.consumed_queues.drain_filter(|cq| cq.channel == channel).collect();
+        let mut consumes_to_cancel = vec![];
+
+        loop {
+            match self.consumed_queues.iter().position(|cq| cq.channel == channel) {
+                None => break,
+                Some(p) => {
+                    let cq = self.consumed_queues.remove(p);
+                    consumes_to_cancel.push(cq);
+                }
+            }
+        }
+
+        for cq in consumes_to_cancel {
+            self.basic_cancel(
+                channel,
+                frame::BasicCancelArgs {
+                    consumer_tag: cq.consumer_tag.clone(),
+                    no_wait: false,
+                },
+            )
+            .await?;
+        }
         // TODO cleanup, like cancel all consumers, etc.
         Ok(())
     }
 
-    async fn handle_error(&self, err: RuntimeError) -> Result<()> {
+    async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
         self.send_frame(client::runtime_error_to_frame(&err)).await?;
 
         match err.scope {
