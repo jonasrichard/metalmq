@@ -38,7 +38,7 @@ async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
 async fn publish_to_queue_without_consumers() {
     let mut qs = default_queue_state();
 
-    let cmd = QueueCommand::PublishMessage(crate::message::tests::empty_message());
+    let cmd = QueueCommand::PublishMessage(Box::new(crate::message::tests::empty_message()));
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
@@ -85,7 +85,7 @@ async fn publish_to_queue_with_one_consumer() {
     assert!(result.is_ok());
     assert_eq!(qs.consumers.len(), 1);
 
-    let cmd = QueueCommand::PublishMessage(crate::message::tests::empty_message());
+    let cmd = QueueCommand::PublishMessage(Box::new(crate::message::tests::empty_message()));
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());

@@ -50,7 +50,13 @@ pub fn connection_error<T>(cm: u32, code: ConnectionError, text: &str) -> Result
 pub fn connection_error_frame(cm: u32, code: ConnectionError, text: &str) -> Frame {
     let (class_id, method_id) = frame::split_class_method(cm);
 
-    Frame::Frame(frame::connection_close(0, code as u16, text, class_id, method_id))
+    Frame::Frame(Box::new(frame::connection_close(
+        0,
+        code as u16,
+        text,
+        class_id,
+        method_id,
+    )))
 }
 
 //pub fn connection_error_frame(err: RuntimeError) -> Option<Frame> {
@@ -85,7 +91,13 @@ pub fn channel_error<T>(channel: frame::Channel, cm: u32, code: ChannelError, te
 pub fn channel_error_frame(channel: frame::Channel, cm: u32, code: ChannelError, text: &str) -> Frame {
     let (class_id, method_id) = frame::split_class_method(cm);
 
-    Frame::Frame(frame::channel_close(channel, code as u16, text, class_id, method_id))
+    Frame::Frame(Box::new(frame::channel_close(
+        channel,
+        code as u16,
+        text,
+        class_id,
+        method_id,
+    )))
 }
 
 pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
@@ -94,7 +106,7 @@ pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
         ErrorScope::Channel => frame::channel_close(rte.channel, rte.code, &rte.text, rte.class_id, rte.method_id),
     };
 
-    Frame::Frame(amqp_frame)
+    Frame::Frame(Box::new(amqp_frame))
 }
 
 pub fn to_runtime_error(err: Box<dyn std::error::Error>) -> RuntimeError {

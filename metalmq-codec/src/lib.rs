@@ -68,7 +68,7 @@ mod tests {
         let mut encoder = AMQPCodec {};
         let mut buf = BytesMut::with_capacity(1024);
 
-        let res = encoder.encode(Frame::Frame(AMQPFrame::Header), &mut buf);
+        let res = encoder.encode(Frame::Frame(Box::new(AMQPFrame::Header)), &mut buf);
 
         assert!(res.is_ok());
 
@@ -94,11 +94,11 @@ mod tests {
         };
 
         let res = encoder.encode(
-            Frame::Frame(AMQPFrame::Method(
+            Frame::Frame(Box::new(AMQPFrame::Method(
                 0x0205,
                 frame::QUEUE_BIND,
                 MethodFrameArgs::QueueBind(args),
-            )),
+            ))),
             &mut buf,
         );
 

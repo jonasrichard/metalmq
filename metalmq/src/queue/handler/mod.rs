@@ -23,7 +23,7 @@ pub struct Tag {
 
 #[derive(Debug)]
 pub enum QueueCommand {
-    PublishMessage(Message),
+    PublishMessage(Box<Message>),
     AckMessage {
         consumer_tag: String,
         delivery_tag: u64,
@@ -61,7 +61,7 @@ pub enum SendResult {
     MessageSent,
     //QueueEmpty,
     NoConsumer,
-    ConsumerInvalid(String, Message),
+    ConsumerInvalid(String, Box<Message>),
 }
 
 pub type FrameSink = mpsc::Sender<Frame>;
@@ -197,7 +197,7 @@ impl QueueState {
 
         match command {
             QueueCommand::PublishMessage(message) => {
-                logerr!(self.send_out_message(message).await);
+                logerr!(self.send_out_message(*message).await);
 
                 Ok(true)
             }
@@ -336,7 +336,7 @@ impl QueueState {
                     Err(e) => {
                         error!("Consumer sink seems to be invalid {:?}", e);
 
-                        SendResult::ConsumerInvalid(consumer.consumer_tag.clone(), message)
+                        SendResult::ConsumerInvalid(consumer.consumer_tag.clone(), Box::new(message))
                     }
                 }
             }
@@ -344,7 +344,7 @@ impl QueueState {
 
         match res {
             SendResult::ConsumerInvalid(ctag, msg) => {
-                self.messages.push_back(msg);
+                self.messages.push_back(*msg);
                 self.consumers.retain(|c| !c.consumer_tag.eq(&ctag));
                 self.next_consumer = 0;
             }

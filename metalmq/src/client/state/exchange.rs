@@ -29,7 +29,8 @@ impl Connection {
                 if no_wait {
                     Ok(())
                 } else {
-                    self.send_frame(Frame::Frame(frame::exchange_declare_ok(channel))).await
+                    self.send_frame(Frame::Frame(Box::new(frame::exchange_declare_ok(channel))))
+                        .await
                 }
             }
             Err(err) => {
@@ -54,6 +55,7 @@ impl Connection {
 
         self.exchanges.remove(&exchange_name);
 
-        self.send_frame(Frame::Frame(frame::exchange_delete_ok(channel))).await
+        self.send_frame(Frame::Frame(Box::new(frame::exchange_delete_ok(channel))))
+            .await
     }
 }

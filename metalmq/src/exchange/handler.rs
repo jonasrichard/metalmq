@@ -14,13 +14,13 @@ pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
 #[derive(Debug)]
 pub enum MessageSentResult {
     None,
-    MessageNotRouted(Message),
+    MessageNotRouted(Box<Message>),
 }
 
 #[derive(Debug)]
 pub enum ExchangeCommand {
     Message {
-        message: Message,
+        message: Box<Message>,
         outgoing: mpsc::Sender<Frame>,
     },
     QueueBind {
@@ -81,9 +81,9 @@ enum Bindings {
 impl Bindings {
     fn add_direct_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
         if let Bindings::Direct(bs) = self {
-            if let Some(_) = bs
+            if bs
                 .iter()
-                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
+                .any(|b| b.routing_key == routing_key && b.queue_name == queue_name)
             {
                 // routing key and queue name are already bound
                 return false;
@@ -118,9 +118,9 @@ impl Bindings {
 
     fn add_topic_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
         if let Bindings::Topic(bs) = self {
-            if let Some(_) = bs
+            if bs
                 .iter()
-                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
+                .any(|b| b.routing_key == routing_key && b.queue_name == queue_name)
             {
                 // routing key and queue name are already bound
                 return false;
@@ -155,7 +155,7 @@ impl Bindings {
 
     fn add_fanout_binding(&mut self, queue_name: String, queue: QueueCommandSink) -> bool {
         if let Bindings::Fanout(bs) = self {
-            if let Some(_) = bs.iter().position(|b| b.queue_name == queue_name) {
+            if bs.iter().any(|b| b.queue_name == queue_name) {
                 return false;
             }
 
@@ -176,7 +176,7 @@ impl Bindings {
             }
         }
 
-        return None;
+        None
     }
 
     fn add_headers_binding(
@@ -251,7 +251,7 @@ impl ExchangeState {
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
             ExchangeCommand::Message { message, outgoing } => {
-                if let Some(failed_message) = self.route_message(message).await? {
+                if let Some(failed_message) = self.route_message(*message).await? {
                     if failed_message.mandatory {
                         message::send_basic_return(failed_message, &outgoing).await?;
                     }
@@ -318,10 +318,10 @@ impl ExchangeState {
                                 exchange_name: self.exchange.name.clone(),
                             }
                         ));
-                        result.send(true);
+                        logerr!(result.send(true));
                     }
                     None => {
-                        result.send(false);
+                        logerr!(result.send(false));
                     }
                 }
 
@@ -334,7 +334,7 @@ impl ExchangeState {
             } => {
                 if if_unused {
                     if self.bindings.is_empty() {
-                        result.send(Ok(()));
+                        logerr!(result.send(Ok(())));
 
                         Ok(false)
                     } else {
@@ -345,7 +345,7 @@ impl ExchangeState {
                             "Exchange is in use",
                         );
 
-                        result.send(err);
+                        logerr!(result.send(err));
 
                         Ok(true)
                     }
@@ -400,7 +400,12 @@ impl ExchangeState {
                     if binding.routing_key == message.routing_key {
                         debug!("Routing message to {}", binding.queue_name);
 
-                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                        logerr!(
+                            binding
+                                .queue
+                                .send(QueueCommand::PublishMessage(Box::new(message.clone())))
+                                .await
+                        );
                         sent = true;
                     }
                 }
@@ -409,7 +414,12 @@ impl ExchangeState {
                 for binding in bs {
                     debug!("Routing message to {}", binding.queue_name);
 
-                    logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                    logerr!(
+                        binding
+                            .queue
+                            .send(QueueCommand::PublishMessage(Box::new(message.clone())))
+                            .await
+                    );
                     sent = true;
                 }
             }
@@ -418,7 +428,12 @@ impl ExchangeState {
                     if match_routing_key(&binding.routing_key, &message.routing_key) {
                         debug!("Routing message to {}", binding.queue_name);
 
-                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                        logerr!(
+                            binding
+                                .queue
+                                .send(QueueCommand::PublishMessage(Box::new(message.clone())))
+                                .await
+                        );
                         sent = true;
                     }
                 }
@@ -426,10 +441,15 @@ impl ExchangeState {
             Bindings::Headers(bs) => {
                 if let Some(ref headers) = message.content.headers {
                     for binding in bs {
-                        if match_header(&binding.headers, &headers, binding.x_match_all) {
+                        if match_header(&binding.headers, headers, binding.x_match_all) {
                             debug!("Routing message to {}", binding.queue_name);
 
-                            logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                            logerr!(
+                                binding
+                                    .queue
+                                    .send(QueueCommand::PublishMessage(Box::new(message.clone())))
+                                    .await
+                            );
                             sent = true;
                         }
                     }
@@ -582,7 +602,7 @@ mod tests {
             immediate: false,
         };
         let cmd = ExchangeCommand::Message {
-            message: msg,
+            message: Box::new(msg),
             outgoing: msg_tx,
         };
         let res = es.handle_command(cmd).await;

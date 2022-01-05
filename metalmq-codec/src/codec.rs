@@ -14,7 +14,7 @@ pub struct AMQPCodec {}
 
 #[derive(Debug)]
 pub enum Frame {
-    Frame(AMQPFrame),
+    Frame(Box<AMQPFrame>),
     Frames(Vec<AMQPFrame>),
 }
 
@@ -23,7 +23,7 @@ impl Encoder<Frame> for AMQPCodec {
 
     fn encode(&mut self, event: Frame, buf: &mut BytesMut) -> Result<(), Self::Error> {
         match event {
-            Frame::Frame(frame) => encode_amqp_frame(buf, frame),
+            Frame::Frame(frame) => encode_amqp_frame(buf, *frame),
             Frame::Frames(frames) => {
                 for frame in frames {
                     encode_amqp_frame(buf, frame);
@@ -61,7 +61,7 @@ impl Decoder for AMQPCodec {
 
                 let _frame_separator = src.get_u8();
 
-                Ok(Some(Frame::Frame(frame)))
+                Ok(Some(Frame::Frame(Box::new(frame))))
             }
             FRAME_CONTENT_HEADER => {
                 let channel = src.get_u16();
@@ -72,7 +72,7 @@ impl Decoder for AMQPCodec {
 
                 let _frame_separator = src.get_u8();
 
-                Ok(Some(Frame::Frame(frame)))
+                Ok(Some(Frame::Frame(Box::new(frame))))
             }
             FRAME_CONTENT_BODY => {
                 let channel = src.get_u16();
@@ -87,7 +87,7 @@ impl Decoder for AMQPCodec {
                     body: bytes.to_vec(),
                 });
 
-                Ok(Some(Frame::Frame(frame)))
+                Ok(Some(Frame::Frame(Box::new(frame))))
             }
             FRAME_HEARTBEAT => {
                 let channel = src.get_u16();
@@ -96,7 +96,7 @@ impl Decoder for AMQPCodec {
 
                 let _frame_separator = src.get_u8();
 
-                Ok(Some(Frame::Frame(AMQPFrame::Heartbeat(channel))))
+                Ok(Some(Frame::Frame(Box::new(AMQPFrame::Heartbeat(channel)))))
             }
             FRAME_AMQP_VERSION => {
                 let mut head = [0u8; 7];
@@ -104,7 +104,7 @@ impl Decoder for AMQPCodec {
 
                 // TODO check if version is 0091
 
-                Ok(Some(Frame::Frame(AMQPFrame::Header)))
+                Ok(Some(Frame::Frame(Box::new(AMQPFrame::Header))))
             }
             f => Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -837,7 +837,9 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
     if let Some(s) = hf.content_encoding.as_ref() {
         encode_short_string(&mut fr_buf, s);
     }
-    encode_field_table(&mut fr_buf, hf.headers.as_ref());
+    if hf.prop_flags.contains(HeaderPropertyFlags::HEADERS) {
+        encode_field_table(&mut fr_buf, hf.headers.as_ref());
+    }
     if let Some(v) = hf.delivery_mode {
         fr_buf.put_u8(v);
     }

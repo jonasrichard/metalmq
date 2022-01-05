@@ -60,7 +60,7 @@ pub(crate) async fn socket_loop(
 
                         notify_waiter(&frame, &feedback).unwrap();
 
-                        if let Err(e) = handle_in_frame(frame, &mut client_state).await {
+                        if let Err(e) = handle_in_frame(*frame, &mut client_state).await {
                             error!("Error {:?}", e);
                         }
                     }

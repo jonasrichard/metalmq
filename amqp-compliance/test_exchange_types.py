@@ -4,6 +4,7 @@ import pika
 import pytest
 import threading
 
+LOG = logging.getLogger()
 TIMEOUT = 1
 
 class QueueConsumer():
@@ -19,6 +20,7 @@ class QueueConsumer():
         self.channel.basic_consume(queue_name, on_message_callback=self.__on_message)
 
     def __on_message(self, channel, method, props, body):
+        LOG.info("On message: channel=%s method=%s props=%s body=%s", channel, method, props, body)
         self.messages[props.message_id] = body
         channel.basic_ack(method.delivery_tag)
         if len(self.messages) == self.message_number:

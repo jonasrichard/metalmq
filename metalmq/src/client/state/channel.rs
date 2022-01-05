@@ -26,7 +26,8 @@ impl Connection {
             return Err(Box::new(err));
         } else {
             self.open_channels.push(channel);
-            self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
+            self.send_frame(Frame::Frame(Box::new(frame::channel_open_ok(channel))))
+                .await?;
         }
 
         Ok(())
@@ -72,7 +73,8 @@ impl Connection {
 
         self.open_channels.retain(|c| c != &channel);
 
-        self.send_frame(Frame::Frame(frame::channel_close_ok(channel))).await?;
+        self.send_frame(Frame::Frame(Box::new(frame::channel_close_ok(channel))))
+            .await?;
 
         Ok(())
     }

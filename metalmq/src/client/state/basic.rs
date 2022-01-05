@@ -65,8 +65,11 @@ impl Connection {
                     queue_sink,
                 });
 
-                self.send_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
-                    .await?;
+                self.send_frame(Frame::Frame(Box::new(frame::basic_consume_ok(
+                    channel,
+                    &args.consumer_tag,
+                ))))
+                .await?;
 
                 let start_deliver_cmd = queue_handler::QueueCommand::StartDelivering {
                     conn_id: self.id.clone(),
@@ -99,11 +102,13 @@ impl Connection {
 
             self.consumed_queues.retain(|cq| cq.consumer_tag != args.consumer_tag);
 
-            self.send_frame(Frame::Frame(frame::basic_cancel_ok(channel, &args.consumer_tag)))
-                .await?;
+            self.send_frame(Frame::Frame(Box::new(frame::basic_cancel_ok(
+                channel,
+                &args.consumer_tag,
+            ))))
+            .await?;
         } else {
             // TODO error: canceling consuming which didn't exist
-            ()
         }
 
         Ok(())
@@ -134,7 +139,8 @@ impl Connection {
     }
 
     pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> Result<()> {
-        self.send_frame(Frame::Frame(frame::confirm_select_ok(channel))).await?;
+        self.send_frame(Frame::Frame(Box::new(frame::confirm_select_ok(channel))))
+            .await?;
 
         Ok(())
     }
@@ -172,7 +178,6 @@ impl Connection {
                     // TODO copy all the message properties
                     ..Default::default()
                 },
-                ..Default::default()
             };
 
             match self.exchanges.get(&pc.exchange) {
@@ -180,7 +185,7 @@ impl Connection {
                     // FIXME again, this is not good, we shouldn't clone outgoing channels all the
                     // time
                     let cmd = ExchangeCommand::Message {
-                        message: msg,
+                        message: Box::new(msg),
                         outgoing: self.outgoing.clone(),
                     };
                     // TODO is this the correct way of returning Err(_)

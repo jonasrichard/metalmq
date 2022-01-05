@@ -67,7 +67,7 @@ async fn handle_in_stream_data(
 ) -> Result<bool> {
     match data {
         Ok(Frame::Frame(frame)) => {
-            if handle_client_frame(conn, frame).await.is_err() {
+            if handle_client_frame(conn, *frame).await.is_err() {
                 conn.cleanup().await?;
 
                 return Ok(false);
@@ -132,7 +132,10 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
     use AMQPFrame::*;
 
     match f {
-        Header => conn.send_frame(Frame::Frame(frame::connection_start(0))).await,
+        Header => {
+            conn.send_frame(Frame::Frame(Box::new(frame::connection_start(0))))
+                .await
+        }
         Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
         ContentHeader(ch) => conn.receive_content_header(ch).await,
         ContentBody(cb) => conn.receive_content_body(cb).await,
