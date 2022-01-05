@@ -28,6 +28,7 @@ pub struct BindQueueCommand {
     pub exchange_name: String,
     pub queue_name: String,
     pub routing_key: String,
+    pub args: Option<frame::FieldTable>,
     pub queue_sink: QueueCommandSink,
 }
 
@@ -212,6 +213,7 @@ impl ExchangeManagerState {
                 let cmd = ExchangeCommand::QueueBind {
                     queue_name: command.queue_name.to_string(),
                     routing_key: command.routing_key.to_string(),
+                    args: command.args,
                     sink: command.queue_sink,
                     result: tx,
                 };

@@ -275,6 +275,7 @@ impl ClientState {
                 &args.exchange_name,
                 &args.exchange_type,
                 Some(args.flags),
+                args.args,
             )),
         )
         .await?;
@@ -307,7 +308,7 @@ impl ClientState {
     pub(crate) async fn queue_declare(&mut self, channel: ChannelNumber, args: frame::QueueDeclareArgs) -> Result<()> {
         send_out(
             &self.outgoing,
-            Frame::Frame(frame::queue_declare(channel, &args.name, Some(args.flags))),
+            Frame::Frame(frame::queue_declare(channel, &args.name, Some(args.flags), args.args)),
         )
         .await?;
 
@@ -326,6 +327,7 @@ impl ClientState {
                 &args.queue_name,
                 &args.exchange_name,
                 &args.routing_key,
+                args.args,
             )),
         )
         .await?;
@@ -345,6 +347,7 @@ impl ClientState {
                 &args.queue_name,
                 &args.exchange_name,
                 &args.routing_key,
+                args.args,
             )),
         )
         .await?;
@@ -416,6 +419,7 @@ impl ClientState {
                 &args.queue,
                 &args.consumer_tag,
                 Some(args.flags),
+                args.args,
             )),
         )
         .await

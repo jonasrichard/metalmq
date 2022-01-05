@@ -454,7 +454,7 @@ fn decode_content_header_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
 
     let content_type = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::CONTENT_TYPE);
     let content_encoding = decode_short_string_flag(src, property_flags, HeaderPropertyFlags::CONTENT_ENCODING);
-    let headers = None;
+    let headers = decode_field_table_flag(src, property_flags, HeaderPropertyFlags::HEADERS);
     let delivery_mode = if property_flags.contains(HeaderPropertyFlags::DELIVERY_MODE) {
         Some(src.get_u8())
     } else {
@@ -509,6 +509,18 @@ fn decode_short_string_flag(
 ) -> Option<String> {
     if flags.contains(flag) {
         Some(decode_short_string(src))
+    } else {
+        None
+    }
+}
+
+fn decode_field_table_flag(
+    src: &mut BytesMut,
+    flags: HeaderPropertyFlags,
+    flag: HeaderPropertyFlags,
+) -> Option<FieldTable> {
+    if flags.contains(flag) {
+        decode_field_table(src)
     } else {
         None
     }
@@ -708,7 +720,7 @@ fn encode_exchange_declare(buf: &mut BytesMut, args: &ExchangeDeclareArgs) {
     encode_short_string(buf, &args.exchange_name);
     encode_short_string(buf, &args.exchange_type);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(buf);
+    encode_field_table(buf, args.args.as_ref());
 }
 
 fn encode_exchange_delete(buf: &mut BytesMut, args: &ExchangeDeleteArgs) {
@@ -721,7 +733,7 @@ fn encode_queue_declare(buf: &mut BytesMut, args: &QueueDeclareArgs) {
     buf.put_u16(0);
     encode_short_string(buf, &args.name);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(buf);
+    encode_field_table(buf, args.args.as_ref());
 }
 
 fn encode_queue_declare_ok(buf: &mut BytesMut, args: &QueueDeclareOkArgs) {
@@ -736,7 +748,7 @@ fn encode_queue_bind(buf: &mut BytesMut, args: &QueueBindArgs) {
     encode_short_string(buf, &args.exchange_name);
     encode_short_string(buf, &args.routing_key);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
-    encode_empty_field_table(buf);
+    encode_field_table(buf, args.args.as_ref());
 }
 
 fn encode_queue_delete(buf: &mut BytesMut, args: &QueueDeleteArgs) {
@@ -754,7 +766,7 @@ fn encode_queue_unbind(buf: &mut BytesMut, args: &QueueUnbindArgs) {
     encode_short_string(buf, &args.queue_name);
     encode_short_string(buf, &args.exchange_name);
     encode_short_string(buf, &args.routing_key);
-    encode_empty_field_table(buf);
+    encode_field_table(buf, args.args.as_ref());
 }
 
 fn encode_basic_consume(buf: &mut BytesMut, args: &BasicConsumeArgs) {
@@ -762,7 +774,7 @@ fn encode_basic_consume(buf: &mut BytesMut, args: &BasicConsumeArgs) {
     encode_short_string(buf, &args.queue);
     encode_short_string(buf, &args.consumer_tag);
     buf.put_u8(args.flags.bits());
-    encode_empty_field_table(buf);
+    encode_field_table(buf, args.args.as_ref());
 }
 
 fn encode_basic_consume_ok(buf: &mut BytesMut, args: &BasicConsumeOkArgs) {
@@ -825,7 +837,7 @@ fn encode_content_header_frame(buf: &mut BytesMut, hf: &ContentHeaderFrame) {
     if let Some(s) = hf.content_encoding.as_ref() {
         encode_short_string(&mut fr_buf, s);
     }
-    // TODO write headers
+    encode_field_table(&mut fr_buf, hf.headers.as_ref());
     if let Some(v) = hf.delivery_mode {
         fr_buf.put_u8(v);
     }

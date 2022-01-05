@@ -49,7 +49,7 @@ impl Channel {
         exchange_type: &str,
         flags: Option<frame::ExchangeDeclareFlags>,
     ) -> Result<()> {
-        let frame = frame::exchange_declare(self.channel, exchange_name, exchange_type, flags);
+        let frame = frame::exchange_declare(self.channel, exchange_name, exchange_type, flags, None);
 
         processor::call(&self.sink, frame).await
     }
@@ -69,20 +69,20 @@ impl Channel {
 
     /// Declare queue.
     pub async fn queue_declare(&self, queue_name: &str, flags: Option<frame::QueueDeclareFlags>) -> Result<()> {
-        let frame = frame::queue_declare(self.channel, queue_name, flags);
+        let frame = frame::queue_declare(self.channel, queue_name, flags, None);
 
         processor::call(&self.sink, frame).await
     }
 
     /// Bind queue to exchange.
     pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        let frame = frame::queue_bind(self.channel, queue_name, exchange_name, routing_key);
+        let frame = frame::queue_bind(self.channel, queue_name, exchange_name, routing_key, None);
 
         processor::call(&self.sink, frame).await
     }
 
     pub async fn queue_unbind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        let frame = frame::queue_unbind(self.channel, queue_name, exchange_name, routing_key);
+        let frame = frame::queue_unbind(self.channel, queue_name, exchange_name, routing_key, None);
 
         processor::call(&self.sink, frame).await
     }

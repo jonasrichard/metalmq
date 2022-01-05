@@ -200,7 +200,7 @@ pub enum AMQPValue {
     FieldTable(Box<FieldTable>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AMQPFieldValue {
     Bool(bool),
     //    SimpleString(String),
@@ -646,6 +646,7 @@ pub fn exchange_declare(
     exchange_name: &str,
     exchange_type: &str,
     flags: Option<ExchangeDeclareFlags>,
+    args: Option<FieldTable>,
 ) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
@@ -654,7 +655,7 @@ pub fn exchange_declare(
             exchange_name: exchange_name.to_string(),
             exchange_type: exchange_type.to_string(),
             flags: flags.unwrap_or_default(),
-            args: None,
+            args,
         }),
     )
 }
@@ -678,7 +679,13 @@ pub fn exchange_delete_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, EXCHANGE_DELETE_OK, MethodFrameArgs::ExchangeDeleteOk)
 }
 
-pub fn queue_bind(channel: u16, queue_name: &str, exchange_name: &str, routing_key: &str) -> AMQPFrame {
+pub fn queue_bind(
+    channel: u16,
+    queue_name: &str,
+    exchange_name: &str,
+    routing_key: &str,
+    args: Option<FieldTable>,
+) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_BIND,
@@ -687,7 +694,7 @@ pub fn queue_bind(channel: u16, queue_name: &str, exchange_name: &str, routing_k
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
             no_wait: false,
-            args: None,
+            args,
         }),
     )
 }
@@ -715,7 +722,13 @@ pub fn queue_delete_ok(channel: u16, message_count: u32) -> AMQPFrame {
     )
 }
 
-pub fn queue_unbind(channel: u16, queue_name: &str, exchange_name: &str, routing_key: &str) -> AMQPFrame {
+pub fn queue_unbind(
+    channel: u16,
+    queue_name: &str,
+    exchange_name: &str,
+    routing_key: &str,
+    args: Option<FieldTable>,
+) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_UNBIND,
@@ -723,7 +736,7 @@ pub fn queue_unbind(channel: u16, queue_name: &str, exchange_name: &str, routing
             queue_name: queue_name.to_string(),
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
-            args: None,
+            args,
         }),
     )
 }
@@ -732,14 +745,19 @@ pub fn queue_unbind_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, QUEUE_UNBIND_OK, MethodFrameArgs::QueueUnbindOk)
 }
 
-pub fn queue_declare(channel: u16, queue_name: &str, flags: Option<QueueDeclareFlags>) -> AMQPFrame {
+pub fn queue_declare(
+    channel: u16,
+    queue_name: &str,
+    flags: Option<QueueDeclareFlags>,
+    args: Option<FieldTable>,
+) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE,
         MethodFrameArgs::QueueDeclare(QueueDeclareArgs {
             name: queue_name.to_string(),
             flags: flags.unwrap_or_default(),
-            args: None,
+            args,
         }),
     )
 }
@@ -761,6 +779,7 @@ pub fn basic_consume(
     queue_name: &str,
     consumer_tag: &str,
     flags: Option<BasicConsumeFlags>,
+    args: Option<FieldTable>,
 ) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
@@ -769,7 +788,7 @@ pub fn basic_consume(
             queue: queue_name.to_string(),
             consumer_tag: consumer_tag.to_string(),
             flags: flags.unwrap_or_default(),
-            args: None,
+            args,
         }),
     )
 }

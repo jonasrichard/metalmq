@@ -168,6 +168,8 @@ impl Connection {
                     delivery_mode: pc.content_header.delivery_mode,
                     message_id: pc.content_header.message_id,
                     timestamp: pc.content_header.timestamp,
+                    headers: pc.content_header.headers,
+                    // TODO copy all the message properties
                     ..Default::default()
                 },
                 ..Default::default()

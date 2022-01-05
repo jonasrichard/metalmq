@@ -5,7 +5,7 @@ use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
 use log::{debug, error, trace};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame;
+use metalmq_codec::frame::{self, FieldTable};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -26,6 +26,7 @@ pub enum ExchangeCommand {
     QueueBind {
         queue_name: String,
         routing_key: String,
+        args: Option<frame::FieldTable>,
         sink: QueueCommandSink,
         result: oneshot::Sender<bool>,
     },
@@ -63,7 +64,8 @@ struct TopicBinding {
 
 #[derive(Debug)]
 struct HeadersBinding {
-    headers: HashMap<String, String>,
+    headers: HashMap<String, frame::AMQPFieldValue>,
+    x_match_all: bool,
     queue_name: String,
     queue: QueueCommandSink,
 }
@@ -177,6 +179,29 @@ impl Bindings {
         return None;
     }
 
+    fn add_headers_binding(
+        &mut self,
+        queue_name: String,
+        args: Option<frame::FieldTable>,
+        queue: QueueCommandSink,
+    ) -> bool {
+        // TODO here we can send back error, if there are no headers
+        if args.is_none() {
+            return false;
+        }
+
+        if let Bindings::Headers(bs) = self {
+            // TODO check if there is another binding with the exact same headers
+            let hb = header_binding_from_field_table(args.unwrap(), queue_name, queue);
+
+            bs.push(hb);
+
+            return true;
+        }
+
+        false
+    }
+
     fn is_empty(&self) -> bool {
         match self {
             Bindings::Direct(bs) => bs.is_empty(),
@@ -247,6 +272,7 @@ impl ExchangeState {
             ExchangeCommand::QueueBind {
                 queue_name,
                 routing_key,
+                args,
                 sink,
                 result,
             } => {
@@ -254,7 +280,7 @@ impl ExchangeState {
                     ExchangeType::Direct => self.bindings.add_direct_binding(routing_key, queue_name, sink.clone()),
                     ExchangeType::Topic => self.bindings.add_topic_binding(routing_key, queue_name, sink.clone()),
                     ExchangeType::Fanout => self.bindings.add_fanout_binding(queue_name, sink.clone()),
-                    _ => false,
+                    ExchangeType::Headers => self.bindings.add_headers_binding(queue_name, args, sink.clone()),
                 };
 
                 debug!("Bindings {:?}", self.bindings);
@@ -368,18 +394,13 @@ impl ExchangeState {
     async fn route_message(&self, message: Message) -> Result<Option<Message>> {
         let mut sent = false;
 
-        debug!(
-            "Routing message {:?} to {}",
-            message.content.message_id, message.routing_key
-        );
-
         match &self.bindings {
             Bindings::Direct(bs) => {
                 for binding in bs {
                     if binding.routing_key == message.routing_key {
                         debug!("Routing message to {}", binding.queue_name);
-                        let cmd = QueueCommand::PublishMessage(message.clone());
-                        logerr!(binding.queue.send(cmd).await);
+
+                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                         sent = true;
                     }
                 }
@@ -387,8 +408,8 @@ impl ExchangeState {
             Bindings::Fanout(bs) => {
                 for binding in bs {
                     debug!("Routing message to {}", binding.queue_name);
-                    let cmd = QueueCommand::PublishMessage(message.clone());
-                    logerr!(binding.queue.send(cmd).await);
+
+                    logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                     sent = true;
                 }
             }
@@ -396,13 +417,24 @@ impl ExchangeState {
                 for binding in bs {
                     if match_routing_key(&binding.routing_key, &message.routing_key) {
                         debug!("Routing message to {}", binding.queue_name);
-                        let cmd = QueueCommand::PublishMessage(message.clone());
-                        logerr!(binding.queue.send(cmd).await);
+
+                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                         sent = true;
                     }
                 }
             }
-            _ => (),
+            Bindings::Headers(bs) => {
+                if let Some(ref headers) = message.content.headers {
+                    for binding in bs {
+                        if match_header(&binding.headers, &headers, binding.x_match_all) {
+                            debug!("Routing message to {}", binding.queue_name);
+
+                            logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                            sent = true;
+                        }
+                    }
+                }
+            }
         }
 
         if sent {
@@ -410,6 +442,36 @@ impl ExchangeState {
         } else {
             Ok(Some(message))
         }
+    }
+}
+
+fn header_binding_from_field_table(ft: FieldTable, queue_name: String, queue: QueueCommandSink) -> HeadersBinding {
+    use metalmq_codec::frame::AMQPFieldValue;
+
+    let mut headers = HashMap::new();
+    let mut x_match_all = true;
+
+    for (ftk, ftv) in ft {
+        // Ignore all headers which starts with "x-"
+        if ftk.starts_with("x-") {
+            if ftk == "x-match" {
+                match ftv {
+                    AMQPFieldValue::LongString(s) if s == "any" => x_match_all = false,
+                    _ => (),
+                }
+            }
+
+            continue;
+        }
+
+        headers.insert(ftk, ftv);
+    }
+
+    HeadersBinding {
+        headers,
+        x_match_all,
+        queue_name,
+        queue,
     }
 }
 
@@ -435,6 +497,33 @@ fn match_routing_key(binding_key: &str, message_routing_key: &str) -> bool {
     }
 
     bks.is_empty()
+}
+
+fn match_header(
+    binding_headers: &HashMap<String, frame::AMQPFieldValue>,
+    message_headers: &frame::FieldTable,
+    x_match_all: bool,
+) -> bool {
+    let mut matches = 0usize;
+
+    debug!(
+        "Binding headers {:?} message headers {:?}",
+        binding_headers, message_headers
+    );
+
+    for (bhk, bhv) in binding_headers {
+        if let Some(mhv) = message_headers.get(bhk) {
+            if bhv == mhv {
+                matches += 1;
+            }
+        }
+    }
+
+    if x_match_all {
+        matches == binding_headers.len()
+    } else {
+        matches > 0
+    }
 }
 
 #[cfg(test)]

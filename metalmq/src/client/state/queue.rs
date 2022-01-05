@@ -36,6 +36,7 @@ impl Connection {
                     exchange_name: args.exchange_name,
                     queue_name: args.queue_name,
                     routing_key: args.routing_key,
+                    args: args.args,
                     queue_sink: sink,
                 };
 

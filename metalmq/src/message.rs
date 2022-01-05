@@ -38,7 +38,7 @@ pub struct MessageContent {
     pub correlation_id: Option<String>,
     pub priority: Option<u8>,
     pub delivery_mode: Option<u8>,
-    //pub headers: Option<frame::FieldTable>,
+    pub headers: Option<frame::FieldTable>,
     pub content_encoding: Option<String>,
     pub content_type: Option<String>,
 }
@@ -75,7 +75,7 @@ pub fn message_to_content_frames(channel: frame::Channel, content: MessageConten
         correlation_id: content.correlation_id,
         priority: content.priority,
         delivery_mode: content.delivery_mode,
-        headers: None,
+        headers: content.headers,
         content_encoding: content.content_encoding,
         content_type: content.content_type,
     };

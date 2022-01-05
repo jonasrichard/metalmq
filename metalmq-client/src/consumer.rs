@@ -61,7 +61,7 @@ impl Channel {
         consumer_tag: &'a str,
         flags: Option<frame::BasicConsumeFlags>,
     ) -> Result<ConsumerHandler> {
-        let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags);
+        let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags, None);
 
         // Buffer of the incoming, delivered messages or other signals like
         // consumer cancelled.
