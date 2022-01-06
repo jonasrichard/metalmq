@@ -68,12 +68,6 @@ impl std::fmt::Display for RuntimeError {
 
 impl std::error::Error for RuntimeError {}
 
-impl RuntimeError {
-    fn to_err<T>(self) -> Result<T> {
-        Err(Box::new(self))
-    }
-}
-
 #[macro_export]
 macro_rules! chk {
     ($val:expr) => {

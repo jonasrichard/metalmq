@@ -18,6 +18,7 @@ pub struct Message {
     pub channel: ChannelNumber,
     pub consumer_tag: String,
     pub delivery_tag: u64,
+    // TODO put routing key and properties here and all the things from the message header
     pub length: usize,
     pub body: Vec<u8>,
 }

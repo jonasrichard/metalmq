@@ -12,9 +12,10 @@ const FRAME_AMQP_VERSION: u8 = 0x41;
 /// Placeholder for AMQP encoder and decoder functions.
 pub struct AMQPCodec {}
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Frame {
-    Frame(Box<AMQPFrame>),
+    Frame(AMQPFrame),
     Frames(Vec<AMQPFrame>),
 }
 
@@ -23,7 +24,7 @@ impl Encoder<Frame> for AMQPCodec {
 
     fn encode(&mut self, event: Frame, buf: &mut BytesMut) -> Result<(), Self::Error> {
         match event {
-            Frame::Frame(frame) => encode_amqp_frame(buf, *frame),
+            Frame::Frame(frame) => encode_amqp_frame(buf, frame),
             Frame::Frames(frames) => {
                 for frame in frames {
                     encode_amqp_frame(buf, frame);
@@ -61,7 +62,7 @@ impl Decoder for AMQPCodec {
 
                 let _frame_separator = src.get_u8();
 
-                Ok(Some(Frame::Frame(Box::new(frame))))
+                Ok(Some(Frame::Frame(frame)))
             }
             FRAME_CONTENT_HEADER => {
                 let channel = src.get_u16();
@@ -72,7 +73,7 @@ impl Decoder for AMQPCodec {
 
                 let _frame_separator = src.get_u8();
 
-                Ok(Some(Frame::Frame(Box::new(frame))))
+                Ok(Some(Frame::Frame(frame)))
             }
             FRAME_CONTENT_BODY => {
                 let channel = src.get_u16();
@@ -87,7 +88,7 @@ impl Decoder for AMQPCodec {
                     body: bytes.to_vec(),
                 });
 
-                Ok(Some(Frame::Frame(Box::new(frame))))
+                Ok(Some(Frame::Frame(frame)))
             }
             FRAME_HEARTBEAT => {
                 let channel = src.get_u16();
@@ -96,7 +97,7 @@ impl Decoder for AMQPCodec {
 
                 let _frame_separator = src.get_u8();
 
-                Ok(Some(Frame::Frame(Box::new(AMQPFrame::Heartbeat(channel)))))
+                Ok(Some(Frame::Frame(AMQPFrame::Heartbeat(channel))))
             }
             FRAME_AMQP_VERSION => {
                 let mut head = [0u8; 7];
@@ -104,7 +105,7 @@ impl Decoder for AMQPCodec {
 
                 // TODO check if version is 0091
 
-                Ok(Some(Frame::Frame(Box::new(AMQPFrame::Header))))
+                Ok(Some(Frame::Frame(AMQPFrame::Header)))
             }
             f => Err(std::io::Error::new(
                 std::io::ErrorKind::Other,

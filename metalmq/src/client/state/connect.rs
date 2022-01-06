@@ -25,10 +25,7 @@ impl Connection {
         }
 
         match authenticated {
-            true => {
-                self.send_frame(Frame::Frame(Box::new(frame::connection_tune(channel))))
-                    .await
-            }
+            true => self.send_frame(Frame::Frame(frame::connection_tune(channel))).await,
             false => {
                 self.send_frame(client::connection_error_frame(
                     0u32,
@@ -49,8 +46,7 @@ impl Connection {
             ))
             .await
         } else {
-            self.send_frame(Frame::Frame(Box::new(frame::connection_open_ok(channel))))
-                .await
+            self.send_frame(Frame::Frame(frame::connection_open_ok(channel))).await
         }
     }
 
@@ -75,7 +71,6 @@ impl Connection {
             }
         }
 
-        self.send_frame(Frame::Frame(Box::new(frame::connection_close_ok(0))))
-            .await
+        self.send_frame(Frame::Frame(frame::connection_close_ok(0))).await
     }
 }

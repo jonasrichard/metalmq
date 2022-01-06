@@ -17,10 +17,8 @@ impl Connection {
         };
         qm::declare_queue(&self.qm, cmd).await?;
 
-        self.send_frame(Frame::Frame(Box::new(frame::queue_declare_ok(
-            channel, queue_name, 0, 0,
-        ))))
-        .await?;
+        self.send_frame(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0)))
+            .await?;
 
         Ok(())
     }
@@ -44,8 +42,7 @@ impl Connection {
 
                 em::bind_queue(&self.em, cmd).await?;
 
-                self.send_frame(Frame::Frame(Box::new(frame::queue_bind_ok(channel))))
-                    .await?;
+                self.send_frame(Frame::Frame(frame::queue_bind_ok(channel))).await?;
             }
             Err(_) => {
                 self.send_frame(client::channel_error_frame(
@@ -63,7 +60,7 @@ impl Connection {
 
     pub async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> Result<()> {
         // TODO delete the queue
-        self.send_frame(Frame::Frame(Box::new(frame::queue_delete_ok(channel, 0))))
+        self.send_frame(Frame::Frame(frame::queue_delete_ok(channel, 0)))
             .await?;
 
         Ok(())
@@ -79,8 +76,7 @@ impl Connection {
 
         em::unbind_queue(&self.em, cmd).await?;
 
-        self.send_frame(Frame::Frame(Box::new(frame::queue_unbind_ok(channel))))
-            .await?;
+        self.send_frame(Frame::Frame(frame::queue_unbind_ok(channel))).await?;
 
         Ok(())
     }

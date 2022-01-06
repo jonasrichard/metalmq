@@ -5,7 +5,7 @@ use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
 use log::{debug, error, trace};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, FieldTable};
+use metalmq_codec::frame::{self, AMQPFieldValue, FieldTable};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -17,16 +17,17 @@ pub enum MessageSentResult {
     MessageNotRouted(Box<Message>),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ExchangeCommand {
     Message {
-        message: Box<Message>,
+        message: Message,
         outgoing: mpsc::Sender<Frame>,
     },
     QueueBind {
         queue_name: String,
         routing_key: String,
-        args: Option<frame::FieldTable>,
+        args: Option<FieldTable>,
         sink: QueueCommandSink,
         result: oneshot::Sender<bool>,
     },
@@ -64,7 +65,7 @@ struct TopicBinding {
 
 #[derive(Debug)]
 struct HeadersBinding {
-    headers: HashMap<String, frame::AMQPFieldValue>,
+    headers: HashMap<String, AMQPFieldValue>,
     x_match_all: bool,
     queue_name: String,
     queue: QueueCommandSink,
@@ -251,7 +252,7 @@ impl ExchangeState {
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
             ExchangeCommand::Message { message, outgoing } => {
-                if let Some(failed_message) = self.route_message(*message).await? {
+                if let Some(failed_message) = self.route_message(message).await? {
                     if failed_message.mandatory {
                         message::send_basic_return(failed_message, &outgoing).await?;
                     }
@@ -400,12 +401,7 @@ impl ExchangeState {
                     if binding.routing_key == message.routing_key {
                         debug!("Routing message to {}", binding.queue_name);
 
-                        logerr!(
-                            binding
-                                .queue
-                                .send(QueueCommand::PublishMessage(Box::new(message.clone())))
-                                .await
-                        );
+                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                         sent = true;
                     }
                 }
@@ -414,12 +410,7 @@ impl ExchangeState {
                 for binding in bs {
                     debug!("Routing message to {}", binding.queue_name);
 
-                    logerr!(
-                        binding
-                            .queue
-                            .send(QueueCommand::PublishMessage(Box::new(message.clone())))
-                            .await
-                    );
+                    logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                     sent = true;
                 }
             }
@@ -428,12 +419,7 @@ impl ExchangeState {
                     if match_routing_key(&binding.routing_key, &message.routing_key) {
                         debug!("Routing message to {}", binding.queue_name);
 
-                        logerr!(
-                            binding
-                                .queue
-                                .send(QueueCommand::PublishMessage(Box::new(message.clone())))
-                                .await
-                        );
+                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                         sent = true;
                     }
                 }
@@ -444,12 +430,7 @@ impl ExchangeState {
                         if match_header(&binding.headers, headers, binding.x_match_all) {
                             debug!("Routing message to {}", binding.queue_name);
 
-                            logerr!(
-                                binding
-                                    .queue
-                                    .send(QueueCommand::PublishMessage(Box::new(message.clone())))
-                                    .await
-                            );
+                            logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
                             sent = true;
                         }
                     }
@@ -466,8 +447,6 @@ impl ExchangeState {
 }
 
 fn header_binding_from_field_table(ft: FieldTable, queue_name: String, queue: QueueCommandSink) -> HeadersBinding {
-    use metalmq_codec::frame::AMQPFieldValue;
-
     let mut headers = HashMap::new();
     let mut x_match_all = true;
 
@@ -520,8 +499,8 @@ fn match_routing_key(binding_key: &str, message_routing_key: &str) -> bool {
 }
 
 fn match_header(
-    binding_headers: &HashMap<String, frame::AMQPFieldValue>,
-    message_headers: &frame::FieldTable,
+    binding_headers: &HashMap<String, AMQPFieldValue>,
+    message_headers: &FieldTable,
     x_match_all: bool,
 ) -> bool {
     let mut matches = 0usize;
@@ -533,7 +512,7 @@ fn match_header(
 
     for (bhk, bhv) in binding_headers {
         if let Some(mhv) = message_headers.get(bhk) {
-            if bhv == mhv {
+            if *bhv == *mhv {
                 matches += 1;
             }
         }
@@ -602,7 +581,7 @@ mod tests {
             immediate: false,
         };
         let cmd = ExchangeCommand::Message {
-            message: Box::new(msg),
+            message: msg,
             outgoing: msg_tx,
         };
         let res = es.handle_command(cmd).await;

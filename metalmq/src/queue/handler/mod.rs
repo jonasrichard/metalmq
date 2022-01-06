@@ -21,9 +21,10 @@ pub struct Tag {
     pub delivery_tag: u64,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum QueueCommand {
-    PublishMessage(Box<Message>),
+    PublishMessage(Message),
     AckMessage {
         consumer_tag: String,
         delivery_tag: u64,
@@ -197,7 +198,7 @@ impl QueueState {
 
         match command {
             QueueCommand::PublishMessage(message) => {
-                logerr!(self.send_out_message(*message).await);
+                logerr!(self.send_out_message(message).await);
 
                 Ok(true)
             }

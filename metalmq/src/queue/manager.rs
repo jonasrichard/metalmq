@@ -323,10 +323,7 @@ mod tests {
         };
         consume(&queue_sink, cmd).await.unwrap();
 
-        qsink
-            .send(QueueCommand::PublishMessage(Box::new(message)))
-            .await
-            .unwrap();
+        qsink.send(QueueCommand::PublishMessage(message)).await.unwrap();
 
         let frames = rx.recv().await.unwrap();
 

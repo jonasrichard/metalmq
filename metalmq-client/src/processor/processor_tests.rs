@@ -44,7 +44,7 @@ async fn connect_frame_exchange() {
 
     // Server send back a connection-start
     frame_in_tx
-        .send(Frame::Frame(Box::new(frame::connection_start(0))))
+        .send(Frame::Frame(frame::connection_start(0)))
         .await
         .unwrap();
 
@@ -57,10 +57,7 @@ async fn connect_frame_exchange() {
     }
 
     // Server send back a connection-tune
-    frame_in_tx
-        .send(Frame::Frame(Box::new(frame::connection_tune(0))))
-        .await
-        .unwrap();
+    frame_in_tx.send(Frame::Frame(frame::connection_tune(0))).await.unwrap();
 
     // Client send back a connection-tune-ok
     let conn_tune_ok = extract_method_frame(frame_out_rx.recv().await);
@@ -75,7 +72,7 @@ async fn connect_frame_exchange() {
     assert!(matches!(conn_open, MethodFrameArgs::ConnectionOpen(_)));
 
     frame_in_tx
-        .send(Frame::Frame(Box::new(frame::connection_open_ok(0))))
+        .send(Frame::Frame(frame::connection_open_ok(0)))
         .await
         .unwrap();
 
@@ -97,7 +94,7 @@ fn extract_method_frame(r: Option<OutgoingFrame>) -> frame::MethodFrameArgs {
     let OutgoingFrame { frame, .. } = r.unwrap();
 
     if let Frame::Frame(mf) = frame {
-        match *mf {
+        match mf {
             AMQPFrame::Method(_, _, args) => args,
             _ => panic!("Method frame expected {:?}", mf),
         }
