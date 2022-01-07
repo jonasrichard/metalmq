@@ -4,7 +4,7 @@ use crate::exchange::handler::ExchangeCommand;
 use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
-use crate::{logerr, Result};
+use crate::{handle_error, logerr, Result};
 use log::{error, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
@@ -13,31 +13,18 @@ use tokio::time;
 
 impl Connection {
     pub async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> Result<()> {
-        if !self.exchanges.contains_key(&args.exchange_name) {
-            self.send_frame(client::channel_error_frame(
+        // TODO check if there is in flight content in the channel -> error
+        self.in_flight_contents.insert(
+            channel,
+            PublishedContent {
                 channel,
-                frame::BASIC_PUBLISH,
-                ChannelError::NotFound,
-                "Exchange not found",
-            ))
-            .await;
-
-            // TODO
-            // channel close and cleanup logic here!
-        } else {
-            // TODO check if there is in flight content in the channel -> error
-            self.in_flight_contents.insert(
-                channel,
-                PublishedContent {
-                    channel,
-                    exchange: args.exchange_name,
-                    routing_key: args.routing_key,
-                    mandatory: args.flags.contains(frame::BasicPublishFlags::MANDATORY),
-                    immediate: args.flags.contains(frame::BasicPublishFlags::IMMEDIATE),
-                    ..Default::default()
-                },
-            );
-        }
+                exchange: args.exchange_name,
+                routing_key: args.routing_key,
+                mandatory: args.flags.contains(frame::BasicPublishFlags::MANDATORY),
+                immediate: args.flags.contains(frame::BasicPublishFlags::IMMEDIATE),
+                ..Default::default()
+            },
+        );
 
         Ok(())
     }
@@ -54,33 +41,31 @@ impl Connection {
             exclusive: args.flags.contains(frame::BasicConsumeFlags::EXCLUSIVE),
             outgoing: self.outgoing.clone(),
         };
-        match qm::consume(&self.qm, cmd).await {
-            Ok(queue_sink) => {
-                let consumer_tag_clone = args.consumer_tag.clone();
-                let queue_sink_clone = queue_sink.clone();
 
-                self.consumed_queues.push(ConsumedQueue {
-                    channel,
-                    consumer_tag: args.consumer_tag.clone(),
-                    queue_name: args.queue.clone(),
-                    queue_sink,
-                });
+        let queue_sink = handle_error!(self, qm::consume(&self.qm, cmd).await).unwrap();
 
-                self.send_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
-                    .await?;
+        let consumer_tag_clone = args.consumer_tag.clone();
+        let queue_sink_clone = queue_sink.clone();
 
-                let start_deliver_cmd = queue_handler::QueueCommand::StartDelivering {
-                    conn_id: self.id.clone(),
-                    channel,
-                    consumer_tag: consumer_tag_clone,
-                };
+        self.consumed_queues.push(ConsumedQueue {
+            channel,
+            consumer_tag: args.consumer_tag.clone(),
+            queue_name: args.queue.clone(),
+            queue_sink,
+        });
 
-                queue_sink_clone.send(start_deliver_cmd).await?;
+        self.send_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
+            .await?;
 
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
+        let start_deliver_cmd = queue_handler::QueueCommand::StartDelivering {
+            conn_id: self.id.clone(),
+            channel,
+            consumer_tag: consumer_tag_clone,
+        };
+
+        queue_sink_clone.send(start_deliver_cmd).await?;
+
+        Ok(())
     }
 
     pub async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> Result<()> {
