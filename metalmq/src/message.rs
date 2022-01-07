@@ -7,6 +7,7 @@ use crate::{chk, send, Result};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame};
 use std::fmt;
+use std::sync::Arc;
 
 #[derive(Clone, Default)]
 pub struct Message {
@@ -87,8 +88,13 @@ pub fn message_to_content_frames(channel: frame::Channel, content: MessageConten
 }
 
 /// Send out a message to the specified channel.
-pub async fn send_message(channel: frame::Channel, message: Message, tag: &Tag, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(channel, message.content);
+pub async fn send_message(
+    channel: frame::Channel,
+    message: Arc<Message>,
+    tag: &Tag,
+    outgoing: &FrameSink,
+) -> Result<()> {
+    let mut frames = message_to_content_frames(channel, message.content.clone());
 
     let basic_deliver = frame::basic_deliver(
         channel,
@@ -105,8 +111,8 @@ pub async fn send_message(channel: frame::Channel, message: Message, tag: &Tag, 
     Ok(())
 }
 
-pub async fn send_basic_return(message: Message, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(message.channel, message.content);
+pub async fn send_basic_return(message: Arc<Message>, outgoing: &FrameSink) -> Result<()> {
+    let mut frames = message_to_content_frames(message.channel, message.content.clone());
 
     frames.insert(
         0,

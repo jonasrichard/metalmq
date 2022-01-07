@@ -21,11 +21,11 @@ fn generate_frame() -> Frame {
         ..Default::default()
     };
 
-    Frame::Frame(Box::new(AMQPFrame::Method(
+    Frame::Frame(AMQPFrame::Method(
         12,
         frame::QUEUE_DECLARE,
         MethodFrameArgs::QueueDeclare(args),
-    )))
+    ))
 }
 
 bencher::benchmark_group!(encoder, encode_method_frame);

@@ -9,6 +9,7 @@ use log::{error, info, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::BASIC_CONSUME;
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
@@ -24,7 +25,7 @@ pub struct Tag {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum QueueCommand {
-    PublishMessage(Message),
+    PublishMessage(Arc<Message>),
     AckMessage {
         consumer_tag: String,
         delivery_tag: u64,
@@ -62,7 +63,7 @@ pub enum SendResult {
     MessageSent,
     //QueueEmpty,
     NoConsumer,
-    ConsumerInvalid(String, Box<Message>),
+    ConsumerInvalid(String, Arc<Message>),
 }
 
 pub type FrameSink = mpsc::Sender<Frame>;
@@ -71,7 +72,10 @@ pub type FrameSink = mpsc::Sender<Frame>;
 struct QueueState {
     queue: Queue,
     declaring_connection: String,
-    messages: VecDeque<Message>,
+    /// Messages represents the current message queue. It stores Arc references because we need to
+    /// keep multiple copies of the same message (send that out, waiting for the ack, resending if
+    /// there is no ack, etc).
+    messages: VecDeque<Arc<Message>>,
     outbox: Outbox,
     candidate_consumers: Vec<Consumer>,
     consumers: Vec<Consumer>,
@@ -299,7 +303,7 @@ impl QueueState {
         }
     }
 
-    async fn send_out_message(&mut self, message: Message) -> Result<()> {
+    async fn send_out_message(&mut self, message: Arc<Message>) -> Result<()> {
         let res = match self.consumers.get(self.next_consumer) {
             None => {
                 trace!("No consumers, pushing message back to the queue");
@@ -337,7 +341,7 @@ impl QueueState {
                     Err(e) => {
                         error!("Consumer sink seems to be invalid {:?}", e);
 
-                        SendResult::ConsumerInvalid(consumer.consumer_tag.clone(), Box::new(message))
+                        SendResult::ConsumerInvalid(consumer.consumer_tag.clone(), message)
                     }
                 }
             }
@@ -345,7 +349,7 @@ impl QueueState {
 
         match res {
             SendResult::ConsumerInvalid(ctag, msg) => {
-                self.messages.push_back(*msg);
+                self.messages.push_back(msg);
                 self.consumers.retain(|c| !c.consumer_tag.eq(&ctag));
                 self.next_consumer = 0;
             }
@@ -368,9 +372,7 @@ fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option
 }
 
 struct OutgoingMessage {
-    // TODO we don't need to store the whole message but rather the id
-    message: Message,
-    //message_id: String,
+    message: Arc<Message>,
     tag: Tag,
     sent_at: Instant,
 }

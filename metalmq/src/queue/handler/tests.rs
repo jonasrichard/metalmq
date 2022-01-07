@@ -1,6 +1,7 @@
 use super::*;
 use crate::message::tests::empty_message;
 use metalmq_codec::codec::Frame;
+use std::sync::Arc;
 
 fn default_queue_state() -> QueueState {
     let q = Queue {
@@ -40,14 +41,14 @@ async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
 async fn publish_to_queue_without_consumers() {
     let mut qs = default_queue_state();
 
-    let cmd = QueueCommand::PublishMessage(empty_message());
+    let cmd = QueueCommand::PublishMessage(Arc::new(empty_message()));
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
     assert_eq!(qs.messages.len(), 1);
 
     let msg = qs.messages.get(0).unwrap();
-    assert_eq!(msg.source_connection, "conn-id");
+    assert_eq!(msg.source_connection, "");
     assert_eq!(msg.channel, 1);
     assert_eq!(msg.content.body, b"");
 }
@@ -87,7 +88,7 @@ async fn publish_to_queue_with_one_consumer() {
     assert!(result.is_ok());
     assert_eq!(qs.consumers.len(), 1);
 
-    let cmd = QueueCommand::PublishMessage(empty_message());
+    let cmd = QueueCommand::PublishMessage(Arc::new(empty_message()));
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());

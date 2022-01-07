@@ -8,6 +8,7 @@ use crate::{logerr, Result};
 use log::{error, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
+use std::sync::Arc;
 use tokio::time;
 
 impl Connection {
@@ -187,7 +188,7 @@ impl Connection {
                 }
                 None => {
                     if msg.mandatory {
-                        logerr!(message::send_basic_return(msg, &self.outgoing).await);
+                        logerr!(message::send_basic_return(Arc::new(msg), &self.outgoing).await);
                         Ok(())
                     } else {
                         Ok(())

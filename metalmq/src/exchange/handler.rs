@@ -7,6 +7,7 @@ use log::{debug, error, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFieldValue, FieldTable};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
@@ -392,16 +393,22 @@ impl ExchangeState {
 
     /// Route the message according to the exchange type and the bindings. If there is no queue to
     /// be send the message to, it gives back the messages in the Option.
-    async fn route_message(&self, message: Message) -> Result<Option<Message>> {
+    async fn route_message(&self, message: Message) -> Result<Option<Arc<Message>>> {
         let mut sent = false;
+        let shared_message = Arc::new(message);
 
         match &self.bindings {
             Bindings::Direct(bs) => {
                 for binding in bs {
-                    if binding.routing_key == message.routing_key {
+                    if binding.routing_key == shared_message.routing_key {
                         debug!("Routing message to {}", binding.queue_name);
 
-                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                        logerr!(
+                            binding
+                                .queue
+                                .send(QueueCommand::PublishMessage(shared_message.clone()))
+                                .await
+                        );
                         sent = true;
                     }
                 }
@@ -410,27 +417,42 @@ impl ExchangeState {
                 for binding in bs {
                     debug!("Routing message to {}", binding.queue_name);
 
-                    logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                    logerr!(
+                        binding
+                            .queue
+                            .send(QueueCommand::PublishMessage(shared_message.clone()))
+                            .await
+                    );
                     sent = true;
                 }
             }
             Bindings::Topic(bs) => {
                 for binding in bs {
-                    if match_routing_key(&binding.routing_key, &message.routing_key) {
+                    if match_routing_key(&binding.routing_key, &shared_message.routing_key) {
                         debug!("Routing message to {}", binding.queue_name);
 
-                        logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                        logerr!(
+                            binding
+                                .queue
+                                .send(QueueCommand::PublishMessage(shared_message.clone()))
+                                .await
+                        );
                         sent = true;
                     }
                 }
             }
             Bindings::Headers(bs) => {
-                if let Some(ref headers) = message.content.headers {
+                if let Some(ref headers) = shared_message.content.headers {
                     for binding in bs {
                         if match_header(&binding.headers, headers, binding.x_match_all) {
                             debug!("Routing message to {}", binding.queue_name);
 
-                            logerr!(binding.queue.send(QueueCommand::PublishMessage(message.clone())).await);
+                            logerr!(
+                                binding
+                                    .queue
+                                    .send(QueueCommand::PublishMessage(shared_message.clone()))
+                                    .await
+                            );
                             sent = true;
                         }
                     }
@@ -441,7 +463,7 @@ impl ExchangeState {
         if sent {
             Ok(None)
         } else {
-            Ok(Some(message))
+            Ok(Some(shared_message))
         }
     }
 }
