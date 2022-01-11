@@ -1,25 +1,70 @@
 use super::*;
-use crate::message::tests::empty_message;
+use crate::message::{Message, MessageContent};
 use metalmq_codec::codec::Frame;
 use std::sync::Arc;
 
-fn default_queue_state() -> QueueState {
-    let q = Queue {
-        name: "test-queue".to_string(),
-        ..Default::default()
-    };
+struct TestCase {
+    connection_id: String,
+    used_channel: u16,
+    exchange_name: String,
+    queue_name: String,
+    message_body: String,
+    message_mandatory: bool,
+}
 
-    QueueState {
-        queue: q,
-        declaring_connection: "conn-id".to_string(),
-        messages: VecDeque::new(),
-        outbox: Outbox {
-            outgoing_messages: vec![],
-        },
-        bound_exchanges: HashSet::new(),
-        candidate_consumers: vec![],
-        consumers: vec![],
-        next_consumer: 0,
+impl Default for TestCase {
+    fn default() -> Self {
+        TestCase {
+            connection_id: "id-12345".to_owned(),
+            used_channel: 1u16,
+            exchange_name: "my-exchange".to_owned(),
+            queue_name: "my-queue".to_owned(),
+            message_body: "Hey, buddy!".to_owned(),
+            message_mandatory: false,
+        }
+    }
+}
+
+impl TestCase {
+    fn default_queue_state(&self) -> QueueState {
+        let q = Queue {
+            name: self.queue_name.clone(),
+            ..Default::default()
+        };
+
+        QueueState {
+            queue: q,
+            declaring_connection: self.connection_id.clone(),
+            messages: VecDeque::new(),
+            outbox: Outbox {
+                outgoing_messages: vec![],
+            },
+            bound_exchanges: HashSet::new(),
+            candidate_consumers: vec![],
+            consumers: vec![],
+            next_consumer: 0,
+        }
+    }
+
+    fn default_message(&self) -> Message {
+        let body = self.message_body.clone().into_bytes();
+        let body_len = body.len() as u64;
+
+        Message {
+            source_connection: self.connection_id.clone(),
+            channel: self.used_channel,
+            exchange: self.exchange_name.clone(),
+            routing_key: "".to_owned(),
+            mandatory: self.message_mandatory,
+            immediate: false,
+            content: MessageContent {
+                body,
+                body_size: body_len,
+                content_type: Some("text/plain".to_owned()),
+                content_encoding: Some("utf-8".to_owned()),
+                ..Default::default()
+            },
+        }
     }
 }
 
@@ -37,35 +82,44 @@ async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
     }
 }
 
+/// If messages is published to a queue and there are no consumers,
+/// the queue should store the message.
 #[tokio::test]
 async fn publish_to_queue_without_consumers() {
-    let mut qs = default_queue_state();
+    let test_case = TestCase::default();
+    let message = test_case.default_message();
+    let mut qs = test_case.default_queue_state();
 
-    let cmd = QueueCommand::PublishMessage(Arc::new(empty_message()));
+    let cmd = QueueCommand::PublishMessage(Arc::new(message.clone()));
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
     assert_eq!(qs.messages.len(), 1);
 
     let msg = qs.messages.get(0).unwrap();
-    assert_eq!(msg.source_connection, "");
-    assert_eq!(msg.channel, 1);
-    assert_eq!(msg.content.body, b"");
+    assert_eq!(msg.source_connection, message.source_connection);
+    assert_eq!(msg.channel, message.channel);
+    assert_eq!(msg.content.body, message.content.body);
 }
 
+/// If message is published to a queue and there is a consumer,
+/// the queue is passed to the consumer.
 #[tokio::test]
 async fn publish_to_queue_with_one_consumer() {
     use metalmq_codec::codec::Frame;
     use metalmq_codec::frame::{self, AMQPFrame};
 
-    let mut qs = default_queue_state();
+    let test_case = TestCase::default();
+    let message = test_case.default_message();
+    let mut qs = test_case.default_queue_state();
+
     let (msg_tx, mut msg_rx) = mpsc::channel(1);
     let (tx, rx) = oneshot::channel();
 
     let cmd = QueueCommand::StartConsuming {
-        conn_id: "consumer-conn".to_string(),
+        conn_id: test_case.connection_id.clone(),
         consumer_tag: "myctag".to_string(),
-        channel: 1,
+        channel: test_case.used_channel,
         no_ack: false,
         exclusive: false,
         sink: msg_tx,
@@ -80,15 +134,15 @@ async fn publish_to_queue_with_one_consumer() {
     assert!(cmd_result.is_ok());
 
     let cmd = QueueCommand::StartDelivering {
-        conn_id: "consumer-conn".to_string(),
-        channel: 1,
+        conn_id: test_case.connection_id.clone(),
+        channel: test_case.used_channel,
         consumer_tag: "myctag".to_string(),
     };
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
     assert_eq!(qs.consumers.len(), 1);
 
-    let cmd = QueueCommand::PublishMessage(Arc::new(empty_message()));
+    let cmd = QueueCommand::PublishMessage(Arc::new(message));
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());

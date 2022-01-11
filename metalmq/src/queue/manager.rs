@@ -64,6 +64,14 @@ pub struct QueueCancelConsume {
 }
 
 #[derive(Debug)]
+pub struct QueueDeleteCommand {
+    pub channel: u16,
+    pub queue_name: String,
+    pub if_unused: bool,
+    pub if_empty: bool,
+}
+
+#[derive(Debug)]
 pub struct GetQueueSinkQuery {
     pub channel: u16,
     pub queue_name: String,
@@ -74,6 +82,7 @@ pub enum QueueManagerCommand {
     Declare(QueueDeclareCommand, oneshot::Sender<Result<()>>),
     Consume(QueueConsumeCommand, oneshot::Sender<Result<QueueCommandSink>>),
     CancelConsume(QueueCancelConsume, oneshot::Sender<Result<()>>),
+    Delete(QueueDeleteCommand, oneshot::Sender<Result<u32>>),
     GetQueueSink(GetQueueSinkQuery, oneshot::Sender<Result<QueueCommandSink>>),
     GetQueues(oneshot::Sender<Vec<Queue>>),
 }
@@ -101,6 +110,14 @@ pub async fn declare_queue(mgr: &QueueManagerSink, cmd: QueueDeclareCommand) -> 
     let (tx, rx) = oneshot::channel();
 
     send!(mgr, QueueManagerCommand::Declare(cmd, tx))?;
+
+    rx.await?
+}
+
+pub async fn delelte_queue(mgr: &QueueManagerSink, cmd: QueueDeleteCommand) -> Result<u32> {
+    let (tx, rx) = oneshot::channel();
+
+    send!(mgr, QueueManagerCommand::Delete(cmd, tx))?;
 
     rx.await?
 }
@@ -153,6 +170,9 @@ impl QueueManagerState {
             match command {
                 Declare(cmd, tx) => {
                     logerr!(tx.send(self.handle_declare(cmd).await));
+                }
+                Delete(cmd, tx) => {
+                    logerr!(tx.send(self.handle_delete(cmd).await));
                 }
                 Consume(cmd, tx) => {
                     logerr!(tx.send(self.handle_consume(cmd).await));
@@ -212,6 +232,32 @@ impl QueueManagerState {
 
                 Ok(())
             }
+        }
+    }
+
+    async fn handle_delete(&mut self, command: QueueDeleteCommand) -> Result<u32> {
+        match self.queues.get(&command.queue_name) {
+            Some(queue) => {
+                let (tx, rx) = oneshot::channel();
+
+                send!(
+                    queue.command_sink,
+                    QueueCommand::DeleteQueue {
+                        channel: command.channel,
+                        if_unused: command.if_unused,
+                        if_empty: command.if_empty,
+                        result: tx,
+                    }
+                )?;
+
+                rx.await?
+            }
+            None => channel_error(
+                command.channel,
+                frame::QUEUE_DELETE,
+                ChannelError::NotFound,
+                "Not found",
+            ),
         }
     }
 

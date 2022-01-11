@@ -1,5 +1,4 @@
 use crate::client::state::{Connection, ConsumedQueue, PublishedContent};
-use crate::client::{self, ChannelError};
 use crate::exchange::handler::ExchangeCommand;
 use crate::message;
 use crate::queue::handler as queue_handler;

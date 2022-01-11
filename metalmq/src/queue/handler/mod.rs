@@ -7,7 +7,7 @@ use crate::queue::Queue;
 use crate::{logerr, Result};
 use log::{error, info, trace};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::BASIC_CONSUME;
+use metalmq_codec::frame;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::task::Poll;
@@ -53,6 +53,12 @@ pub enum QueueCommand {
     CancelConsuming {
         consumer_tag: String,
         result: oneshot::Sender<bool>,
+    },
+    DeleteQueue {
+        channel: u16,
+        if_unused: bool,
+        if_empty: bool,
+        result: oneshot::Sender<Result<u32>>,
     },
     MessageRejected,
     Recover,
@@ -254,14 +260,14 @@ impl QueueState {
                 if self.queue.exclusive && self.declaring_connection != conn_id {
                     logerr!(result.send(channel_error(
                         channel,
-                        BASIC_CONSUME,
+                        frame::BASIC_CONSUME,
                         ChannelError::ResourceLocked,
                         "Cannot consume exclusive queue"
                     )));
                 } else if exclusive && !self.consumers.is_empty() {
                     logerr!(result.send(channel_error(
                         channel,
-                        BASIC_CONSUME,
+                        frame::BASIC_CONSUME,
                         ChannelError::AccessRefused,
                         "Queue is already consumed, cannot consume exclusively"
                     )));
@@ -297,6 +303,64 @@ impl QueueState {
                     logerr!(result.send(true));
                     Ok(true)
                 }
+            }
+            QueueCommand::DeleteQueue {
+                channel,
+                if_unused,
+                if_empty,
+                result,
+            } => {
+                info!("Queue {} is about to be deleted", self.queue.name);
+
+                if if_unused && (self.consumers.len() > 0 || self.candidate_consumers.len() > 0) {
+                    logerr!(result.send(channel_error(
+                        channel,
+                        frame::QUEUE_DELETE,
+                        ChannelError::PreconditionFailed,
+                        "Queue is consumed"
+                    )));
+
+                    return Ok(true);
+                }
+
+                if if_empty && self.messages.len() > 0 {
+                    logerr!(result.send(channel_error(
+                        channel,
+                        frame::QUEUE_DELETE,
+                        ChannelError::PreconditionFailed,
+                        "Queue is not empty"
+                    )));
+
+                    return Ok(true);
+                }
+
+                for consumer in &self.consumers {
+                    logerr!(
+                        consumer
+                            .sink
+                            .send(Frame::Frame(frame::basic_cancel(
+                                consumer.channel,
+                                "Queue is deleted",
+                                false
+                            )))
+                            .await
+                    );
+                }
+
+                for consumer in &self.candidate_consumers {
+                    logerr!(
+                        consumer
+                            .sink
+                            .send(Frame::Frame(frame::basic_cancel(
+                                consumer.channel,
+                                "Queue is deleted",
+                                false
+                            )))
+                            .await
+                    );
+                }
+
+                Ok(false)
             }
             QueueCommand::MessageRejected => Ok(true),
             QueueCommand::Recover => Ok(true),
