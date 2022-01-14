@@ -260,16 +260,6 @@ impl ExchangeState {
                 }
 
                 Ok(true)
-                //Some(queue) => {
-                //    // FIXME we can close a message as far as we don't use Vec but Bytes.
-                //    // Vec is cloned by cloning the underlying array, but Buffer is a bit
-                //    // more specialized, and it uses a reference counter pointer.
-                //    info!("Publish message {:?}", message);
-
-                //    if let Err(e) = send!(queue, QueueCommand::PublishMessage(message)) {
-                //        error!("Send error {:?}", e);
-                //    }
-                //}
             }
             ExchangeCommand::QueueBind {
                 queue_name,

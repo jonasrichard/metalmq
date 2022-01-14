@@ -1,4 +1,5 @@
 use crate::client::{channel_error, ChannelError};
+use crate::exchange::manager::ExchangeManagerSink;
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, send, Result};
@@ -89,13 +90,14 @@ pub enum QueueManagerCommand {
 
 pub type QueueManagerSink = mpsc::Sender<QueueManagerCommand>;
 
-pub fn start() -> QueueManagerSink {
+pub fn start(exchange_manager: ExchangeManagerSink) -> QueueManagerSink {
     let (sink, stream) = mpsc::channel(1);
 
     tokio::spawn(async move {
         let mut manager = QueueManagerState {
             command_stream: stream,
             queues: HashMap::new(),
+            exchange_manager,
         };
 
         if let Err(e) = manager.command_loop().await {
@@ -114,7 +116,7 @@ pub async fn declare_queue(mgr: &QueueManagerSink, cmd: QueueDeclareCommand) -> 
     rx.await?
 }
 
-pub async fn delelte_queue(mgr: &QueueManagerSink, cmd: QueueDeleteCommand) -> Result<u32> {
+pub async fn delete_queue(mgr: &QueueManagerSink, cmd: QueueDeleteCommand) -> Result<u32> {
     let (tx, rx) = oneshot::channel();
 
     send!(mgr, QueueManagerCommand::Delete(cmd, tx))?;
@@ -160,6 +162,7 @@ pub async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
 struct QueueManagerState {
     command_stream: mpsc::Receiver<QueueManagerCommand>,
     queues: HashMap<String, QueueState>,
+    exchange_manager: ExchangeManagerSink,
 }
 
 impl QueueManagerState {
@@ -246,6 +249,7 @@ impl QueueManagerState {
                         channel: command.channel,
                         if_unused: command.if_unused,
                         if_empty: command.if_empty,
+                        exchange_manager: self.exchange_manager.clone(),
                         result: tx,
                     }
                 )?;
@@ -336,7 +340,8 @@ mod tests {
 
     #[tokio::test]
     async fn declare_queue_works() {
-        let queue_sink = start();
+        let (em_tx, em_rx) = mpsc::channel(1);
+        let queue_sink = start(em_tx);
         let queue = Queue {
             name: "new-queue".to_string(),
             ..Default::default()

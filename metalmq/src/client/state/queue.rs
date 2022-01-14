@@ -2,7 +2,7 @@ use crate::client::state::Connection;
 use crate::client::{self, ChannelError};
 use crate::exchange::manager::{self as em, BindQueueCommand, UnbindQueueCommand};
 use crate::queue::manager as qm;
-use crate::Result;
+use crate::{handle_error, Result};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -59,8 +59,16 @@ impl Connection {
     }
 
     pub async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> Result<()> {
-        // TODO delete the queue
-        self.send_frame(Frame::Frame(frame::queue_delete_ok(channel, 0)))
+        let cmd = qm::QueueDeleteCommand {
+            channel,
+            queue_name: args.queue_name,
+            if_unused: args.flags.contains(frame::QueueDeleteFlags::IF_UNUSED),
+            if_empty: args.flags.contains(frame::QueueDeleteFlags::IF_EMPTY),
+        };
+
+        let message_count = handle_error!(self, qm::delete_queue(&self.qm, cmd).await).unwrap();
+
+        self.send_frame(Frame::Frame(frame::queue_delete_ok(channel, message_count)))
             .await?;
 
         Ok(())

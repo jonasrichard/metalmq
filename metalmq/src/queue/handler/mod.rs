@@ -2,6 +2,7 @@
 mod tests;
 
 use crate::client::{channel_error, ChannelError};
+use crate::exchange::manager::ExchangeManagerSink;
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
@@ -46,8 +47,6 @@ pub enum QueueCommand {
         result: oneshot::Sender<Result<()>>,
     },
     StartDelivering {
-        conn_id: String,
-        channel: u16,
         consumer_tag: String,
     },
     CancelConsuming {
@@ -58,6 +57,7 @@ pub enum QueueCommand {
         channel: u16,
         if_unused: bool,
         if_empty: bool,
+        exchange_manager: ExchangeManagerSink,
         result: oneshot::Sender<Result<u32>>,
     },
     MessageRejected,
@@ -86,6 +86,7 @@ struct QueueState {
     candidate_consumers: Vec<Consumer>,
     consumers: Vec<Consumer>,
     next_consumer: usize,
+    // TODO we need to store the routing key and headers and so on
     bound_exchanges: HashSet<String>,
     // TODO message metrics, current, current outgoing, etc...
 }
@@ -227,11 +228,7 @@ impl QueueState {
                 self.bound_exchanges.remove(&exchange_name);
                 Ok(true)
             }
-            QueueCommand::StartDelivering {
-                conn_id,
-                channel,
-                consumer_tag,
-            } => {
+            QueueCommand::StartDelivering { consumer_tag } => {
                 if let Some(p) = self
                     .candidate_consumers
                     .iter()
@@ -308,19 +305,33 @@ impl QueueState {
                 channel,
                 if_unused,
                 if_empty,
+                exchange_manager,
                 result,
             } => {
                 info!("Queue {} is about to be deleted", self.queue.name);
 
-                if if_unused && (self.consumers.len() > 0 || self.candidate_consumers.len() > 0) {
-                    logerr!(result.send(channel_error(
-                        channel,
-                        frame::QUEUE_DELETE,
-                        ChannelError::PreconditionFailed,
-                        "Queue is consumed"
-                    )));
+                // If there are consumers or candidates or if there are exchanges bound to this
+                // queue, and we cannot delete if it is used, send back and error.
+                if if_unused {
+                    if self.consumers.len() > 0 || self.candidate_consumers.len() > 0 {
+                        logerr!(result.send(channel_error(
+                            channel,
+                            frame::QUEUE_DELETE,
+                            ChannelError::PreconditionFailed,
+                            "Queue is consumed"
+                        )));
+                        return Ok(true);
+                    }
 
-                    return Ok(true);
+                    if self.bound_exchanges.len() > 0 {
+                        logerr!(result.send(channel_error(
+                            channel,
+                            frame::QUEUE_DELETE,
+                            ChannelError::PreconditionFailed,
+                            "Exchanges are bound to this queue"
+                        )));
+                        return Ok(true);
+                    }
                 }
 
                 if if_empty && self.messages.len() > 0 {
@@ -334,6 +345,21 @@ impl QueueState {
                     return Ok(true);
                 }
 
+                // Notify all exchanges about the delete, so they can unbound themselves.
+                for exchange_name in &self.bound_exchanges {
+                    let unbind_cmd = crate::exchange::manager::UnbindQueueCommand {
+                        channel,
+                        exchange_name: exchange_name.clone(),
+                        queue_name: self.queue.name.clone(),
+                        routing_key: "".to_owned(),
+                    };
+
+                    let (tx, rx) = oneshot::channel();
+                    crate::exchange::manager::ExchangeManagerCommand::UnbindQueue(unbind_cmd, tx);
+                    rx.await;
+                }
+
+                // Cancel all consumers by sending a basic cancel.
                 for consumer in &self.consumers {
                     logerr!(
                         consumer
@@ -347,6 +373,7 @@ impl QueueState {
                     );
                 }
 
+                // Cancel all candidate consumers by sending a basic cancel.
                 for consumer in &self.candidate_consumers {
                     logerr!(
                         consumer
@@ -360,6 +387,10 @@ impl QueueState {
                     );
                 }
 
+                // Pass the number of messages in the queue to the caller.
+                logerr!(result.send(Ok(self.messages.len() as u32)));
+
+                // Quit the queue event loop.
                 Ok(false)
             }
             QueueCommand::MessageRejected => Ok(true),
@@ -382,7 +413,6 @@ impl QueueState {
                     delivery_tag: consumer.delivery_tag_counter,
                 };
 
-                // FIXME solve this without cloning
                 let res = message::send_message(consumer.channel, message.clone(), &tag, &consumer.sink).await;
                 match res {
                     Ok(()) => {

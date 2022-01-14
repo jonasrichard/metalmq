@@ -58,11 +58,11 @@ impl Connection {
         //     no consumers there
         //   - exchange handler -> deregister (auto-delete exchange)
         //   - queues -> delete the exclusive queues
-        for cq in &self.consumed_queues {
+        for (channel_number, cq) in &self.consumed_queues {
             trace!("Cleaning up consumers {:?}", cq);
 
             let cmd = manager::QueueCancelConsume {
-                channel: cq.channel,
+                channel: *channel_number,
                 queue_name: cq.queue_name.clone(),
                 consumer_tag: cq.consumer_tag.clone(),
             };

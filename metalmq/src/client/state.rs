@@ -4,10 +4,10 @@ use crate::exchange::handler::ExchangeCommandSink;
 use crate::exchange::manager as em;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager as qm;
-use crate::{Context, ErrorScope, Result, RuntimeError};
-use log::info;
+use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
+use log::{error, info};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, Channel};
+use metalmq_codec::frame::{Channel, ContentHeaderFrame};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -20,7 +20,6 @@ pub mod queue;
 
 #[derive(Debug)]
 struct ConsumedQueue {
-    channel: Channel,
     queue_name: String,
     consumer_tag: String,
     queue_sink: queue_handler::QueueCommandSink,
@@ -33,17 +32,29 @@ pub struct Connection {
     qm: qm::QueueManagerSink,
     em: em::ExchangeManagerSink,
     /// Opened channels by this connection.
-    open_channels: Vec<Channel>,
+    open_channels: HashMap<Channel, ChannelState>,
     /// Declared exchanges by this connection.
     exchanges: HashMap<String, ExchangeCommandSink>,
     /// Exchanges which declared by this channel as auto-delete
     auto_delete_exchanges: Vec<String>,
-    /// Consumed queues by this connection
-    consumed_queues: Vec<ConsumedQueue>,
+    /// Consumed queues by this connection. One channel can have one queue consumed.
+    consumed_queues: HashMap<Channel, ConsumedQueue>,
     /// Incoming messages come in different messages, we need to collect their properties
     in_flight_contents: HashMap<Channel, PublishedContent>,
     /// Sink for AMQP frames toward the client
     outgoing: mpsc::Sender<Frame>,
+}
+
+/// Represents a channel
+#[derive(Debug)]
+pub struct ChannelState {
+    /// The channel number
+    pub channel: Channel,
+    /// Whether the channel is in confirm mode. The default is false, so no. In confirm mode the
+    /// server can send Ack messages to the client (basic return for example).
+    pub confirm_mode: bool,
+    /// The outgoing frame channel.
+    pub frame_sink: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug, Default)]
@@ -53,7 +64,7 @@ struct PublishedContent {
     routing_key: String,
     mandatory: bool,
     immediate: bool,
-    content_header: frame::ContentHeaderFrame,
+    content_header: ContentHeaderFrame,
 }
 
 #[macro_export]
@@ -77,10 +88,10 @@ pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
         id: conn_id,
         qm: context.queue_manager,
         em: context.exchange_manager,
-        open_channels: vec![],
+        open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
-        consumed_queues: vec![],
+        consumed_queues: HashMap::new(),
         in_flight_contents: HashMap::new(),
         outgoing,
     }
@@ -94,36 +105,35 @@ impl Connection {
         Ok(())
     }
 
-    async fn handle_connection_close(&self) -> Result<()> {
+    async fn handle_connection_close(&mut self) -> Result<()> {
+        for (channel, cq) in self.consumed_queues.drain() {
+            let cmd = qm::QueueCancelConsume {
+                channel,
+                queue_name: cq.queue_name.clone(),
+                consumer_tag: cq.consumer_tag.clone(),
+            };
+
+            logerr!(qm::cancel_consume(&self.qm, cmd).await);
+        }
+
         // TODO cleanup, like close all channels, delete temporal queues, etc
         Ok(())
     }
 
-    async fn handle_channel_close(&mut self, channel: frame::Channel) -> Result<()> {
-        //let consumes_to_cancel = self.consumed_queues.drain_filter(|cq| cq.channel == channel).collect();
-        let mut consumes_to_cancel = vec![];
-
-        loop {
-            match self.consumed_queues.iter().position(|cq| cq.channel == channel) {
-                None => break,
-                Some(p) => {
-                    let cq = self.consumed_queues.remove(p);
-                    consumes_to_cancel.push(cq);
-                }
-            }
-        }
-
-        for cq in consumes_to_cancel {
-            self.basic_cancel(
-                channel,
-                frame::BasicCancelArgs {
+    async fn handle_channel_close(&mut self, channel: Channel) -> Result<()> {
+        // Cancel consumed queues on the channel
+        if let Some(cq) = self.consumed_queues.remove(&channel) {
+            qm::cancel_consume(
+                &self.qm,
+                qm::QueueCancelConsume {
+                    channel,
+                    queue_name: cq.queue_name.clone(),
                     consumer_tag: cq.consumer_tag.clone(),
-                    no_wait: false,
                 },
             )
             .await?;
         }
-        // TODO cleanup, like cancel all consumers, etc.
+
         Ok(())
     }
 

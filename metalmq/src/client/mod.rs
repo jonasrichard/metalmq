@@ -3,7 +3,7 @@ pub mod state;
 
 use crate::{ErrorScope, Result, RuntimeError};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame;
+use metalmq_codec::frame::{self, Channel};
 
 #[derive(Debug)]
 pub enum ConnectionError {
@@ -68,7 +68,7 @@ pub fn connection_error_frame(cm: u32, code: ConnectionError, text: &str) -> Fra
 //}
 
 /// Helper to create channel error frames.
-pub fn channel_error<T>(channel: frame::Channel, cm: u32, code: ChannelError, text: &str) -> Result<T> {
+pub fn channel_error<T>(channel: Channel, cm: u32, code: ChannelError, text: &str) -> Result<T> {
     let (class_id, method_id) = frame::split_class_method(cm);
 
     Err(Box::new(RuntimeError {
@@ -82,7 +82,7 @@ pub fn channel_error<T>(channel: frame::Channel, cm: u32, code: ChannelError, te
 }
 
 /// Convert ChannelError to channel close frame.
-pub fn channel_error_frame(channel: frame::Channel, cm: u32, code: ChannelError, text: &str) -> Frame {
+pub fn channel_error_frame(channel: Channel, cm: u32, code: ChannelError, text: &str) -> Frame {
     let (class_id, method_id) = frame::split_class_method(cm);
 
     Frame::Frame(frame::channel_close(channel, code as u16, text, class_id, method_id))

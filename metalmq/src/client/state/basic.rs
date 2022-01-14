@@ -46,19 +46,19 @@ impl Connection {
         let consumer_tag_clone = args.consumer_tag.clone();
         let queue_sink_clone = queue_sink.clone();
 
-        self.consumed_queues.push(ConsumedQueue {
+        self.consumed_queues.insert(
             channel,
-            consumer_tag: args.consumer_tag.clone(),
-            queue_name: args.queue.clone(),
-            queue_sink,
-        });
+            ConsumedQueue {
+                consumer_tag: args.consumer_tag.clone(),
+                queue_name: args.queue.clone(),
+                queue_sink,
+            },
+        );
 
         self.send_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
             .await?;
 
         let start_deliver_cmd = queue_handler::QueueCommand::StartDelivering {
-            conn_id: self.id.clone(),
-            channel,
             consumer_tag: consumer_tag_clone,
         };
 
@@ -68,21 +68,13 @@ impl Connection {
     }
 
     pub async fn basic_cancel(&mut self, channel: Channel, args: frame::BasicCancelArgs) -> Result<()> {
-        if let Some(pos) = self
-            .consumed_queues
-            .iter()
-            .position(|cq| cq.consumer_tag == args.consumer_tag)
-        {
-            let cq = &self.consumed_queues[pos];
-
+        if let Some(cq) = self.consumed_queues.remove(&channel) {
             let cmd = QueueCancelConsume {
-                channel: cq.channel,
+                channel,
                 queue_name: cq.queue_name.clone(),
                 consumer_tag: cq.consumer_tag.clone(),
             };
             qm::cancel_consume(&self.qm, cmd).await?;
-
-            self.consumed_queues.retain(|cq| cq.consumer_tag != args.consumer_tag);
 
             self.send_frame(Frame::Frame(frame::basic_cancel_ok(channel, &args.consumer_tag)))
                 .await?;
@@ -93,11 +85,14 @@ impl Connection {
         Ok(())
     }
 
+    /// Handles Ack coming from client.
+    ///
+    /// A message can be acked more than once. If a non-delivered message is acked, a channel
+    /// exception will be raised.
     pub async fn basic_ack(&mut self, channel: Channel, args: frame::BasicAckArgs) -> Result<()> {
-        match self.consumed_queues.iter().position(|cq| cq.channel == channel) {
-            Some(p) => {
-                let cq = self.consumed_queues.get(p).unwrap();
-
+        // TODO check if only delivered messages are acked, even multiple times
+        match self.consumed_queues.get(&channel) {
+            Some(cq) => {
                 cq.queue_sink
                     .send_timeout(
                         queue_handler::QueueCommand::AckMessage {
@@ -118,7 +113,11 @@ impl Connection {
     }
 
     pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> Result<()> {
-        self.send_frame(Frame::Frame(frame::confirm_select_ok(channel))).await?;
+        if let Some(ch) = self.open_channels.get_mut(&channel) {
+            ch.confirm_mode = true;
+
+            self.send_frame(Frame::Frame(frame::confirm_select_ok(channel))).await?;
+        }
 
         Ok(())
     }
@@ -158,6 +157,19 @@ impl Connection {
                 },
             };
 
+            // FIXME this logic
+            //
+            // We need to deal with mandatory if the channel is in confirm mode.
+            // If confirm is on, message sending to exchange will be a blocking process because
+            // based on the message properties, we may need to wait for the message to be sent to
+            // the consumer.
+            // Of course, here we cannot block/yield that much, so we need to keep track of the
+            // messages on what we are waiting confirm, and the message needs to have a oneshot
+            // channel with which the exchange/queue/consumer can tell us that it managed to
+            // process the message.
+            //
+            // We can even have two types of message command as ExchangeCommand: one which is async
+            // and one which waits for confirmation.
             match self.exchanges.get(&pc.exchange) {
                 Some(ch) => {
                     // FIXME again, this is not good, we shouldn't clone outgoing channels all the
@@ -168,19 +180,15 @@ impl Connection {
                     };
                     // TODO is this the correct way of returning Err(_)
                     logerr!(ch.send_timeout(cmd, time::Duration::from_secs(1)).await);
-                    Ok(())
                 }
                 None => {
                     if msg.mandatory {
                         logerr!(message::send_basic_return(Arc::new(msg), &self.outgoing).await);
-                        Ok(())
-                    } else {
-                        Ok(())
                     }
                 }
             }
-        } else {
-            Ok(())
         }
+
+        Ok(())
     }
 }

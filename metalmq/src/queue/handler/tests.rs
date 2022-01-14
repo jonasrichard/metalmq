@@ -134,8 +134,6 @@ async fn publish_to_queue_with_one_consumer() {
     assert!(cmd_result.is_ok());
 
     let cmd = QueueCommand::StartDelivering {
-        conn_id: test_case.connection_id.clone(),
-        channel: test_case.used_channel,
         consumer_tag: "myctag".to_string(),
     };
     let result = qs.handle_command(cmd).await;

@@ -180,9 +180,10 @@ pub async fn main() -> Result<()> {
 
     let config = config::parse_config(&cli_config.config_file_path)?;
 
+    let exchange_manager = exchange::manager::start();
     let context = Context {
-        exchange_manager: exchange::manager::start(),
-        queue_manager: queue::manager::start(),
+        exchange_manager: exchange_manager.clone(),
+        queue_manager: queue::manager::start(exchange_manager),
     };
 
     start_http(context.clone(), &config.network.http_listen).await?;
