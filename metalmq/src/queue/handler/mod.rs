@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::client::{channel_error, ChannelError};
-use crate::exchange::manager::ExchangeManagerSink;
+use crate::exchange::manager::{self as em, ExchangeManagerSink, UnbindQueueCommand};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
@@ -313,7 +313,7 @@ impl QueueState {
                 // If there are consumers or candidates or if there are exchanges bound to this
                 // queue, and we cannot delete if it is used, send back and error.
                 if if_unused {
-                    if self.consumers.len() > 0 || self.candidate_consumers.len() > 0 {
+                    if !self.consumers.is_empty() || !self.candidate_consumers.is_empty() {
                         logerr!(result.send(channel_error(
                             channel,
                             frame::QUEUE_DELETE,
@@ -323,7 +323,7 @@ impl QueueState {
                         return Ok(true);
                     }
 
-                    if self.bound_exchanges.len() > 0 {
+                    if !self.bound_exchanges.is_empty() {
                         logerr!(result.send(channel_error(
                             channel,
                             frame::QUEUE_DELETE,
@@ -334,7 +334,7 @@ impl QueueState {
                     }
                 }
 
-                if if_empty && self.messages.len() > 0 {
+                if if_empty && !self.messages.is_empty() {
                     logerr!(result.send(channel_error(
                         channel,
                         frame::QUEUE_DELETE,
@@ -347,16 +347,14 @@ impl QueueState {
 
                 // Notify all exchanges about the delete, so they can unbound themselves.
                 for exchange_name in &self.bound_exchanges {
-                    let unbind_cmd = crate::exchange::manager::UnbindQueueCommand {
+                    let unbind_cmd = UnbindQueueCommand {
                         channel,
                         exchange_name: exchange_name.clone(),
                         queue_name: self.queue.name.clone(),
                         routing_key: "".to_owned(),
                     };
 
-                    let (tx, rx) = oneshot::channel();
-                    crate::exchange::manager::ExchangeManagerCommand::UnbindQueue(unbind_cmd, tx);
-                    rx.await;
+                    logerr!(em::unbind_queue(&exchange_manager, unbind_cmd).await);
                 }
 
                 // Cancel all consumers by sending a basic cancel.

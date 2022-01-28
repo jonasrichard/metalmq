@@ -73,4 +73,8 @@ impl Connection {
 
         self.send_frame(Frame::Frame(frame::connection_close_ok(0))).await
     }
+
+    pub async fn send_heartbeat(&self) -> Result<()> {
+        self.send_frame(Frame::Frame(frame::heartbeat())).await
+    }
 }

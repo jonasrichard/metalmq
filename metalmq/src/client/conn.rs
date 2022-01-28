@@ -21,11 +21,53 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
         }
     });
 
-    while let Some(data) = stream.next().await {
-        trace!("Incoming {:?}", data);
+    // TODO
+    // We need to start monitor heartbeat messages after connection open.
+    //
+    // Probably conn needs to have a field like last message arrived. If we haven't received
+    // anything for a longer period, we can close the connection.
+    //
+    // Connection.Tune decides how frequently we send and expect the heartbeat frames.
+    //let half_heartbeat = conn.get_half_heartbeat();
+    let half_heartbeat = std::time::Duration::from_secs(5);
+    let heartbeat = tokio::time::interval(half_heartbeat);
+    tokio::pin!(heartbeat);
 
-        if !handle_in_stream_data(&mut conn, data).await? {
-            return Ok(());
+    // Time instant of the last message received or the last heartbeat is sent.
+    // If more time than the half heartbeat interval passed since the last message received, we can
+    // send a heartbeat.
+    //
+    // Note: we are sending twice as much heartbeat than necessary, but at least
+    // we are handling timer intervals in a resource conscious way.
+    let mut last_message_received = tokio::time::Instant::now();
+
+    'input: loop {
+        tokio::select! {
+            input_data = stream.next() => {
+                match input_data {
+                    Some(data) => {
+                        trace!("Incoming {:?}", data);
+
+                        last_message_received = tokio::time::Instant::now();
+
+                        if !handle_in_stream_data(&mut conn, data).await? {
+                            break 'input;
+                        }
+                    }
+                    None => {
+                        break 'input;
+                    }
+                }
+            }
+            _ = heartbeat.tick() => {
+                trace!("Heartbeat ticked, last time {:?}", last_message_received);
+
+                if last_message_received.elapsed() > half_heartbeat {
+                    last_message_received = tokio::time::Instant::now();
+
+                    conn.send_heartbeat().await?;
+                }
+            }
         }
     }
 
@@ -88,6 +130,8 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
         Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
         ContentHeader(ch) => conn.receive_content_header(ch).await,
         ContentBody(cb) => conn.receive_content_body(cb).await,
+        // TODO heartbeat frames must have channel 0, if we get an invalid frame we need to raise
+        // connection expection 501 - invalid frame.
         Heartbeat(_) => Ok(()),
     }
 }

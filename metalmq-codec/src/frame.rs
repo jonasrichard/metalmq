@@ -491,6 +491,10 @@ pub fn unify_class_method(class: u16, method: u16) -> u32 {
     ((class as u32) << 16) | (method as u32)
 }
 
+pub fn heartbeat() -> AMQPFrame {
+    AMQPFrame::Heartbeat(0)
+}
+
 pub fn connection_start(channel: u16) -> AMQPFrame {
     let mut capabilities = FieldTable::new();
 

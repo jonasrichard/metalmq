@@ -31,6 +31,8 @@ pub struct Connection {
     id: String,
     qm: qm::QueueManagerSink,
     em: em::ExchangeManagerSink,
+    /// How frequently the server sends heartbeat (at most).
+    heartbeat_interval: std::time::Duration,
     /// Opened channels by this connection.
     open_channels: HashMap<Channel, ChannelState>,
     /// Declared exchanges by this connection.
@@ -88,6 +90,7 @@ pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
         id: conn_id,
         qm: context.queue_manager,
         em: context.exchange_manager,
+        heartbeat_interval: std::time::Duration::from_secs(60),
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
@@ -152,5 +155,9 @@ impl Connection {
                 Ok(())
             }
         }
+    }
+
+    pub fn get_half_heartbeat(&self) -> std::time::Duration {
+        self.heartbeat_interval.div_f32(0.5)
     }
 }

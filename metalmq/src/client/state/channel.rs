@@ -9,7 +9,17 @@ use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
     pub async fn channel_open(&mut self, channel: Channel) -> Result<()> {
-        if self.open_channels.contains_key(&channel) {
+        use std::collections::hash_map::Entry;
+
+        if let Entry::Vacant(e) = self.open_channels.entry(channel) {
+            e.insert(ChannelState {
+                channel,
+                confirm_mode: false,
+                frame_sink: self.outgoing.clone(),
+            });
+
+            self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
+        } else {
             let err = client::connection_error(
                 frame::CHANNEL_OPEN,
                 ConnectionError::ChannelError,
@@ -17,17 +27,6 @@ impl Connection {
             );
 
             return handle_error!(self, err);
-        } else {
-            self.open_channels.insert(
-                channel,
-                ChannelState {
-                    channel,
-                    confirm_mode: false,
-                    frame_sink: self.outgoing.clone(),
-                },
-            );
-
-            self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
         }
 
         Ok(())
