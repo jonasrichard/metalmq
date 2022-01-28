@@ -46,6 +46,11 @@ impl Connection {
             self.heartbeat_interval = std::time::Duration::from_secs(args.heartbeat as u64);
         }
 
+        // If client wants lower channel-max, we need to accept that.
+        if args.channel_max != 0 && args.channel_max < self.channel_max {
+            self.channel_max = args.channel_max;
+        }
+
         Ok(())
     }
 

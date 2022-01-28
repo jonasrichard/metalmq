@@ -1,3 +1,4 @@
+use crate::client;
 use crate::client::state::{self, Connection};
 use crate::{Context, Result};
 use futures::stream::{SplitSink, StreamExt};
@@ -155,9 +156,10 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
         Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
         ContentHeader(ch) => conn.receive_content_header(ch).await,
         ContentBody(cb) => conn.receive_content_body(cb).await,
-        // TODO heartbeat frames must have channel 0, if we get an invalid frame we need to raise
-        // connection expection 501 - invalid frame.
-        Heartbeat(_) => Ok(()),
+        Heartbeat(0) => Ok(()),
+        Heartbeat(_) => {
+            client::connection_error(0, client::ConnectionError::FrameError, "Heartbeat must have channel 0")
+        }
     }
 }
 

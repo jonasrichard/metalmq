@@ -11,6 +11,17 @@ impl Connection {
     pub async fn channel_open(&mut self, channel: Channel) -> Result<()> {
         use std::collections::hash_map::Entry;
 
+        // Client cannot open a channel whose number is higher than the maximum allowed.
+        if channel > self.channel_max {
+            let err = client::connection_error(
+                frame::CHANNEL_OPEN,
+                ConnectionError::NotAllowed,
+                "NOT_ALLOWED - Channel number is too large",
+            );
+
+            return handle_error!(self, err);
+        }
+
         if let Entry::Vacant(e) = self.open_channels.entry(channel) {
             e.insert(ChannelState {
                 channel,

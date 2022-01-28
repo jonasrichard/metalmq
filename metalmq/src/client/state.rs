@@ -31,6 +31,8 @@ pub struct Connection {
     id: String,
     qm: qm::QueueManagerSink,
     em: em::ExchangeManagerSink,
+    /// The highest channel number, 0 if there is no limit.
+    channel_max: u16,
     /// How frequently the server sends heartbeat (at most).
     heartbeat_interval: std::time::Duration,
     /// Opened channels by this connection.
@@ -90,7 +92,8 @@ pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
         id: conn_id,
         qm: context.queue_manager,
         em: context.exchange_manager,
-        heartbeat_interval: std::time::Duration::from_secs(60),
+        channel_max: 0,
+        heartbeat_interval: std::time::Duration::MAX,
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
