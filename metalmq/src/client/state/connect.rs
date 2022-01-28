@@ -37,6 +37,18 @@ impl Connection {
         }
     }
 
+    pub async fn connection_tune_ok(&mut self, _channel: Channel, args: frame::ConnectionTuneOkArgs) -> Result<()> {
+        if args.heartbeat == 0 {
+            // If client doesn't want to get a heartbeat we sets the timer to the max value, so
+            // practically heartbeat will be never sent.
+            self.heartbeat_interval = std::time::Duration::MAX;
+        } else {
+            self.heartbeat_interval = std::time::Duration::from_secs(args.heartbeat as u64);
+        }
+
+        Ok(())
+    }
+
     pub async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> Result<()> {
         if args.virtual_host != "/" {
             self.send_frame(client::connection_error_frame(

@@ -2,9 +2,10 @@ use crate::client::state::{self, Connection};
 use crate::{Context, Result};
 use futures::stream::{SplitSink, StreamExt};
 use futures::SinkExt;
-use log::{error, trace};
+use log::{error, trace, warn};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
+use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
@@ -14,9 +15,10 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     // We use channels with only one item long, so we can block until the frame is sent out.
     let (consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
     let mut conn = state::new(context, consume_sink);
+    let heartbeat_duration = conn.get_heartbeat();
 
     tokio::spawn(async move {
-        if let Err(e) = outgoing_loop(sink, &mut consume_stream).await {
+        if let Err(e) = outgoing_loop(sink, &mut consume_stream, heartbeat_duration).await {
             error!("Error {:?}", e);
         }
     });
@@ -28,17 +30,13 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     // anything for a longer period, we can close the connection.
     //
     // Connection.Tune decides how frequently we send and expect the heartbeat frames.
-    //let half_heartbeat = conn.get_half_heartbeat();
-    let half_heartbeat = std::time::Duration::from_secs(5);
-    let heartbeat = tokio::time::interval(half_heartbeat);
+    let heartbeat = tokio::time::interval(heartbeat_duration);
     tokio::pin!(heartbeat);
 
-    // Time instant of the last message received or the last heartbeat is sent.
-    // If more time than the half heartbeat interval passed since the last message received, we can
-    // send a heartbeat.
+    // Time instant of the last message received.
     //
-    // Note: we are sending twice as much heartbeat than necessary, but at least
-    // we are handling timer intervals in a resource conscious way.
+    // Server has an interval which ticks in every heartbeat duration. If it hasn't received any
+    // messages longer than two heartbeat time, it raises a connection exception.
     let mut last_message_received = tokio::time::Instant::now();
 
     'input: loop {
@@ -60,12 +58,11 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
                 }
             }
             _ = heartbeat.tick() => {
-                trace!("Heartbeat ticked, last time {:?}", last_message_received);
+                if last_message_received.elapsed() > 2 * heartbeat_duration {
+                    warn!("No heartbeat arrived for {:?}, closing connection", last_message_received.elapsed());
 
-                if last_message_received.elapsed() > half_heartbeat {
-                    last_message_received = tokio::time::Instant::now();
-
-                    conn.send_heartbeat().await?;
+                    // TODO should we raise a connection exception instead?
+                    break 'input;
                 }
             }
         }
@@ -81,11 +78,39 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
 async fn outgoing_loop(
     mut socket_sink: SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
     frame_stream: &mut mpsc::Receiver<Frame>,
+    heartbeat: Duration,
 ) -> Result<()> {
-    while let Some(frame) = frame_stream.recv().await {
-        trace!("Outgoing {:?}", frame);
+    // While sending out frames, server has a timer which ticks in every half heartbeat time. If
+    // there is no frame sent out for a bit more than half tick time, server sends a heartbeat out.
+    let half_heartbeat = heartbeat.div_f32(0.5);
+    let heartbeat = tokio::time::interval(half_heartbeat);
+    tokio::pin!(heartbeat);
 
-        socket_sink.send(frame).await?;
+    // Time instant of the last message sent.
+    let mut last_message_sent = tokio::time::Instant::now();
+
+    loop {
+        tokio::select! {
+            maybe_out_frame = frame_stream.recv() => {
+                match maybe_out_frame {
+                    Some(frame) => {
+                        trace!("Outgoing {:?}", frame);
+
+                        socket_sink.send(frame).await?;
+                    }
+                    None => {
+                        break;
+                    }
+                }
+            }
+            _ = heartbeat.tick() => {
+                if last_message_sent.elapsed() > half_heartbeat {
+                    last_message_sent = tokio::time::Instant::now();
+
+                    socket_sink.send(Frame::Frame(frame::heartbeat())).await?;
+                }
+            }
+        }
     }
 
     Ok(())
@@ -141,7 +166,7 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma:
 
     match ma {
         ConnectionStartOk(args) => conn.connection_start_ok(channel, args).await,
-        ConnectionTuneOk(_) => Ok(()),
+        ConnectionTuneOk(args) => conn.connection_tune_ok(channel, args).await,
         ConnectionOpen(args) => conn.connection_open(channel, args).await,
         ConnectionClose(args) => conn.connection_close(args).await,
         ChannelOpen => conn.channel_open(channel).await,

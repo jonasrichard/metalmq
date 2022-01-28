@@ -157,7 +157,7 @@ impl Connection {
         }
     }
 
-    pub fn get_half_heartbeat(&self) -> std::time::Duration {
-        self.heartbeat_interval.div_f32(0.5)
+    pub fn get_heartbeat(&self) -> std::time::Duration {
+        self.heartbeat_interval
     }
 }
