@@ -88,4 +88,27 @@ impl Connection {
 
         Ok(())
     }
+
+    pub async fn queue_purge(&mut self, channel: Channel, args: frame::QueuePurgeArgs) -> Result<()> {
+        use crate::queue::handler;
+
+        // Purge the not-yet sent messages from the queue. Queue gives back the number of purged
+        // messages, so this operation is sync.
+
+        let cmd = qm::GetQueueSinkQuery {
+            channel,
+            queue_name: args.queue_name,
+        };
+
+        match qm::get_command_sink(&self.qm, cmd).await {
+            Ok(queue_sink) => {
+                handler::purge(&queue_sink).await.unwrap();
+            }
+            err => {
+                handle_error!(self, err).unwrap();
+            }
+        }
+
+        Ok(())
+    }
 }

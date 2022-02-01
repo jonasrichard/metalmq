@@ -53,6 +53,9 @@ pub enum QueueCommand {
         consumer_tag: String,
         result: oneshot::Sender<bool>,
     },
+    Purge {
+        result: oneshot::Sender<Result<u32>>,
+    },
     DeleteQueue {
         channel: u16,
         if_unused: bool,
@@ -149,6 +152,14 @@ pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mp
     }
     .queue_loop(commands)
     .await;
+}
+
+pub async fn purge(sink: &mpsc::Sender<QueueCommand>) -> Result<u32> {
+    let (tx, rx) = oneshot::channel();
+
+    sink.send(QueueCommand::Purge { result: tx }).await?;
+
+    rx.await?
 }
 
 impl QueueState {
@@ -300,6 +311,14 @@ impl QueueState {
                     logerr!(result.send(true));
                     Ok(true)
                 }
+            }
+            QueueCommand::Purge { result } => {
+                let message_count = self.messages.len();
+                self.messages.clear();
+
+                logerr!(result.send(Ok(message_count as u32)));
+
+                Ok(true)
             }
             QueueCommand::DeleteQueue {
                 channel,

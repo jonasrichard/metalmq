@@ -178,6 +178,7 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma:
         ExchangeDelete(args) => conn.exchange_delete(channel, args).await,
         QueueDeclare(args) => conn.queue_declare(channel, args).await,
         QueueBind(args) => conn.queue_bind(channel, args).await,
+        QueuePurge(args) => conn.queue_purge(channel, args).await,
         QueueDelete(args) => conn.queue_delete(channel, args).await,
         QueueUnbind(args) => conn.queue_unbind(channel, args).await,
         BasicPublish(args) => conn.basic_publish(channel, args).await,

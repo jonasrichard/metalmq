@@ -156,6 +156,8 @@ fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
         QUEUE_DECLARE_OK => decode_queue_declare_ok(src),
         QUEUE_BIND => decode_queue_bind(src),
         QUEUE_BIND_OK => MethodFrameArgs::QueueBindOk,
+        QUEUE_PURGE => decode_queue_purge(src),
+        QUEUE_PURGE_OK => decode_queue_purge_ok(src),
         QUEUE_DELETE => decode_queue_delete(src),
         QUEUE_DELETE_OK => decode_queue_delete_ok(src),
         QUEUE_UNBIND => decode_queue_unbind(src),
@@ -331,6 +333,22 @@ fn decode_queue_bind(src: &mut BytesMut) -> MethodFrameArgs {
     args.args = decode_field_table(src);
 
     MethodFrameArgs::QueueBind(args)
+}
+
+fn decode_queue_purge(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueuePurgeArgs::default();
+    let _ = src.get_u16();
+    args.queue_name = decode_short_string(src);
+    args.no_wait = src.get_u8() != 0;
+
+    MethodFrameArgs::QueuePurge(args)
+}
+
+fn decode_queue_purge_ok(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = QueuePurgeOkArgs::default();
+    args.message_count = src.get_u32();
+
+    MethodFrameArgs::QueuePurgeOk(args)
 }
 
 fn decode_queue_delete(src: &mut BytesMut) -> MethodFrameArgs {
@@ -627,6 +645,8 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::QueueDeclareOk(args) => encode_queue_declare_ok(&mut fr, args),
         MethodFrameArgs::QueueBind(args) => encode_queue_bind(&mut fr, args),
         MethodFrameArgs::QueueBindOk => (),
+        MethodFrameArgs::QueuePurge(args) => encode_queue_purge(&mut fr, args),
+        MethodFrameArgs::QueuePurgeOk(args) => encode_queue_purge_ok(&mut fr, args),
         MethodFrameArgs::QueueDelete(args) => encode_queue_delete(&mut fr, args),
         MethodFrameArgs::QueueDeleteOk(args) => encode_queue_delete_ok(&mut fr, args),
         MethodFrameArgs::QueueUnbind(args) => encode_queue_unbind(&mut fr, args),
@@ -750,6 +770,16 @@ fn encode_queue_bind(buf: &mut BytesMut, args: &QueueBindArgs) {
     encode_short_string(buf, &args.routing_key);
     buf.put_u8(if args.no_wait { 1 } else { 0 });
     encode_field_table(buf, args.args.as_ref());
+}
+
+fn encode_queue_purge(buf: &mut BytesMut, args: &QueuePurgeArgs) {
+    buf.put_u16(0);
+    encode_short_string(buf, &args.queue_name);
+    buf.put_u8(if args.no_wait { 1 } else { 0 });
+}
+
+fn encode_queue_purge_ok(buf: &mut BytesMut, args: &QueuePurgeOkArgs) {
+    buf.put_u32(args.message_count);
 }
 
 fn encode_queue_delete(buf: &mut BytesMut, args: &QueueDeleteArgs) {

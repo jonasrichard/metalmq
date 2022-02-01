@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 pub const CONNECTION_START: u32 = 0x000A000A;
 pub const CONNECTION_START_OK: u32 = 0x000A000B;
+pub const CONNECTION_SECRET: u32 = 0x000A0014;
+pub const CONNECTION_SECRET_OK: u32 = 0x000A0015;
 pub const CONNECTION_TUNE: u32 = 0x000A001E;
 pub const CONNECTION_TUNE_OK: u32 = 0x000A001F;
 pub const CONNECTION_OPEN: u32 = 0x000A0028;
@@ -11,6 +13,8 @@ pub const CONNECTION_CLOSE_OK: u32 = 0x000A0033;
 
 pub const CHANNEL_OPEN: u32 = 0x0014000A;
 pub const CHANNEL_OPEN_OK: u32 = 0x0014000B;
+pub const CHANNEL_FLOW: u32 = 0x00140014;
+pub const CHANNEL_FLOW_OK: u32 = 0x00140015;
 pub const CHANNEL_CLOSE: u32 = 0x00140028;
 pub const CHANNEL_CLOSE_OK: u32 = 0x00140029;
 
@@ -23,11 +27,15 @@ pub const QUEUE_DECLARE: u32 = 0x0032000A;
 pub const QUEUE_DECLARE_OK: u32 = 0x0032000B;
 pub const QUEUE_BIND: u32 = 0x00320014;
 pub const QUEUE_BIND_OK: u32 = 0x00320015;
+pub const QUEUE_PURGE: u32 = 0x0032001E;
+pub const QUEUE_PURGE_OK: u32 = 0x0032001F;
 pub const QUEUE_DELETE: u32 = 0x00320028;
 pub const QUEUE_DELETE_OK: u32 = 0x00320029;
 pub const QUEUE_UNBIND: u32 = 0x00320032;
 pub const QUEUE_UNBIND_OK: u32 = 0x00320033;
 
+pub const BASIC_QOS: u32 = 0x003C000A;
+pub const BASIC_QOS_OK: u32 = 0x003C000B;
 pub const BASIC_CONSUME: u32 = 0x003C0014;
 pub const BASIC_CONSUME_OK: u32 = 0x003C0015;
 pub const BASIC_CANCEL: u32 = 0x003C001E;
@@ -35,7 +43,14 @@ pub const BASIC_CANCEL_OK: u32 = 0x003C001F;
 pub const BASIC_PUBLISH: u32 = 0x003C0028;
 pub const BASIC_RETURN: u32 = 0x003C0032;
 pub const BASIC_DELIVER: u32 = 0x003C003C;
+pub const BASIC_GET: u32 = 0x003C0046;
+pub const BASIC_GET_OK: u32 = 0x003C0047;
+pub const BASIC_GET_EMPTY: u32 = 0x003C0048;
 pub const BASIC_ACK: u32 = 0x003C0050;
+pub const BASIC_REJECT: u32 = 0x003C005A;
+pub const BASIC_RECOVER_ASYNC: u32 = 0x003C0064;
+pub const BASIC_RECOVER: u32 = 0x003C006E;
+pub const BASIC_RECOVER_OK: u32 = 0x003C006F;
 
 pub const CONFIRM_SELECT: u32 = 0x0055000A;
 pub const CONFIRM_SELECT_OK: u32 = 0x0055000B;
@@ -93,6 +108,8 @@ pub enum MethodFrameArgs {
     QueueDeclareOk(QueueDeclareOkArgs),
     QueueBind(QueueBindArgs),
     QueueBindOk,
+    QueuePurge(QueuePurgeArgs),
+    QueuePurgeOk(QueuePurgeOkArgs),
     QueueDelete(QueueDeleteArgs),
     QueueDeleteOk(QueueDeleteOkArgs),
     QueueUnbind(QueueUnbindArgs),
@@ -344,6 +361,17 @@ pub struct QueueBindArgs {
     pub routing_key: String,
     pub no_wait: bool,
     pub args: Option<FieldTable>,
+}
+
+#[derive(Debug, Default)]
+pub struct QueuePurgeArgs {
+    pub queue_name: String,
+    pub no_wait: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct QueuePurgeOkArgs {
+    pub message_count: u32,
 }
 
 bitflags! {
@@ -705,6 +733,25 @@ pub fn queue_bind(
 
 pub fn queue_bind_ok(channel: u16) -> AMQPFrame {
     AMQPFrame::Method(channel, QUEUE_BIND_OK, MethodFrameArgs::QueueBindOk)
+}
+
+pub fn queue_purge(channel: u16, queue_name: &str) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        QUEUE_PURGE,
+        MethodFrameArgs::QueuePurge(QueuePurgeArgs {
+            queue_name: queue_name.to_owned(),
+            no_wait: false,
+        }),
+    )
+}
+
+pub fn queue_purge_ok(channel: u16, message_count: u32) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        QUEUE_PURGE_OK,
+        MethodFrameArgs::QueuePurgeOk(QueuePurgeOkArgs { message_count }),
+    )
 }
 
 pub fn queue_delete(channel: u16, queue_name: &str, flags: Option<QueueDeleteFlags>) -> AMQPFrame {
