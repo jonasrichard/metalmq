@@ -34,7 +34,7 @@ pub struct Connection {
     /// The highest channel number, 0 if there is no limit.
     channel_max: u16,
     /// How frequently the server sends heartbeat (at most).
-    heartbeat_interval: std::time::Duration,
+    heartbeat_interval: Option<std::time::Duration>,
     /// Opened channels by this connection.
     open_channels: HashMap<Channel, ChannelState>,
     /// Declared exchanges by this connection.
@@ -86,14 +86,14 @@ macro_rules! handle_error {
 pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
     let conn_id = Uuid::new_v4().to_hyphenated().to_string();
 
-    info!("Client connected id = {}", conn_id);
+    info!("Client connected id = {conn_id}");
 
     Connection {
         id: conn_id,
         qm: context.queue_manager,
         em: context.exchange_manager,
-        channel_max: 0,
-        heartbeat_interval: std::time::Duration::MAX,
+        channel_max: 2047,
+        heartbeat_interval: None,
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
@@ -160,7 +160,7 @@ impl Connection {
         }
     }
 
-    pub fn get_heartbeat(&self) -> std::time::Duration {
+    pub(crate) fn get_heartbeat(&self) -> Option<std::time::Duration> {
         self.heartbeat_interval
     }
 }

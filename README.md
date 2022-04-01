@@ -30,6 +30,12 @@ cd metalmq
 cargo test --features integration-tests
 ```
 
+Running tests in `metalmq-client`
+
+```bash
+cargo test --package metalmq-client --test it
+```
+
 ## AMQP compliance
 
 For AMQP compliance we use `pika` Python library and `pytest` framework to be to validate

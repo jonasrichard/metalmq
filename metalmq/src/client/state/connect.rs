@@ -17,7 +17,11 @@ impl Connection {
             let username = it.next();
             let password = it.next();
 
-            trace!("User {:?} Pass {:?}", username, password);
+            trace!(
+                "User {:?} Pass {:?}",
+                username.map(String::from_utf8_lossy),
+                password.map(String::from_utf8_lossy)
+            );
 
             if let (Some(b"guest"), Some(b"guest")) = (username, password) {
                 authenticated = true;
@@ -39,11 +43,9 @@ impl Connection {
 
     pub async fn connection_tune_ok(&mut self, _channel: Channel, args: frame::ConnectionTuneOkArgs) -> Result<()> {
         if args.heartbeat == 0 {
-            // If client doesn't want to get a heartbeat we sets the timer to the max value, so
-            // practically heartbeat will be never sent.
-            self.heartbeat_interval = std::time::Duration::MAX;
+            self.heartbeat_interval = None;
         } else {
-            self.heartbeat_interval = std::time::Duration::from_secs(args.heartbeat as u64);
+            self.heartbeat_interval = Some(std::time::Duration::from_secs(args.heartbeat as u64));
         }
 
         // If client wants lower channel-max, we need to accept that.

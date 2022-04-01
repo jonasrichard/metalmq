@@ -40,7 +40,7 @@ pub fn connection_error<T>(cm: u32, code: ConnectionError, text: &str) -> Result
         scope: ErrorScope::Connection,
         channel: 0,
         code: code as u16,
-        text: text.to_string(),
+        text: text.to_owned(),
         class_id,
         method_id,
     }))
@@ -75,7 +75,7 @@ pub fn channel_error<T>(channel: Channel, cm: u32, code: ChannelError, text: &st
         scope: ErrorScope::Channel,
         channel,
         code: code as u16,
-        text: text.to_string(),
+        text: text.to_owned(),
         class_id,
         method_id,
     }))
@@ -104,7 +104,7 @@ pub fn to_runtime_error(err: Box<dyn std::error::Error>) -> RuntimeError {
             scope: ErrorScope::Connection,
             channel: 0,
             code: ConnectionError::InternalError as u16,
-            text: format!("Internal error: {}", e),
+            text: format!("Internal error: {e}"),
             class_id: 0,
             method_id: 0,
         },

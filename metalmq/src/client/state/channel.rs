@@ -3,7 +3,7 @@ use crate::client::{self, ConnectionError};
 use crate::logerr;
 use crate::queue::manager::{self as qm, QueueCancelConsume};
 use crate::{handle_error, Result};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -13,6 +13,8 @@ impl Connection {
 
         // Client cannot open a channel whose number is higher than the maximum allowed.
         if channel > self.channel_max {
+            warn!("Channel number is too big: {channel}");
+
             let err = client::connection_error(
                 frame::CHANNEL_OPEN,
                 ConnectionError::NotAllowed,

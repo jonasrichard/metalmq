@@ -1,7 +1,7 @@
 use crate::client;
 use crate::client::state::{self, Connection};
 use crate::{Context, Result};
-use futures::stream::{SplitSink, StreamExt};
+use futures::stream::{SplitSink, SplitStream, StreamExt};
 use futures::SinkExt;
 use log::{error, trace, warn};
 use metalmq_codec::codec::{AMQPCodec, Frame};
@@ -12,18 +12,50 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
-    let (sink, mut stream) = Framed::new(socket, AMQPCodec {}).split();
+    let (sink, stream) = Framed::new(socket, AMQPCodec {}).split();
     // We use channels with only one item long, so we can block until the frame is sent out.
     let (consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
     let mut conn = state::new(context, consume_sink);
     let heartbeat_duration = conn.get_heartbeat();
 
     tokio::spawn(async move {
-        if let Err(e) = outgoing_loop(sink, &mut consume_stream, heartbeat_duration).await {
-            error!("Error {:?}", e);
+        if let Err(e) = if let Some(heartbeat) = heartbeat_duration {
+            outgoing_loop_with_heartbeat(sink, &mut consume_stream, heartbeat).await
+        } else {
+            outgoing_loop(sink, &mut consume_stream).await
+        } {
+            error!("Error {e:?}");
         }
     });
 
+    if let Some(heartbeat) = heartbeat_duration {
+        incoming_loop_with_heartbeat(&mut conn, stream, heartbeat).await?
+    } else {
+        incoming_loop(&mut conn, stream).await?
+    }
+
+    conn.cleanup().await?;
+
+    Ok(())
+}
+
+async fn incoming_loop(mut conn: &mut Connection, mut stream: SplitStream<Framed<TcpStream, AMQPCodec>>) -> Result<()> {
+    while let Some(data) = stream.next().await {
+        trace!("Incoming {data:?}");
+
+        if !handle_in_stream_data(&mut conn, data).await? {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+async fn incoming_loop_with_heartbeat(
+    mut conn: &mut Connection,
+    mut stream: SplitStream<Framed<TcpStream, AMQPCodec>>,
+    heartbeat_duration: Duration,
+) -> Result<()> {
     // TODO
     // We need to start monitor heartbeat messages after connection open.
     //
@@ -45,7 +77,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
             input_data = stream.next() => {
                 match input_data {
                     Some(data) => {
-                        trace!("Incoming {:?}", data);
+                        trace!("Incoming {data:?}");
 
                         last_message_received = tokio::time::Instant::now();
 
@@ -69,8 +101,6 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
         }
     }
 
-    conn.cleanup().await?;
-
     Ok(())
 }
 
@@ -79,11 +109,24 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
 async fn outgoing_loop(
     mut socket_sink: SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
     frame_stream: &mut mpsc::Receiver<Frame>,
+) -> Result<()> {
+    while let Some(frame) = frame_stream.recv().await {
+        trace!("Outgoing {frame:?}");
+
+        socket_sink.send(frame).await?;
+    }
+
+    Ok(())
+}
+
+async fn outgoing_loop_with_heartbeat(
+    mut socket_sink: SplitSink<Framed<TcpStream, AMQPCodec>, Frame>,
+    frame_stream: &mut mpsc::Receiver<Frame>,
     heartbeat: Duration,
 ) -> Result<()> {
     // While sending out frames, server has a timer which ticks in every half heartbeat time. If
     // there is no frame sent out for a bit more than half tick time, server sends a heartbeat out.
-    let half_heartbeat = heartbeat.div_f32(0.5);
+    let half_heartbeat = heartbeat.div_f32(2.0);
     let heartbeat = tokio::time::interval(half_heartbeat);
     tokio::pin!(heartbeat);
 
@@ -95,7 +138,7 @@ async fn outgoing_loop(
             maybe_out_frame = frame_stream.recv() => {
                 match maybe_out_frame {
                     Some(frame) => {
-                        trace!("Outgoing {:?}", frame);
+                        trace!("Outgoing {frame:?}");
 
                         socket_sink.send(frame).await?;
                     }
@@ -187,7 +230,7 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma:
         BasicAck(args) => conn.basic_ack(channel, args).await,
         ConfirmSelect(args) => conn.confirm_select(channel, args).await,
         _ => {
-            error!("Unhandler method frame type {:?}", ma);
+            error!("Unhandler method frame type {ma:?}");
             Ok(())
         }
     }

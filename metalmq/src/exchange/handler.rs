@@ -240,7 +240,7 @@ pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCom
 impl ExchangeState {
     pub async fn exchange_loop(&mut self, commands: &mut mpsc::Receiver<ExchangeCommand>) -> Result<()> {
         while let Some(command) = commands.recv().await {
-            trace!("Command {:?}", command);
+            trace!("Command {command:?}");
 
             if !self.handle_command(command).await.unwrap() {
                 break;
@@ -517,10 +517,7 @@ fn match_header(
 ) -> bool {
     let mut matches = 0usize;
 
-    debug!(
-        "Binding headers {:?} message headers {:?}",
-        binding_headers, message_headers
-    );
+    debug!("Binding headers {binding_headers:?} message headers {message_headers:?}");
 
     for (bhk, bhv) in binding_headers {
         if let Some(mhv) = message_headers.get(bhk) {
