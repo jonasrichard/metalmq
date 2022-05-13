@@ -523,7 +523,7 @@ pub fn heartbeat() -> AMQPFrame {
     AMQPFrame::Heartbeat(0)
 }
 
-pub fn connection_start(channel: u16) -> AMQPFrame {
+pub fn connection_start(channel: Channel) -> AMQPFrame {
     let mut capabilities = FieldTable::new();
 
     capabilities.insert("publisher_confirms".into(), AMQPFieldValue::Bool(true));
@@ -592,7 +592,7 @@ pub fn connection_start_ok(username: &str, password: &str, capabilities: FieldTa
     )
 }
 
-pub fn connection_tune(channel: u16) -> AMQPFrame {
+pub fn connection_tune(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_TUNE,
@@ -604,7 +604,7 @@ pub fn connection_tune(channel: u16) -> AMQPFrame {
     )
 }
 
-pub fn connection_tune_ok(channel: u16) -> AMQPFrame {
+pub fn connection_tune_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_TUNE_OK,
@@ -616,7 +616,7 @@ pub fn connection_tune_ok(channel: u16) -> AMQPFrame {
     )
 }
 
-pub fn connection_open(channel: u16, virtual_host: &str) -> AMQPFrame {
+pub fn connection_open(channel: Channel, virtual_host: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_OPEN,
@@ -627,11 +627,11 @@ pub fn connection_open(channel: u16, virtual_host: &str) -> AMQPFrame {
     )
 }
 
-pub fn connection_open_ok(channel: u16) -> AMQPFrame {
+pub fn connection_open_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CONNECTION_OPEN_OK, MethodFrameArgs::ConnectionOpenOk)
 }
 
-pub fn connection_close(channel: u16, code: u16, text: &str, class_id: u16, method_id: u16) -> AMQPFrame {
+pub fn connection_close(channel: Channel, code: u16, text: &str, class_id: u16, method_id: u16) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONNECTION_CLOSE,
@@ -644,15 +644,15 @@ pub fn connection_close(channel: u16, code: u16, text: &str, class_id: u16, meth
     )
 }
 
-pub fn connection_close_ok(channel: u16) -> AMQPFrame {
+pub fn connection_close_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CONNECTION_CLOSE_OK, MethodFrameArgs::ConnectionCloseOk)
 }
 
-pub fn channel_open(channel: u16) -> AMQPFrame {
+pub fn channel_open(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CHANNEL_OPEN, MethodFrameArgs::ChannelOpen)
 }
 
-pub fn channel_open_ok(channel: u16) -> AMQPFrame {
+pub fn channel_open_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CHANNEL_OPEN_OK, MethodFrameArgs::ChannelOpenOk)
 }
 
@@ -674,7 +674,7 @@ pub fn channel_close_ok(channel: Channel) -> AMQPFrame {
 }
 
 pub fn exchange_declare(
-    channel: u16,
+    channel: Channel,
     exchange_name: &str,
     exchange_type: &str,
     flags: Option<ExchangeDeclareFlags>,
@@ -692,11 +692,11 @@ pub fn exchange_declare(
     )
 }
 
-pub fn exchange_declare_ok(channel: u16) -> AMQPFrame {
+pub fn exchange_declare_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, EXCHANGE_DECLARE_OK, MethodFrameArgs::ExchangeDeclareOk)
 }
 
-pub fn exchange_delete(channel: u16, exchange_name: &str, flags: Option<ExchangeDeleteFlags>) -> AMQPFrame {
+pub fn exchange_delete(channel: Channel, exchange_name: &str, flags: Option<ExchangeDeleteFlags>) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         EXCHANGE_DELETE,
@@ -707,12 +707,12 @@ pub fn exchange_delete(channel: u16, exchange_name: &str, flags: Option<Exchange
     )
 }
 
-pub fn exchange_delete_ok(channel: u16) -> AMQPFrame {
+pub fn exchange_delete_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, EXCHANGE_DELETE_OK, MethodFrameArgs::ExchangeDeleteOk)
 }
 
 pub fn queue_bind(
-    channel: u16,
+    channel: Channel,
     queue_name: &str,
     exchange_name: &str,
     routing_key: &str,
@@ -731,11 +731,11 @@ pub fn queue_bind(
     )
 }
 
-pub fn queue_bind_ok(channel: u16) -> AMQPFrame {
+pub fn queue_bind_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, QUEUE_BIND_OK, MethodFrameArgs::QueueBindOk)
 }
 
-pub fn queue_purge(channel: u16, queue_name: &str) -> AMQPFrame {
+pub fn queue_purge(channel: Channel, queue_name: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_PURGE,
@@ -746,7 +746,7 @@ pub fn queue_purge(channel: u16, queue_name: &str) -> AMQPFrame {
     )
 }
 
-pub fn queue_purge_ok(channel: u16, message_count: u32) -> AMQPFrame {
+pub fn queue_purge_ok(channel: Channel, message_count: u32) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_PURGE_OK,
@@ -754,7 +754,7 @@ pub fn queue_purge_ok(channel: u16, message_count: u32) -> AMQPFrame {
     )
 }
 
-pub fn queue_delete(channel: u16, queue_name: &str, flags: Option<QueueDeleteFlags>) -> AMQPFrame {
+pub fn queue_delete(channel: Channel, queue_name: &str, flags: Option<QueueDeleteFlags>) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DELETE,
@@ -765,7 +765,7 @@ pub fn queue_delete(channel: u16, queue_name: &str, flags: Option<QueueDeleteFla
     )
 }
 
-pub fn queue_delete_ok(channel: u16, message_count: u32) -> AMQPFrame {
+pub fn queue_delete_ok(channel: Channel, message_count: u32) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DELETE_OK,
@@ -774,7 +774,7 @@ pub fn queue_delete_ok(channel: u16, message_count: u32) -> AMQPFrame {
 }
 
 pub fn queue_unbind(
-    channel: u16,
+    channel: Channel,
     queue_name: &str,
     exchange_name: &str,
     routing_key: &str,
@@ -792,12 +792,12 @@ pub fn queue_unbind(
     )
 }
 
-pub fn queue_unbind_ok(channel: u16) -> AMQPFrame {
+pub fn queue_unbind_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, QUEUE_UNBIND_OK, MethodFrameArgs::QueueUnbindOk)
 }
 
 pub fn queue_declare(
-    channel: u16,
+    channel: Channel,
     queue_name: &str,
     flags: Option<QueueDeclareFlags>,
     args: Option<FieldTable>,
@@ -813,7 +813,7 @@ pub fn queue_declare(
     )
 }
 
-pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, consumer_count: u32) -> AMQPFrame {
+pub fn queue_declare_ok(channel: Channel, queue_name: String, message_count: u32, consumer_count: u32) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         QUEUE_DECLARE_OK,
@@ -826,7 +826,7 @@ pub fn queue_declare_ok(channel: u16, queue_name: String, message_count: u32, co
 }
 
 pub fn basic_consume(
-    channel: u16,
+    channel: Channel,
     queue_name: &str,
     consumer_tag: &str,
     flags: Option<BasicConsumeFlags>,
@@ -844,7 +844,7 @@ pub fn basic_consume(
     )
 }
 
-pub fn basic_consume_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
+pub fn basic_consume_ok(channel: Channel, consumer_tag: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CONSUME_OK,
@@ -854,7 +854,7 @@ pub fn basic_consume_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
     )
 }
 
-pub fn basic_cancel(channel: u16, consumer_tag: &str, no_wait: bool) -> AMQPFrame {
+pub fn basic_cancel(channel: Channel, consumer_tag: &str, no_wait: bool) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CANCEL,
@@ -865,7 +865,7 @@ pub fn basic_cancel(channel: u16, consumer_tag: &str, no_wait: bool) -> AMQPFram
     )
 }
 
-pub fn basic_cancel_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
+pub fn basic_cancel_ok(channel: Channel, consumer_tag: &str) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_CANCEL_OK,
@@ -876,7 +876,7 @@ pub fn basic_cancel_ok(channel: u16, consumer_tag: &str) -> AMQPFrame {
 }
 
 pub fn basic_publish(
-    channel: u16,
+    channel: Channel,
     exchange_name: &str,
     routing_key: &str,
     flags: Option<BasicPublishFlags>,
@@ -893,7 +893,7 @@ pub fn basic_publish(
 }
 
 pub fn basic_return(
-    channel: u16,
+    channel: Channel,
     reply_code: u16,
     reply_text: &str,
     exchange_name: &str,
@@ -912,7 +912,7 @@ pub fn basic_return(
 }
 
 pub fn basic_deliver(
-    channel: u16,
+    channel: Channel,
     consumer_tag: &str,
     delivery_tag: u64,
     redelivered: bool,
@@ -932,7 +932,7 @@ pub fn basic_deliver(
     )
 }
 
-pub fn basic_ack(channel: u16, delivery_tag: u64, multiple: bool) -> AMQPFrame {
+pub fn basic_ack(channel: Channel, delivery_tag: u64, multiple: bool) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_ACK,
@@ -940,7 +940,7 @@ pub fn basic_ack(channel: u16, delivery_tag: u64, multiple: bool) -> AMQPFrame {
     )
 }
 
-pub fn confirm_select(channel: u16, no_wait: bool) -> AMQPFrame {
+pub fn confirm_select(channel: Channel, no_wait: bool) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         CONFIRM_SELECT,
@@ -948,11 +948,11 @@ pub fn confirm_select(channel: u16, no_wait: bool) -> AMQPFrame {
     )
 }
 
-pub fn confirm_select_ok(channel: u16) -> AMQPFrame {
+pub fn confirm_select_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, CONFIRM_SELECT_OK, MethodFrameArgs::ConfirmSelectOk)
 }
 
-pub fn content_header(channel: u16, size: u64) -> ContentHeaderFrame {
+pub fn content_header(channel: Channel, size: u64) -> ContentHeaderFrame {
     ContentHeaderFrame {
         channel,
         class_id: 0x003C,
@@ -963,7 +963,7 @@ pub fn content_header(channel: u16, size: u64) -> ContentHeaderFrame {
     }
 }
 
-pub fn content_body(channel: u16, payload: &[u8]) -> ContentBodyFrame {
+pub fn content_body(channel: Channel, payload: &[u8]) -> ContentBodyFrame {
     ContentBodyFrame {
         channel,
         body: payload.to_vec(),

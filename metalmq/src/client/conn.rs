@@ -39,11 +39,11 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     Ok(())
 }
 
-async fn incoming_loop(mut conn: &mut Connection, mut stream: SplitStream<Framed<TcpStream, AMQPCodec>>) -> Result<()> {
+async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<TcpStream, AMQPCodec>>) -> Result<()> {
     while let Some(data) = stream.next().await {
         trace!("Incoming {data:?}");
 
-        if !handle_in_stream_data(&mut conn, data).await? {
+        if !handle_in_stream_data(conn, data).await? {
             break;
         }
     }
@@ -52,7 +52,7 @@ async fn incoming_loop(mut conn: &mut Connection, mut stream: SplitStream<Framed
 }
 
 async fn incoming_loop_with_heartbeat(
-    mut conn: &mut Connection,
+    conn: &mut Connection,
     mut stream: SplitStream<Framed<TcpStream, AMQPCodec>>,
     heartbeat_duration: Duration,
 ) -> Result<()> {
@@ -81,7 +81,7 @@ async fn incoming_loop_with_heartbeat(
 
                         last_message_received = tokio::time::Instant::now();
 
-                        if !handle_in_stream_data(&mut conn, data).await? {
+                        if !handle_in_stream_data(conn, data).await? {
                             break 'input;
                         }
                     }

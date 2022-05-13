@@ -2,6 +2,7 @@
 
 use super::helper;
 use anyhow::Result;
+use metalmq_client::ExchangeType;
 use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
 
 #[tokio::test]
@@ -63,7 +64,8 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let mut ex_flags = ExchangeDeclareFlags::empty();
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
-    ch.exchange_declare(exchange, "direct", Some(ex_flags)).await?;
+    ch.exchange_declare(exchange, ExchangeType::Direct, Some(ex_flags))
+        .await?;
 
     // TODO write another test to get 405 - resource locker for consuming exclusive queue
     //

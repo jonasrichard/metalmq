@@ -73,7 +73,8 @@ pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: 
     let mut ex_flags = ExchangeDeclareFlags::empty();
     ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
 
-    ch.exchange_declare(exchange, "direct", Some(ex_flags)).await?;
+    ch.exchange_declare(exchange, ExchangeType::Direct, Some(ex_flags))
+        .await?;
     ch.queue_declare(queue, None).await?;
 
     ch.queue_bind(queue, exchange, "").await?;
@@ -87,7 +88,7 @@ pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
     let mut c = default().connect().await?;
     let ch = c.channel_open(1).await?;
 
-    ch.exchange_delete(exchange, false).await?;
+    ch.exchange_delete(exchange, IfUnused(false)).await?;
 
     Ok(())
 }

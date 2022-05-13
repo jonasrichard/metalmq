@@ -5,12 +5,19 @@ use anyhow::Result;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 
-#[derive(Debug)]
 pub struct Channel {
     pub(crate) channel: ChannelNumber,
     pub(crate) sink: ClientRequestSink,
     /// Active consumers by consumer tag
     pub(crate) consumers: HashMap<String, ClientRequest>,
+}
+
+impl std::fmt::Debug for Channel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Channel")
+            .field("channel", &(self.channel as u16))
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -34,6 +41,28 @@ pub(crate) struct DeliveredContent {
     body: Option<Vec<u8>>,
 }
 
+pub enum ExchangeType {
+    Direct,
+    Fanout,
+    Topic,
+    Headers,
+}
+
+impl From<ExchangeType> for &'static str {
+    fn from(et: ExchangeType) -> &'static str {
+        match et {
+            ExchangeType::Direct => "direct",
+            ExchangeType::Fanout => "fanout",
+            ExchangeType::Topic => "topic",
+            ExchangeType::Headers => "headers",
+        }
+    }
+}
+
+pub struct IfUnused(pub bool);
+
+pub struct IfEmpty(pub bool);
+
 impl Channel {
     pub(crate) fn new(channel: ChannelNumber, sink: ClientRequestSink) -> Channel {
         Channel {
@@ -44,22 +73,34 @@ impl Channel {
     }
 
     /// Declare exchange.
+    // TODO make a convenient builder for flags
     pub async fn exchange_declare(
         &self,
         exchange_name: &str,
-        exchange_type: &str,
+        exchange_type: ExchangeType,
         flags: Option<frame::ExchangeDeclareFlags>,
     ) -> Result<()> {
-        let frame = frame::exchange_declare(self.channel, exchange_name, exchange_type, flags, None);
+        let frame = frame::exchange_declare(self.channel, exchange_name, exchange_type.into(), flags, None);
 
         processor::call(&self.sink, frame).await
     }
 
     /// Delete exchange.
-    pub async fn exchange_delete(&self, exchange_name: &str, if_unused: bool) -> Result<()> {
+    ///
+    /// ```no_run
+    /// use metalmq_client::IfUnused;
+    ///
+    /// # async fn foo() {
+    /// let mut c = metalmq_client::connect("localhost:5672", "guest", "guest").await.unwrap();
+    /// let ch = c.channel_open(1).await.unwrap();
+    ///
+    /// ch.exchange_delete("price-exchange", IfUnused(false)).await.unwrap();
+    /// # }
+    /// ```
+    pub async fn exchange_delete(&self, exchange_name: &str, if_unused: IfUnused) -> Result<()> {
         let mut flags = frame::ExchangeDeleteFlags::default();
 
-        if if_unused {
+        if if_unused.0 {
             flags.toggle(frame::ExchangeDeleteFlags::IF_UNUSED);
         }
 
@@ -92,10 +133,10 @@ impl Channel {
         Ok(())
     }
 
-    pub async fn queue_delete(&self, queue_name: &str, if_unused: bool, if_empty: bool) -> Result<()> {
+    pub async fn queue_delete(&self, queue_name: &str, if_unused: IfUnused, if_empty: IfEmpty) -> Result<()> {
         let mut flags = frame::QueueDeleteFlags::empty();
-        flags.set(frame::QueueDeleteFlags::IF_UNUSED, if_unused);
-        flags.set(frame::QueueDeleteFlags::IF_EMPTY, if_empty);
+        flags.set(frame::QueueDeleteFlags::IF_UNUSED, if_unused.0);
+        flags.set(frame::QueueDeleteFlags::IF_EMPTY, if_empty.0);
 
         let frame = frame::queue_delete(self.channel, queue_name, Some(flags));
 

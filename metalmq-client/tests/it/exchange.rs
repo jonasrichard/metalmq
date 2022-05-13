@@ -1,5 +1,6 @@
 use super::helper;
 use anyhow::Result;
+use metalmq_client::{ExchangeType, IfUnused};
 use metalmq_codec::frame::ExchangeDeclareFlags;
 
 #[tokio::test]
@@ -7,8 +8,8 @@ async fn declare_exchange() -> Result<()> {
     let mut c = helper::connect().await?;
     let ch = c.channel_open(7).await?;
 
-    ch.exchange_declare("x-new", "direct", None).await?;
-    ch.exchange_delete("x-new", false).await?;
+    ch.exchange_declare("x-new", ExchangeType::Direct, None).await?;
+    ch.exchange_delete("x-new", IfUnused(false)).await?;
 
     ch.close().await?;
     c.close().await?;
@@ -21,15 +22,16 @@ async fn passive_declare_existing_exchange() -> Result<()> {
     let mut c = helper::connect().await?;
 
     let ch = c.channel_open(7).await?;
-    ch.exchange_declare("x-passive", "direct", None).await?;
+    ch.exchange_declare("x-passive", ExchangeType::Direct, None).await?;
     ch.close().await?;
 
     let ch2 = c.channel_open(8).await?;
     let mut flags = ExchangeDeclareFlags::default();
     flags |= ExchangeDeclareFlags::PASSIVE;
-    ch2.exchange_declare("x-passive", "direct", Some(flags)).await?;
+    ch2.exchange_declare("x-passive", ExchangeType::Direct, Some(flags))
+        .await?;
 
-    ch2.exchange_delete("x-passive", false).await?;
+    ch2.exchange_delete("x-passive", IfUnused(false)).await?;
 
     ch2.close().await?;
     c.close().await?;
@@ -42,11 +44,11 @@ async fn create_exchange_after_delete_the_old() -> Result<()> {
     let mut c = helper::connect().await?;
 
     let ch = c.channel_open(7).await?;
-    ch.exchange_declare("x-del-test", "direct", None).await?;
-    ch.exchange_delete("x-del-test", false).await?;
-    ch.exchange_declare("x-del-test", "fanout", None).await?;
+    ch.exchange_declare("x-del-test", ExchangeType::Direct, None).await?;
+    ch.exchange_delete("x-del-test", IfUnused(false)).await?;
+    ch.exchange_declare("x-del-test", ExchangeType::Fanout, None).await?;
 
-    ch.exchange_delete("x-del-test", false).await?;
+    ch.exchange_delete("x-del-test", IfUnused(false)).await?;
 
     ch.close().await?;
     c.close().await?;
@@ -60,9 +62,9 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
 
     let ch = c.channel_open(9).await?;
     //ch.exchange_delete("x-conflict", false).await?;
-    ch.exchange_declare("x-conflict", "direct", None).await?;
+    ch.exchange_declare("x-conflict", ExchangeType::Direct, None).await?;
 
-    let result = ch.exchange_declare("x-conflict", "fanout", None).await;
+    let result = ch.exchange_declare("x-conflict", ExchangeType::Fanout, None).await;
 
     assert!(result.is_err());
 
@@ -86,7 +88,7 @@ async fn delete_not_existing_exchange_error_404() -> Result<()> {
     let mut c = helper::connect().await?;
     let ch = c.channel_open(9).await?;
 
-    let result = ch.exchange_delete("x-not-existing", false).await;
+    let result = ch.exchange_delete("x-not-existing", IfUnused(false)).await;
 
     assert!(result.is_err());
 
@@ -106,11 +108,11 @@ async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
     let ch = c.channel_open(14).await?;
     //ch.exchange_delete("x-used", false).await?;
 
-    ch.exchange_declare("x-used", "fanout", None).await?;
+    ch.exchange_declare("x-used", ExchangeType::Fanout, None).await?;
     ch.queue_declare("q-used", None).await?;
     ch.queue_bind("q-used", "x-used", "").await?;
 
-    let result = ch.exchange_delete("x-used", true).await;
+    let result = ch.exchange_delete("x-used", IfUnused(true)).await;
     assert!(result.is_err());
 
     let err = helper::to_client_error(result);
@@ -131,7 +133,7 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
 
     let mut flags = ExchangeDeclareFlags::default();
     flags |= ExchangeDeclareFlags::AUTO_DELETE;
-    ch.exchange_declare("x-autodel", "topic", None).await?;
+    ch.exchange_declare("x-autodel", ExchangeType::Topic, None).await?;
     ch.queue_declare("q-autodel", None).await?;
     ch.queue_bind("q-autodel", "x-autodel", "").await?;
 
@@ -146,7 +148,7 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
 
     let mut passive = ExchangeDeclareFlags::default();
     passive |= ExchangeDeclareFlags::PASSIVE;
-    let result = ch.exchange_declare("x-autodel", "topic", Some(flags)).await;
+    let result = ch.exchange_declare("x-autodel", ExchangeType::Topic, Some(flags)).await;
 
     assert!(result.is_err());
 

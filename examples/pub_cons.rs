@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
 
     let publisher = client.channel_open(1).await?;
 
-    publisher.exchange_declare(exchange, "direct", None).await?;
+    publisher.exchange_declare(exchange, ExchangeType::Direct, None).await?;
     publisher.queue_declare(queue, None).await?;
     publisher.queue_bind(queue, exchange, "").await?;
 

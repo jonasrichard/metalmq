@@ -120,12 +120,14 @@ async fn create_connection(url: &str) -> Result<ClientRequestSink> {
 }
 
 impl Client {
+    /// Open a channel in the current connection.
     pub async fn channel_open(&mut self, channel: ChannelNumber) -> Result<Channel> {
         processor::call(&self.request_sink, frame::channel_open(channel)).await?;
 
         Ok(Channel::new(channel, self.request_sink.clone()))
     }
 
+    /// Closes the channel normally.
     pub async fn close(&mut self) -> Result<()> {
         let fr = frame::connection_close(0, 200, "Normal close", 0, 0);
 
