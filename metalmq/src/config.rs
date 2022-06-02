@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use serde_derive::Deserialize;
 
 pub(crate) struct CliConfig {
@@ -23,13 +23,13 @@ pub(crate) fn parse_config(path: &str) -> Result<Config> {
 }
 
 pub(crate) fn cli() -> CliConfig {
-    let matches = App::new("MetalMQ server")
+    let matches = Command::new("MetalMQ server")
         .version("0.2.1")
         .author("Richard Jonas <richard.jonas.76@gmail.com>")
         .about("AMQP compatible messaging queue server")
         .arg(
-            Arg::with_name("config")
-                .short("c")
+            Arg::new("config")
+                .short('c')
                 .value_name("FILE")
                 .help("Path to the config file")
                 .takes_value(true),

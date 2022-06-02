@@ -84,7 +84,7 @@ macro_rules! handle_error {
 }
 
 pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
-    let conn_id = Uuid::new_v4().to_hyphenated().to_string();
+    let conn_id = Uuid::new_v4().as_hyphenated().to_string();
 
     info!("Client connected id = {conn_id}");
 

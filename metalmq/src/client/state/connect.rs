@@ -23,6 +23,7 @@ impl Connection {
                 password.map(String::from_utf8_lossy)
             );
 
+            // TODO get users from config file
             if let (Some(b"guest"), Some(b"guest")) = (username, password) {
                 authenticated = true;
             }
@@ -57,10 +58,12 @@ impl Connection {
     }
 
     pub async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> Result<()> {
+        // TODO in case of virtual host which exists but the client doesn't have permission to work
+        // with we need to send back an access-refused connection error.
         if args.virtual_host != "/" {
             self.send_frame(client::connection_error_frame(
                 frame::CONNECTION_OPEN,
-                ConnectionError::NotAllowed,
+                ConnectionError::InvalidPath,
                 "Cannot connect to virtualhost",
             ))
             .await
@@ -91,9 +94,5 @@ impl Connection {
         }
 
         self.send_frame(Frame::Frame(frame::connection_close_ok(0))).await
-    }
-
-    pub async fn send_heartbeat(&self) -> Result<()> {
-        self.send_frame(Frame::Frame(frame::heartbeat())).await
     }
 }

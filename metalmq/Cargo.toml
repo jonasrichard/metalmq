@@ -16,7 +16,7 @@ integration-tests = []
 [dependencies]
 anyhow = "1.0"
 bytes = "1"
-clap = "2"
+clap = "3"
 env_logger = "0.9"
 futures = "0.3"
 hyper = { version = "0.14", features = ["full"] }
@@ -27,9 +27,9 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "signal", "sync"] }
-tokio-util = { version = "0.6", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 toml = "0.5"
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 bencher = "0.1"
