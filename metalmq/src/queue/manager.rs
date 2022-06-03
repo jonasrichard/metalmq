@@ -335,61 +335,43 @@ impl QueueManagerState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::tests;
-    use std::sync::Arc;
+
+    fn new_queue_manager() -> QueueManagerState {
+        let (em_tx, _em_rx) = mpsc::channel(1);
+        let (_cmd_tx, cmd_rx) = mpsc::channel(1);
+
+        QueueManagerState {
+            command_stream: cmd_rx,
+            queues: HashMap::new(),
+            exchange_manager: em_tx,
+        }
+    }
+
+    fn queue_declare_command(channel: u16, queue_name: &str) -> QueueDeclareCommand {
+        QueueDeclareCommand {
+            queue: Queue {
+                name: queue_name.to_string(),
+                durable: false,
+                exclusive: false,
+                auto_delete: false,
+            },
+            conn_id: "conn_id".to_string(),
+            channel,
+        }
+    }
 
     #[tokio::test]
-    async fn declare_queue_works() {
-        let (em_tx, em_rx) = mpsc::channel(1);
-        let queue_sink = start(em_tx);
-        let queue = Queue {
-            name: "new-queue".to_string(),
-            ..Default::default()
-        };
+    async fn queue_declare_manager_test() {
+        let mut qm = new_queue_manager();
 
-        let cmd = QueueDeclareCommand {
-            queue,
-            conn_id: "conn_id".to_string(),
-            channel: 4u16,
-        };
-        declare_queue(&queue_sink, cmd).await.unwrap();
+        qm.handle_declare(queue_declare_command(7u16, "test-queue"))
+            .await
+            .unwrap();
 
-        let cmd = GetQueueSinkQuery {
-            channel: 4u16,
-            queue_name: "new-queue".to_string(),
-        };
-        let _ = get_command_sink(&queue_sink, cmd).await.unwrap();
+        assert_eq!(qm.queues.len(), 1);
 
-        // TODO this part of the test is about consuming
-        //let mut message = tests::empty_message();
-        //message.content.body = b"Heyya".to_vec();
-        //message.routing_key = "new-queue".to_owned();
-
-        //let (tx, mut rx) = mpsc::channel(16);
-        //let cmd = QueueConsumeCommand {
-        //    conn_id: "conn_id".to_string(),
-        //    channel: 4u16,
-        //    queue_name: "new-queue".to_string(),
-        //    consumer_tag: "ctag".to_string(),
-        //    no_ack: false,
-        //    exclusive: false,
-        //    outgoing: tx,
-        //};
-        //consume(&queue_sink, cmd).await.unwrap();
-
-        //qsink
-        //    .send(QueueCommand::PublishMessage(Arc::new(message)))
-        //    .await
-        //    .unwrap();
-
-        //let frames = rx.recv().await.unwrap();
-
-        //if let Frame::Frames(fs) = frames {
-        //    // TODO make an assert function for checking the 3 frames
-        //    assert_eq!(fs.len(), 3);
-        //    // TODO it would be nice to have some function we can match the enum inside the method
-        //    // frame like `let arg = get_arg_from_frame<T>(fs[0])` it should panic if it is not a
-        //    // method frame and later we can assert or `assert!(matches!(arg, BasicCancelArgs {}))`
-        //}
+        let queue_info = qm.queues.get("test-queue").unwrap();
+        assert_eq!(queue_info.queue.name, "test-queue".to_string());
+        assert_eq!(queue_info.queue.exclusive, false);
     }
 }

@@ -159,3 +159,40 @@ async fn publish_to_queue_with_one_consumer() {
         assert!(false, "Basic.Delivery frame is expected");
     }
 }
+
+#[tokio::test]
+async fn cannot_delete_non_empty_queue_if_empty_true() {
+    use crate::RuntimeError;
+
+    let test_case = TestCase::default();
+    let message = test_case.default_message();
+    let mut qs = test_case.default_queue_state();
+
+    qs.handle_command(QueueCommand::PublishMessage(Arc::new(message)))
+        .await
+        .unwrap();
+
+    let (em_tx, _em_rx) = mpsc::channel(1);
+    let (del_tx, del_rx) = oneshot::channel();
+    let del_result = qs
+        .handle_command(QueueCommand::DeleteQueue {
+            channel: 5u16,
+            if_unused: false,
+            if_empty: true,
+            exchange_manager: em_tx,
+            result: del_tx,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(del_result, true);
+
+    let del_cmd_result = del_rx.await.unwrap();
+    assert!(del_cmd_result.is_err());
+
+    let err = del_cmd_result.unwrap_err().downcast::<RuntimeError>().unwrap();
+    assert_eq!(err.code, ChannelError::PreconditionFailed as u16);
+    assert_eq!(err.text, "Queue is not empty".to_string());
+
+    // we could check if exchange manager gets the unbind command for that queue
+}
