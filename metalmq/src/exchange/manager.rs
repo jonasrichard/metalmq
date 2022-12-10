@@ -3,7 +3,7 @@ use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
-use log::{debug, error};
+use log::{debug, error, info};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -48,12 +48,18 @@ pub struct DeleteExchangeCommand {
 }
 
 #[derive(Debug)]
+pub struct QueueDeletedEvent {
+    pub queue_name: String,
+}
+
+#[derive(Debug)]
 pub enum ExchangeManagerCommand {
     DeclareExchange(DeclareExchangeCommand, oneshot::Sender<Result<ExchangeCommandSink>>),
     BindQueue(BindQueueCommand, oneshot::Sender<Result<()>>),
     UnbindQueue(UnbindQueueCommand, oneshot::Sender<Result<()>>),
     DeleteExchange(DeleteExchangeCommand, oneshot::Sender<Result<()>>),
     GetExchanges(oneshot::Sender<Vec<Exchange>>),
+    QueueDeleted(QueueDeletedEvent, oneshot::Sender<Result<()>>),
 }
 
 pub type ExchangeManagerSink = mpsc::Sender<ExchangeManagerCommand>;
@@ -120,6 +126,14 @@ pub async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
     }
 }
 
+pub async fn queue_deleted(mgr: &ExchangeManagerSink, evt: QueueDeletedEvent) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+
+    mgr.send(ExchangeManagerCommand::QueueDeleted(evt, tx)).await?;
+
+    rx.await?
+}
+
 // -------------------------------------------------------------------
 
 struct ExchangeManagerState {
@@ -154,6 +168,9 @@ impl ExchangeManagerState {
             }
             GetExchanges(tx) => {
                 logerr!(tx.send(self.handle_exchange_list()));
+            }
+            QueueDeleted(evt, tx) => {
+                logerr!(tx.send(self.handle_queue_deleted(evt).await));
             }
         }
     }
@@ -228,6 +245,8 @@ impl ExchangeManagerState {
     }
 
     async fn handle_unbind_queue(&self, command: UnbindQueueCommand) -> Result<()> {
+        info!("Unbind queue {:?}", command);
+
         match self.exchanges.get(&command.exchange_name) {
             Some(exchange_state) => {
                 let (tx, rx) = oneshot::channel();
@@ -285,6 +304,22 @@ impl ExchangeManagerState {
 
     fn handle_exchange_list(&self) -> Vec<Exchange> {
         self.exchanges.values().map(|e| e.exchange.clone()).collect()
+    }
+
+    async fn handle_queue_deleted(&mut self, evt: QueueDeletedEvent) -> Result<()> {
+        for (_, exchange) in &self.exchanges {
+            let (tx, rx) = oneshot::channel();
+
+            let cmd = ExchangeCommand::QueueDeleted {
+                queue_name: evt.queue_name.clone(),
+                result: tx,
+            };
+            exchange.command_sink.send(cmd).await.unwrap();
+
+            rx.await?
+        }
+
+        Ok(())
     }
 }
 

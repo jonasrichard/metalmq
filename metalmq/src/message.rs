@@ -16,7 +16,11 @@ pub struct Message {
     pub channel: frame::Channel,
     pub exchange: String,
     pub routing_key: String,
+    /// If message is mandatory but there is no queue bound to the exchange, the server sends the
+    /// undeliverable message with a basic return method.
     pub mandatory: bool,
+    /// If message is immediate and it can be sent to a queue but there is no consumer on the
+    /// queue, the server returns an undeliverable message with a basic return method.
     pub immediate: bool,
     pub content: MessageContent,
 }

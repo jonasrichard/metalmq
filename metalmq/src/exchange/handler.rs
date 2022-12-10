@@ -3,7 +3,7 @@ use crate::exchange::{Exchange, ExchangeType};
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
-use log::{debug, error, trace};
+use log::{debug, error, info, trace, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFieldValue, FieldTable};
 use std::collections::HashMap;
@@ -41,6 +41,10 @@ pub enum ExchangeCommand {
         channel: u16,
         if_unused: bool,
         result: oneshot::Sender<Result<()>>,
+    },
+    QueueDeleted {
+        queue_name: String,
+        result: oneshot::Sender<()>,
     },
 }
 
@@ -204,6 +208,23 @@ impl Bindings {
         false
     }
 
+    fn remove_queue(&mut self, queue_name: String) {
+        match self {
+            Bindings::Direct(bs) => {
+                bs.retain(|b| b.queue_name != queue_name);
+            }
+            Bindings::Fanout(bs) => {
+                bs.retain(|b| b.queue_name != queue_name);
+            }
+            Bindings::Topic(bs) => {
+                bs.retain(|b| b.queue_name != queue_name);
+            }
+            Bindings::Headers(bs) => {
+                bs.retain(|b| b.queue_name != queue_name);
+            }
+        }
+    }
+
     fn is_empty(&self) -> bool {
         match self {
             Bindings::Direct(bs) => bs.is_empty(),
@@ -295,6 +316,11 @@ impl ExchangeState {
                 routing_key,
                 result,
             } => {
+                info!(
+                    "Unbinding queue {} exchange {} routing key {}",
+                    queue_name, self.exchange.name, routing_key
+                );
+
                 let sink = match self.exchange.exchange_type {
                     ExchangeType::Direct => self.bindings.remove_direct_binding(routing_key, queue_name),
                     ExchangeType::Topic => self.bindings.remove_topic_binding(routing_key, queue_name),
@@ -378,6 +404,13 @@ impl ExchangeState {
                     Ok(false)
                 }
             }
+            ExchangeCommand::QueueDeleted { queue_name, result } => {
+                self.bindings.remove_queue(queue_name);
+
+                logerr!(result.send(()));
+
+                Ok(true)
+            }
         }
     }
 
@@ -392,6 +425,10 @@ impl ExchangeState {
                 for binding in bs {
                     if binding.routing_key == shared_message.routing_key {
                         debug!("Routing message to {}", binding.queue_name);
+
+                        if binding.queue.is_closed() {
+                            warn!("Queue channel is closed {:?}", binding);
+                        }
 
                         logerr!(
                             binding

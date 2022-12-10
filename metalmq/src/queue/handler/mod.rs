@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::client::{channel_error, ChannelError};
-use crate::exchange::manager::{self as em, ExchangeManagerSink, UnbindQueueCommand};
+use crate::exchange::manager::{self as em, ExchangeManagerSink, QueueDeletedEvent, UnbindQueueCommand};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
@@ -17,9 +17,12 @@ use tokio::sync::{mpsc, oneshot};
 
 pub type QueueCommandSink = mpsc::Sender<QueueCommand>;
 
+/// Delivery tag of a message
 #[derive(Clone, Debug)]
 pub struct Tag {
+    /// The identifier of the consumer
     pub consumer_tag: String,
+    /// The delivery tag - usually a monotonic number
     pub delivery_tag: u64,
 }
 
@@ -339,6 +342,7 @@ impl QueueState {
                             ChannelError::PreconditionFailed,
                             "Queue is consumed"
                         )));
+
                         return Ok(true);
                     }
 
@@ -349,6 +353,7 @@ impl QueueState {
                             ChannelError::PreconditionFailed,
                             "Exchanges are bound to this queue"
                         )));
+
                         return Ok(true);
                     }
                 }
@@ -364,16 +369,16 @@ impl QueueState {
                     return Ok(true);
                 }
 
+                // FIXME: here we need to send over the routing key or any binding parameter for
+                // correctly unbind the queue from the exchange
+
                 // Notify all exchanges about the delete, so they can unbound themselves.
                 for exchange_name in &self.bound_exchanges {
-                    let unbind_cmd = UnbindQueueCommand {
-                        channel,
-                        exchange_name: exchange_name.clone(),
+                    let queue_deleted_evt = QueueDeletedEvent {
                         queue_name: self.queue.name.clone(),
-                        routing_key: "".to_owned(),
                     };
 
-                    logerr!(em::unbind_queue(&exchange_manager, unbind_cmd).await);
+                    logerr!(em::queue_deleted(&exchange_manager, queue_deleted_evt).await);
                 }
 
                 // Cancel all consumers by sending a basic cancel.
