@@ -298,6 +298,8 @@ impl ExchangeState {
 
                 debug!("Bindings {:?}", self.bindings);
 
+                // FIXME here there is a possible race condition, sink might be closed!
+                // Don't know how.
                 if bind_result {
                     logerr!(send!(
                         sink,
@@ -406,6 +408,8 @@ impl ExchangeState {
             }
             ExchangeCommand::QueueDeleted { queue_name, result } => {
                 self.bindings.remove_queue(queue_name);
+
+                debug!("{:?}", self.bindings);
 
                 logerr!(result.send(()));
 

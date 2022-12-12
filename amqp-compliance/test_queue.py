@@ -24,10 +24,13 @@ def test_queue_delete_unbinds_exchange():
 
         channel.add_on_return_callback(on_return)
         channel.confirm_delivery()
-        channel.basic_publish(
-                "silent-unbind-exchange",
-                "routing-key",
-                "Should be unrouted",
-                mandatory=True)
 
-        assert returned
+        breakpoint()
+        with pytest.raises(pika.exceptions.UnroutableError) as exp:
+            channel.basic_publish(
+                    "silent-unbind-exchange",
+                    "routing-key",
+                    "Should be unrouted",
+                    mandatory=True)
+
+        assert exp.messages.len() == 1
