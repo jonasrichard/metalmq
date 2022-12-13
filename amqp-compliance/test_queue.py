@@ -25,7 +25,6 @@ def test_queue_delete_unbinds_exchange():
         channel.add_on_return_callback(on_return)
         channel.confirm_delivery()
 
-        breakpoint()
         with pytest.raises(pika.exceptions.UnroutableError) as exp:
             channel.basic_publish(
                     "silent-unbind-exchange",
@@ -33,4 +32,10 @@ def test_queue_delete_unbinds_exchange():
                     "Should be unrouted",
                     mandatory=True)
 
-        assert exp.messages.len() == 1
+        assert 1 == len(exp.value.messages)
+
+        msg = exp.value.messages[0]
+        assert 312 == msg.method.reply_code
+        assert "NO_ROUTE" == msg.method.reply_text
+        assert "routing-key" == msg.method.routing_key
+        assert "silent-unbind-exchange" == msg.method.exchange

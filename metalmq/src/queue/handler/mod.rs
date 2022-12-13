@@ -369,11 +369,8 @@ impl QueueState {
                     return Ok(true);
                 }
 
-                // FIXME: here we need to send over the routing key or any binding parameter for
-                // correctly unbind the queue from the exchange
-
                 // Notify all exchanges about the delete, so they can unbound themselves.
-                for exchange_name in &self.bound_exchanges {
+                for _ in &self.bound_exchanges {
                     let queue_deleted_evt = QueueDeletedEvent {
                         queue_name: self.queue.name.clone(),
                     };

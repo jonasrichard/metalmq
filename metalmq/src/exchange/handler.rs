@@ -289,6 +289,10 @@ impl ExchangeState {
                 sink,
                 result,
             } => {
+                if sink.is_closed() {
+                    error!("Queue sink receiver is closed {}", queue_name);
+                }
+
                 let bind_result = match self.exchange.exchange_type {
                     ExchangeType::Direct => self.bindings.add_direct_binding(routing_key, queue_name, sink.clone()),
                     ExchangeType::Topic => self.bindings.add_topic_binding(routing_key, queue_name, sink.clone()),

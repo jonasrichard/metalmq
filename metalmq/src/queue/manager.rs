@@ -239,7 +239,7 @@ impl QueueManagerState {
     }
 
     async fn handle_delete(&mut self, command: QueueDeleteCommand) -> Result<u32> {
-        match self.queues.get(&command.queue_name) {
+        match self.queues.remove(&command.queue_name) {
             Some(queue) => {
                 let (tx, rx) = oneshot::channel();
 
