@@ -348,7 +348,7 @@ mod tests {
 
     #[tokio::test]
     async fn passive_declare_exchange_does_not_exists_channel_error() {
-        let (cmd_tx, cmd_rx) = mpsc::channel(1);
+        let (_cmd_tx, cmd_rx) = mpsc::channel(1);
         let mut manager = ExchangeManagerState {
             command_stream: cmd_rx,
             exchanges: HashMap::new(),
@@ -373,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     async fn declare_exchange_exists_fields_different_error() {
-        let (cmd_tx, cmd_rx) = mpsc::channel(1);
+        let (_cmd_tx, cmd_rx) = mpsc::channel(1);
         let mut manager = ExchangeManagerState {
             command_stream: cmd_rx,
             exchanges: HashMap::new(),
@@ -415,7 +415,7 @@ mod tests {
 
     #[tokio::test]
     async fn declare_exchange_does_not_exist_created() {
-        let (cmd_tx, cmd_rx) = mpsc::channel(1);
+        let (_cmd_tx, cmd_rx) = mpsc::channel(1);
         let mut manager = ExchangeManagerState {
             command_stream: cmd_rx,
             exchanges: HashMap::new(),

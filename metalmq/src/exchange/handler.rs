@@ -3,7 +3,7 @@ use crate::exchange::{Exchange, ExchangeType};
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFieldValue, FieldTable};
 use std::collections::HashMap;
@@ -11,12 +11,6 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
-
-#[derive(Debug)]
-pub enum MessageSentResult {
-    None,
-    MessageNotRouted(Box<Message>),
-}
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -76,6 +70,9 @@ struct HeadersBinding {
     queue: QueueCommandSink,
 }
 
+/// Represents exchange-queue binding. In one binding the different binding types should be of the
+/// same type. The Bindings type will keep those invariants during adding new binding, removing old
+/// ones.
 #[derive(Debug)]
 enum Bindings {
     Direct(Vec<DirectBinding>),
@@ -85,6 +82,8 @@ enum Bindings {
 }
 
 impl Bindings {
+    /// Add a new direct binding to the binding list. If that queue with the given routing key is
+    /// already bound, it returns `false`.
     fn add_direct_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
         if let Bindings::Direct(bs) = self {
             if bs
@@ -289,10 +288,6 @@ impl ExchangeState {
                 sink,
                 result,
             } => {
-                if sink.is_closed() {
-                    error!("Queue sink receiver is closed {}", queue_name);
-                }
-
                 let bind_result = match self.exchange.exchange_type {
                     ExchangeType::Direct => self.bindings.add_direct_binding(routing_key, queue_name, sink.clone()),
                     ExchangeType::Topic => self.bindings.add_topic_binding(routing_key, queue_name, sink.clone()),
@@ -300,10 +295,6 @@ impl ExchangeState {
                     ExchangeType::Headers => self.bindings.add_headers_binding(queue_name, args, sink.clone()),
                 };
 
-                debug!("Bindings {:?}", self.bindings);
-
-                // FIXME here there is a possible race condition, sink might be closed!
-                // Don't know how.
                 if bind_result {
                     logerr!(send!(
                         sink,
@@ -433,10 +424,6 @@ impl ExchangeState {
                 for binding in bs {
                     if binding.routing_key == shared_message.routing_key {
                         debug!("Routing message to {}", binding.queue_name);
-
-                        if binding.queue.is_closed() {
-                            warn!("Queue channel is closed {:?}", binding);
-                        }
 
                         logerr!(
                             binding
@@ -642,8 +629,8 @@ mod tests {
         assert!(res.is_ok());
 
         match recv_timeout(&mut msg_rx).await {
-            Some(Frame::Frame(br)) => assert!(true),
-            Some(Frame::Frames(fs)) => if let frame::AMQPFrame::Method(ch, cm, args) = fs.get(0).unwrap() {},
+            Some(Frame::Frame(_br)) => assert!(true),
+            Some(Frame::Frames(fs)) => if let frame::AMQPFrame::Method(_ch, _cm, _args) = fs.get(0).unwrap() {},
             None => assert!(false, "Basic.Return frame is expected"),
         }
     }

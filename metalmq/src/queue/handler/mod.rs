@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::client::{channel_error, ChannelError};
-use crate::exchange::manager::{self as em, ExchangeManagerSink, QueueDeletedEvent, UnbindQueueCommand};
+use crate::exchange::manager::{self as em, ExchangeManagerSink, QueueDeletedEvent};
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
