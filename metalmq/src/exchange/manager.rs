@@ -24,6 +24,7 @@ pub struct DeclareExchangeCommand {
 
 #[derive(Debug)]
 pub struct BindQueueCommand {
+    pub conn_id: String,
     pub channel: u16,
     pub exchange_name: String,
     pub queue_name: String,
@@ -34,6 +35,7 @@ pub struct BindQueueCommand {
 
 #[derive(Debug)]
 pub struct UnbindQueueCommand {
+    pub conn_id: String,
     pub channel: u16,
     pub exchange_name: String,
     pub queue_name: String,
@@ -228,6 +230,8 @@ impl ExchangeManagerState {
                 let (tx, rx) = oneshot::channel();
 
                 let cmd = ExchangeCommand::QueueBind {
+                    conn_id: command.conn_id,
+                    channel: command.channel,
                     queue_name: command.queue_name.to_string(),
                     routing_key: command.routing_key.to_string(),
                     args: command.args,
@@ -252,6 +256,7 @@ impl ExchangeManagerState {
                 let (tx, rx) = oneshot::channel();
 
                 let cmd = ExchangeCommand::QueueUnbind {
+                    channel: command.channel,
                     queue_name: command.queue_name.to_string(),
                     routing_key: command.routing_key.to_string(),
                     result: tx,

@@ -1,13 +1,13 @@
-use crate::client;
+use super::binding::Bindings;
+use crate::client::{self, channel_error, ChannelError};
 use crate::exchange::{Exchange, ExchangeType};
 use crate::message::{self, Message};
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
 use log::{debug, error, info, trace};
 use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, AMQPFieldValue, FieldTable};
+use metalmq_codec::frame::{self, FieldTable};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
@@ -20,16 +20,19 @@ pub enum ExchangeCommand {
         outgoing: mpsc::Sender<Frame>,
     },
     QueueBind {
+        conn_id: String,
+        channel: u16,
         queue_name: String,
         routing_key: String,
         args: Option<FieldTable>,
         sink: QueueCommandSink,
-        result: oneshot::Sender<bool>,
+        result: oneshot::Sender<Result<bool>>,
     },
     QueueUnbind {
+        channel: u16,
         queue_name: String,
         routing_key: String,
-        result: oneshot::Sender<bool>,
+        result: oneshot::Sender<Result<bool>>,
     },
     Delete {
         channel: u16,
@@ -43,201 +46,20 @@ pub enum ExchangeCommand {
 }
 
 #[derive(Debug)]
-struct DirectBinding {
-    routing_key: String,
-    queue_name: String,
-    queue: QueueCommandSink,
-}
-
-#[derive(Debug)]
-struct FanoutBinding {
-    queue_name: String,
-    queue: QueueCommandSink,
-}
-
-#[derive(Debug)]
-struct TopicBinding {
-    routing_key: String,
-    queue_name: String,
-    queue: QueueCommandSink,
-}
-
-#[derive(Debug)]
-struct HeadersBinding {
-    headers: HashMap<String, AMQPFieldValue>,
-    x_match_all: bool,
-    queue_name: String,
-    queue: QueueCommandSink,
-}
-
-/// Represents exchange-queue binding. In one binding the different binding types should be of the
-/// same type. The Bindings type will keep those invariants during adding new binding, removing old
-/// ones.
-#[derive(Debug)]
-enum Bindings {
-    Direct(Vec<DirectBinding>),
-    Fanout(Vec<FanoutBinding>),
-    Topic(Vec<TopicBinding>),
-    Headers(Vec<HeadersBinding>),
-}
-
-impl Bindings {
-    /// Add a new direct binding to the binding list. If that queue with the given routing key is
-    /// already bound, it returns `false`.
-    fn add_direct_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
-        if let Bindings::Direct(bs) = self {
-            if bs
-                .iter()
-                .any(|b| b.routing_key == routing_key && b.queue_name == queue_name)
-            {
-                // routing key and queue name are already bound
-                return false;
-            }
-
-            bs.push(DirectBinding {
-                routing_key,
-                queue_name,
-                queue,
-            });
-
-            return true;
-        }
-
-        false
-    }
-
-    fn remove_direct_binding(&mut self, routing_key: String, queue_name: String) -> Option<QueueCommandSink> {
-        if let Bindings::Direct(bs) = self {
-            if let Some(p) = bs
-                .iter()
-                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
-            {
-                let binding = bs.remove(p);
-
-                return Some(binding.queue);
-            }
-        }
-
-        None
-    }
-
-    fn add_topic_binding(&mut self, routing_key: String, queue_name: String, queue: QueueCommandSink) -> bool {
-        if let Bindings::Topic(bs) = self {
-            if bs
-                .iter()
-                .any(|b| b.routing_key == routing_key && b.queue_name == queue_name)
-            {
-                // routing key and queue name are already bound
-                return false;
-            }
-
-            bs.push(TopicBinding {
-                routing_key,
-                queue_name,
-                queue,
-            });
-
-            return true;
-        }
-
-        false
-    }
-
-    fn remove_topic_binding(&mut self, routing_key: String, queue_name: String) -> Option<QueueCommandSink> {
-        if let Bindings::Topic(bs) = self {
-            if let Some(p) = bs
-                .iter()
-                .position(|b| b.routing_key == routing_key && b.queue_name == queue_name)
-            {
-                let binding = bs.remove(p);
-
-                return Some(binding.queue);
-            }
-        }
-
-        None
-    }
-
-    fn add_fanout_binding(&mut self, queue_name: String, queue: QueueCommandSink) -> bool {
-        if let Bindings::Fanout(bs) = self {
-            if bs.iter().any(|b| b.queue_name == queue_name) {
-                return false;
-            }
-
-            bs.push(FanoutBinding { queue_name, queue });
-
-            return true;
-        }
-
-        false
-    }
-
-    fn remove_fanout_binding(&mut self, queue_name: String) -> Option<QueueCommandSink> {
-        if let Bindings::Fanout(bs) = self {
-            if let Some(p) = bs.iter().position(|b| b.queue_name == queue_name) {
-                let binding = bs.remove(p);
-
-                return Some(binding.queue);
-            }
-        }
-
-        None
-    }
-
-    fn add_headers_binding(
-        &mut self,
-        queue_name: String,
-        args: Option<frame::FieldTable>,
-        queue: QueueCommandSink,
-    ) -> bool {
-        // TODO here we can send back error, if there are no headers
-        if args.is_none() {
-            return false;
-        }
-
-        if let Bindings::Headers(bs) = self {
-            // TODO check if there is another binding with the exact same headers
-            let hb = header_binding_from_field_table(args.unwrap(), queue_name, queue);
-
-            bs.push(hb);
-
-            return true;
-        }
-
-        false
-    }
-
-    fn remove_queue(&mut self, queue_name: String) {
-        match self {
-            Bindings::Direct(bs) => {
-                bs.retain(|b| b.queue_name != queue_name);
-            }
-            Bindings::Fanout(bs) => {
-                bs.retain(|b| b.queue_name != queue_name);
-            }
-            Bindings::Topic(bs) => {
-                bs.retain(|b| b.queue_name != queue_name);
-            }
-            Bindings::Headers(bs) => {
-                bs.retain(|b| b.queue_name != queue_name);
-            }
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        match self {
-            Bindings::Direct(bs) => bs.is_empty(),
-            Bindings::Topic(bs) => bs.is_empty(),
-            Bindings::Fanout(bs) => bs.is_empty(),
-            Bindings::Headers(bs) => bs.is_empty(),
-        }
-    }
+pub struct QueueInfo {
+    pub queue_name: String,
+    pub declaring_connection: String,
+    pub exclusive: bool,
+    pub durable: bool,
+    pub auto_delete: bool,
 }
 
 struct ExchangeState {
     exchange: super::Exchange,
     /// Queue bindings
     bindings: Bindings,
+    /// Bound queues
+    bound_queues: HashMap<String, QueueInfo>,
 }
 
 pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCommand>) {
@@ -245,12 +67,8 @@ pub async fn start(exchange: Exchange, commands: &mut mpsc::Receiver<ExchangeCom
 
     ExchangeState {
         exchange,
-        bindings: match et {
-            ExchangeType::Direct => Bindings::Direct(vec![]),
-            ExchangeType::Fanout => Bindings::Fanout(vec![]),
-            ExchangeType::Topic => Bindings::Topic(vec![]),
-            ExchangeType::Headers => Bindings::Headers(vec![]),
-        },
+        bindings: Bindings::new(et),
+        bound_queues: HashMap::new(),
     }
     .exchange_loop(commands)
     .await
@@ -273,7 +91,7 @@ impl ExchangeState {
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
             ExchangeCommand::Message { message, outgoing } => {
-                if let Some(failed_message) = self.route_message(message).await? {
+                if let Some(failed_message) = self.bindings.route_message(message).await? {
                     if failed_message.mandatory {
                         message::send_basic_return(failed_message, &outgoing).await?;
                     }
@@ -282,12 +100,32 @@ impl ExchangeState {
                 Ok(true)
             }
             ExchangeCommand::QueueBind {
+                conn_id,
+                channel,
                 queue_name,
                 routing_key,
                 args,
                 sink,
                 result,
             } => {
+                let (queue_info_tx, queue_info_rx) = oneshot::channel();
+
+                sink.send(QueueCommand::GetInfo { result: queue_info_tx });
+
+                let queue_info = queue_info_rx.await.unwrap();
+
+                if conn_id != queue_info.declaring_connection {
+                    result.send(channel_error(
+                        channel,
+                        frame::QUEUE_BIND,
+                        ChannelError::AccessRefused,
+                        "Exclusive queue belongs to another connections",
+                    ));
+
+                    return Ok(true);
+                }
+
+                // TODO refactor this to Bindings
                 let bind_result = match self.exchange.exchange_type {
                     ExchangeType::Direct => self.bindings.add_direct_binding(routing_key, queue_name, sink.clone()),
                     ExchangeType::Topic => self.bindings.add_topic_binding(routing_key, queue_name, sink.clone()),
@@ -296,19 +134,29 @@ impl ExchangeState {
                 };
 
                 if bind_result {
+                    self.bound_queues.insert(queue_info.queue_name.clone(), queue_info);
+
+                    let (tx, rx) = oneshot::channel();
+
                     logerr!(send!(
                         sink,
                         QueueCommand::ExchangeBound {
+                            conn_id: conn_id.clone(),
+                            channel,
                             exchange_name: self.exchange.name.clone(),
+                            result: tx,
                         }
                     ));
+
+                    rx.await.unwrap();
                 }
 
-                logerr!(result.send(bind_result));
+                logerr!(result.send(Ok(bind_result)));
 
                 Ok(true)
             }
             ExchangeCommand::QueueUnbind {
+                channel,
                 queue_name,
                 routing_key,
                 result,
@@ -318,25 +166,33 @@ impl ExchangeState {
                     queue_name, self.exchange.name, routing_key
                 );
 
+                // TODO refactor this to Bindings
                 let sink = match self.exchange.exchange_type {
-                    ExchangeType::Direct => self.bindings.remove_direct_binding(routing_key, queue_name),
-                    ExchangeType::Topic => self.bindings.remove_topic_binding(routing_key, queue_name),
-                    ExchangeType::Fanout => self.bindings.remove_fanout_binding(queue_name),
+                    ExchangeType::Direct => self.bindings.remove_direct_binding(&routing_key, &queue_name),
+                    ExchangeType::Topic => self.bindings.remove_topic_binding(&routing_key, &queue_name),
+                    ExchangeType::Fanout => self.bindings.remove_fanout_binding(&queue_name),
                     _ => None,
                 };
 
                 match sink {
                     Some(s) => {
+                        let queue_info = self.bound_queues.get(&queue_name).unwrap();
+                        let (tx, rx) = oneshot::channel();
+
                         logerr!(send!(
                             s,
                             QueueCommand::ExchangeUnbound {
                                 exchange_name: self.exchange.name.clone(),
+                                result: tx,
                             }
                         ));
-                        logerr!(result.send(true));
+
+                        rx.await?;
+
+                        logerr!(result.send(Ok(true)));
                     }
                     None => {
-                        logerr!(result.send(false));
+                        logerr!(result.send(Ok(false)));
                     }
                 }
 
@@ -365,36 +221,9 @@ impl ExchangeState {
                         Ok(true)
                     }
                 } else {
-                    match &self.bindings {
-                        Bindings::Direct(bs) => {
-                            for b in bs {
-                                let cmd = QueueCommand::ExchangeUnbound {
-                                    exchange_name: self.exchange.name.clone(),
-                                };
-
-                                logerr!(b.queue.send(cmd).await);
-                            }
-                        }
-                        Bindings::Topic(bs) => {
-                            for b in bs {
-                                let cmd = QueueCommand::ExchangeUnbound {
-                                    exchange_name: self.exchange.name.clone(),
-                                };
-
-                                logerr!(b.queue.send(cmd).await);
-                            }
-                        }
-                        Bindings::Fanout(bs) => {
-                            for b in bs {
-                                let cmd = QueueCommand::ExchangeUnbound {
-                                    exchange_name: self.exchange.name.clone(),
-                                };
-
-                                logerr!(b.queue.send(cmd).await);
-                            }
-                        }
-                        _ => (),
-                    }
+                    self.bindings
+                        .broadcast_exchange_unbound(self.exchange.name.clone())
+                        .await;
 
                     logerr!(result.send(Ok(())));
 
@@ -402,7 +231,7 @@ impl ExchangeState {
                 }
             }
             ExchangeCommand::QueueDeleted { queue_name, result } => {
-                self.bindings.remove_queue(queue_name);
+                self.bindings.remove_queue(&queue_name);
 
                 debug!("{:?}", self.bindings);
 
@@ -412,158 +241,6 @@ impl ExchangeState {
             }
         }
     }
-
-    /// Route the message according to the exchange type and the bindings. If there is no queue to
-    /// be send the message to, it gives back the messages in the Option.
-    async fn route_message(&self, message: Message) -> Result<Option<Arc<Message>>> {
-        let mut sent = false;
-        let shared_message = Arc::new(message);
-
-        match &self.bindings {
-            Bindings::Direct(bs) => {
-                for binding in bs {
-                    if binding.routing_key == shared_message.routing_key {
-                        debug!("Routing message to {}", binding.queue_name);
-
-                        logerr!(
-                            binding
-                                .queue
-                                .send(QueueCommand::PublishMessage(shared_message.clone()))
-                                .await
-                        );
-                        sent = true;
-                    }
-                }
-            }
-            Bindings::Fanout(bs) => {
-                for binding in bs {
-                    debug!("Routing message to {}", binding.queue_name);
-
-                    logerr!(
-                        binding
-                            .queue
-                            .send(QueueCommand::PublishMessage(shared_message.clone()))
-                            .await
-                    );
-                    sent = true;
-                }
-            }
-            Bindings::Topic(bs) => {
-                for binding in bs {
-                    if match_routing_key(&binding.routing_key, &shared_message.routing_key) {
-                        debug!("Routing message to {}", binding.queue_name);
-
-                        logerr!(
-                            binding
-                                .queue
-                                .send(QueueCommand::PublishMessage(shared_message.clone()))
-                                .await
-                        );
-                        sent = true;
-                    }
-                }
-            }
-            Bindings::Headers(bs) => {
-                if let Some(ref headers) = shared_message.content.headers {
-                    for binding in bs {
-                        if match_header(&binding.headers, headers, binding.x_match_all) {
-                            debug!("Routing message to {}", binding.queue_name);
-
-                            logerr!(
-                                binding
-                                    .queue
-                                    .send(QueueCommand::PublishMessage(shared_message.clone()))
-                                    .await
-                            );
-                            sent = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if sent {
-            Ok(None)
-        } else {
-            Ok(Some(shared_message))
-        }
-    }
-}
-
-fn header_binding_from_field_table(ft: FieldTable, queue_name: String, queue: QueueCommandSink) -> HeadersBinding {
-    let mut headers = HashMap::new();
-    let mut x_match_all = true;
-
-    for (ftk, ftv) in ft {
-        // Ignore all headers which starts with "x-"
-        if ftk.starts_with("x-") {
-            if ftk == "x-match" {
-                match ftv {
-                    AMQPFieldValue::LongString(s) if s == "any" => x_match_all = false,
-                    _ => (),
-                }
-            }
-
-            continue;
-        }
-
-        headers.insert(ftk, ftv);
-    }
-
-    HeadersBinding {
-        headers,
-        x_match_all,
-        queue_name,
-        queue,
-    }
-}
-
-fn match_routing_key(binding_key: &str, message_routing_key: &str) -> bool {
-    let mut bks: Vec<_> = binding_key.split('.').collect();
-    let mks: Vec<_> = message_routing_key.split('.').collect();
-
-    // empty routing key?
-
-    for message_key in mks {
-        if bks.is_empty() {
-            return false;
-        }
-
-        let b_key = bks.remove(0);
-
-        match b_key {
-            "*" => continue,
-            "#" => return true,
-            _ if b_key == message_key => continue,
-            _ => return false,
-        }
-    }
-
-    bks.is_empty()
-}
-
-fn match_header(
-    binding_headers: &HashMap<String, AMQPFieldValue>,
-    message_headers: &FieldTable,
-    x_match_all: bool,
-) -> bool {
-    let mut matches = 0usize;
-
-    debug!("Binding headers {binding_headers:?} message headers {message_headers:?}");
-
-    for (bhk, bhv) in binding_headers {
-        if let Some(mhv) = message_headers.get(bhk) {
-            if *bhv == *mhv {
-                matches += 1;
-            }
-        }
-    }
-
-    if x_match_all {
-        matches == binding_headers.len()
-    } else {
-        matches > 0
-    }
 }
 
 #[cfg(test)]
@@ -571,15 +248,6 @@ mod tests {
     use super::*;
     use crate::message::MessageContent;
     use metalmq_codec::frame;
-
-    #[test]
-    fn test_match_routing_key() {
-        assert!(match_routing_key("stocks.nwse.goog", "stocks.nwse.goog"));
-        assert!(match_routing_key("stocks.*.goog", "stocks.nwse.goog"));
-        assert!(match_routing_key("stocks.nwse.*", "stocks.nwse.goog"));
-        assert!(match_routing_key("stocks.*.*", "stocks.nwse.goog"));
-        assert!(match_routing_key("stocks.#", "stocks.nwse.goog"));
-    }
 
     async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
         let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
@@ -607,6 +275,7 @@ mod tests {
                 internal: false,
             },
             bindings: Bindings::Direct(vec![]),
+            bound_queues: HashMap::new(),
         };
 
         let msg = Message {

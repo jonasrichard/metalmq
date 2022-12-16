@@ -32,6 +32,7 @@ impl Connection {
         match qm::get_command_sink(&self.qm, cmd).await {
             Ok(sink) => {
                 let cmd = BindQueueCommand {
+                    conn_id: self.id.clone(),
                     channel,
                     exchange_name: args.exchange_name,
                     queue_name: args.queue_name,
@@ -60,6 +61,7 @@ impl Connection {
 
     pub async fn queue_delete(&mut self, channel: Channel, args: frame::QueueDeleteArgs) -> Result<()> {
         let cmd = qm::QueueDeleteCommand {
+            conn_id: self.id.clone(),
             channel,
             queue_name: args.queue_name,
             if_unused: args.flags.contains(frame::QueueDeleteFlags::IF_UNUSED),
@@ -76,6 +78,7 @@ impl Connection {
 
     pub async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
         let cmd = UnbindQueueCommand {
+            conn_id: self.id.clone(),
             channel,
             exchange_name: args.exchange_name,
             queue_name: args.queue_name,
@@ -102,7 +105,7 @@ impl Connection {
 
         match qm::get_command_sink(&self.qm, cmd).await {
             Ok(queue_sink) => {
-                handler::purge(&queue_sink).await.unwrap();
+                handler::purge(self.id.clone(), channel, &queue_sink).await.unwrap();
             }
             err => {
                 handle_error!(self, err).unwrap();

@@ -3,6 +3,7 @@
 //! through a channel. When a client is publishing to an exchange it should
 //! clone the exchange channel, so the messages will be handled serially.
 
+pub mod binding;
 pub mod handler;
 pub mod manager;
 

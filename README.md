@@ -46,6 +46,24 @@ cd amqp-compliance
 pytest
 ```
 
+### Compilance matrix
+
+|Method            |Field                          |
+|------------------|-------------------------------|
+|connection.       |                               |
+|channel.          |                               |
+|exchange.declare  |:white_check_mark: exchange    |
+|                  |:x: type                       |
+|                  |:white_check_mark: passive     |
+|                  |:x: durable (no persistence)   |
+|                  |:question: arguments           |
+|queue.declare     |:white_check_mark: queue       |
+|                  |:white_check_mark: passive     |
+|                  |:question: durable             |
+|                  |:white_check_mark: exclusive   |
+|                  |:white_check_mark: auto-delete |
+|basic.            |                               |
+
 ## AMQP 0.9 client library
 
 In `metalmq-client` there is a Rust async client which implements part of the AMQP 0.9.1 protocol.

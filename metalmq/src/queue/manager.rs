@@ -66,6 +66,7 @@ pub struct QueueCancelConsume {
 
 #[derive(Debug)]
 pub struct QueueDeleteCommand {
+    pub conn_id: String,
     pub channel: u16,
     pub queue_name: String,
     pub if_unused: bool,
@@ -246,6 +247,7 @@ impl QueueManagerState {
                 send!(
                     queue.command_sink,
                     QueueCommand::DeleteQueue {
+                        conn_id: command.conn_id,
                         channel: command.channel,
                         if_unused: command.if_unused,
                         if_empty: command.if_empty,

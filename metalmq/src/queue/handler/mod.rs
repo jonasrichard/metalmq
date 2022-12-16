@@ -2,6 +2,7 @@
 mod tests;
 
 use crate::client::{channel_error, ChannelError};
+use crate::exchange::handler::QueueInfo;
 use crate::exchange::manager::{self as em, ExchangeManagerSink, QueueDeletedEvent};
 use crate::message::{self, Message};
 use crate::queue::Queue;
@@ -35,10 +36,14 @@ pub enum QueueCommand {
         delivery_tag: u64,
     },
     ExchangeBound {
+        conn_id: String,
+        channel: u16,
         exchange_name: String,
+        result: oneshot::Sender<Result<()>>,
     },
     ExchangeUnbound {
         exchange_name: String,
+        result: oneshot::Sender<Result<()>>,
     },
     StartConsuming {
         conn_id: String,
@@ -57,9 +62,12 @@ pub enum QueueCommand {
         result: oneshot::Sender<bool>,
     },
     Purge {
+        conn_id: String,
+        channel: u16,
         result: oneshot::Sender<Result<u32>>,
     },
     DeleteQueue {
+        conn_id: String,
         channel: u16,
         if_unused: bool,
         if_empty: bool,
@@ -68,6 +76,9 @@ pub enum QueueCommand {
     },
     MessageRejected,
     Recover,
+    GetInfo {
+        result: oneshot::Sender<QueueInfo>,
+    },
 }
 
 #[derive(Debug)]
@@ -157,10 +168,15 @@ pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mp
     .await;
 }
 
-pub async fn purge(sink: &mpsc::Sender<QueueCommand>) -> Result<u32> {
+pub async fn purge(conn_id: String, channel: u16, sink: &mpsc::Sender<QueueCommand>) -> Result<u32> {
     let (tx, rx) = oneshot::channel();
 
-    sink.send(QueueCommand::Purge { result: tx }).await?;
+    sink.send(QueueCommand::Purge {
+        conn_id,
+        channel,
+        result: tx,
+    })
+    .await?;
 
     rx.await?
 }
@@ -234,12 +250,39 @@ impl QueueState {
                 self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
                 Ok(true)
             }
-            QueueCommand::ExchangeBound { exchange_name } => {
-                self.bound_exchanges.insert(exchange_name);
+            QueueCommand::ExchangeBound {
+                conn_id,
+                channel,
+                exchange_name,
+                result,
+            } => {
+                if self.declaring_connection != conn_id {
+                    result.send(channel_error(
+                        channel,
+                        frame::QUEUE_BIND,
+                        ChannelError::AccessRefused,
+                        "Exclusive queue belongs to another connection",
+                    ));
+                } else {
+                    self.bound_exchanges.insert(exchange_name);
+                    result.send(Ok(()));
+                }
+
                 Ok(true)
             }
-            QueueCommand::ExchangeUnbound { exchange_name } => {
+            QueueCommand::ExchangeUnbound { exchange_name, result } => {
+                //if self.declaring_connection != conn_id {
+                //    result.send(channel_error(
+                //        channel,
+                //        frame::QUEUE_BIND,
+                //        ChannelError::AccessRefused,
+                //        "Exclusive queue belongs to another connection",
+                //    ));
+                //} else {
                 self.bound_exchanges.remove(&exchange_name);
+                result.send(Ok(()));
+                //}
+
                 Ok(true)
             }
             QueueCommand::StartDelivering { consumer_tag } => {
@@ -315,7 +358,11 @@ impl QueueState {
                     Ok(true)
                 }
             }
-            QueueCommand::Purge { result } => {
+            QueueCommand::Purge {
+                conn_id,
+                channel,
+                result,
+            } => {
                 let message_count = self.messages.len();
                 self.messages.clear();
 
@@ -324,6 +371,7 @@ impl QueueState {
                 Ok(true)
             }
             QueueCommand::DeleteQueue {
+                conn_id,
                 channel,
                 if_unused,
                 if_empty,
@@ -414,6 +462,17 @@ impl QueueState {
             }
             QueueCommand::MessageRejected => Ok(true),
             QueueCommand::Recover => Ok(true),
+            QueueCommand::GetInfo { result } => {
+                result.send(QueueInfo {
+                    queue_name: self.queue.name.clone(),
+                    declaring_connection: self.declaring_connection.clone(),
+                    exclusive: self.queue.exclusive,
+                    durable: self.queue.durable,
+                    auto_delete: self.queue.auto_delete,
+                });
+
+                Ok(true)
+            }
         }
     }
 
