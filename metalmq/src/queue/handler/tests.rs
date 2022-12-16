@@ -176,6 +176,7 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
     let (del_tx, del_rx) = oneshot::channel();
     let del_result = qs
         .handle_command(QueueCommand::DeleteQueue {
+            conn_id: "123".to_owned(),
             channel: 5u16,
             if_unused: false,
             if_empty: true,

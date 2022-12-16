@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use super::binding::Bindings;
 use crate::client::{self, channel_error, ChannelError};
 use crate::exchange::{Exchange, ExchangeType};
@@ -110,7 +113,7 @@ impl ExchangeState {
             } => {
                 let (queue_info_tx, queue_info_rx) = oneshot::channel();
 
-                sink.send(QueueCommand::GetInfo { result: queue_info_tx });
+                sink.send(QueueCommand::GetInfo { result: queue_info_tx }).await;
 
                 let queue_info = queue_info_rx.await.unwrap();
 
@@ -239,68 +242,6 @@ impl ExchangeState {
 
                 Ok(true)
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::message::MessageContent;
-    use metalmq_codec::frame;
-
-    async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
-        let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-        tokio::pin!(sleep);
-
-        tokio::select! {
-            frame = rx.recv() => {
-                frame
-            }
-            _ = &mut sleep => {
-                return None;
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn send_basic_return_on_mandatory_unroutable_message() {
-        let (msg_tx, mut msg_rx) = mpsc::channel(1);
-        let mut es = ExchangeState {
-            exchange: Exchange {
-                name: "x-name".to_string(),
-                exchange_type: ExchangeType::Direct,
-                durable: false,
-                auto_delete: false,
-                internal: false,
-            },
-            bindings: Bindings::Direct(vec![]),
-            bound_queues: HashMap::new(),
-        };
-
-        let msg = Message {
-            source_connection: "conn-id".to_string(),
-            channel: 2,
-            content: MessageContent {
-                body: b"Okay".to_vec(),
-                ..Default::default()
-            },
-            exchange: "x-name".to_string(),
-            routing_key: "".to_string(),
-            mandatory: true,
-            immediate: false,
-        };
-        let cmd = ExchangeCommand::Message {
-            message: msg,
-            outgoing: msg_tx,
-        };
-        let res = es.handle_command(cmd).await;
-        assert!(res.is_ok());
-
-        match recv_timeout(&mut msg_rx).await {
-            Some(Frame::Frame(_br)) => assert!(true),
-            Some(Frame::Frames(fs)) => if let frame::AMQPFrame::Method(_ch, _cm, _args) = fs.get(0).unwrap() {},
-            None => assert!(false, "Basic.Return frame is expected"),
         }
     }
 }
