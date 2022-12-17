@@ -8,13 +8,13 @@ use serde_derive::Serialize;
 #[derive(Clone, Debug, Serialize)]
 pub struct Queue {
     /// The name aka the identifier of the queue.
-    name: String,
+    pub name: String,
     /// Durable queue remains active when server restarts.
-    durable: bool,
+    pub durable: bool,
     /// Exclusive queues can be accessed by the declaring connection.
-    exclusive: bool,
+    pub exclusive: bool,
     /// Queue is deleted when all consumers cancelled on it.
-    auto_delete: bool,
+    pub auto_delete: bool,
 }
 
 impl Default for Queue {

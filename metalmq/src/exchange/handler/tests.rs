@@ -93,6 +93,38 @@ mod tests {
         assert_eq!(err.code, ChannelError::AccessRefused as u16);
     }
 
+    #[tokio::test]
+    async fn queue_bind_state_check() {
+        let mut es = exchange_state_direct("x-name");
+
+        let (tx, rx) = oneshot::channel();
+        let (stx, mut srx) = mpsc::channel(1);
+        let cmd = ExchangeCommand::QueueBind {
+            conn_id: "conn-id-1".to_string(),
+            channel: 1,
+            queue_name: "qqq".to_string(),
+            routing_key: "routing".to_string(),
+            args: None,
+            sink: stx,
+            result: tx,
+        };
+
+        tokio::spawn(async move {
+            let mut q = Queue::default();
+            q.name = "qqq".to_string();
+
+            handler::start(q, "conn-id-1".to_string(), &mut srx).await;
+        });
+
+        let res = es.handle_command(cmd).await;
+        assert!(res.is_ok());
+
+        assert!(rx.await.is_ok());
+
+        let bq = es.bound_queues.get("qqq");
+        assert!(bq.is_some());
+    }
+
     fn exchange_state_direct(name: &str) -> ExchangeState {
         ExchangeState {
             exchange: Exchange {
@@ -106,4 +138,7 @@ mod tests {
             bound_queues: HashMap::new(),
         }
     }
+
+    //fn queue_start(name: &str) -> (Queue, mpsc::Receiver<>) {
+    //}
 }
