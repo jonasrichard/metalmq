@@ -170,6 +170,7 @@ impl ExchangeState {
                 );
 
                 // TODO refactor this to Bindings
+                // TODO header binding?
                 let sink = match self.exchange.exchange_type {
                     ExchangeType::Direct => self.bindings.remove_direct_binding(&routing_key, &queue_name),
                     ExchangeType::Topic => self.bindings.remove_topic_binding(&routing_key, &queue_name),
@@ -191,6 +192,8 @@ impl ExchangeState {
                         ));
 
                         rx.await?;
+
+                        self.bound_queues.remove(&queue_name);
 
                         logerr!(result.send(Ok(true)));
                     }

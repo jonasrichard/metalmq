@@ -13,30 +13,30 @@ use super::ExchangeType;
 
 #[derive(Debug)]
 pub struct DirectBinding {
-    routing_key: String,
-    queue_name: String,
-    queue: QueueCommandSink,
+    pub routing_key: String,
+    pub queue_name: String,
+    pub queue: QueueCommandSink,
 }
 
 #[derive(Debug)]
 pub struct FanoutBinding {
-    queue_name: String,
-    queue: QueueCommandSink,
+    pub queue_name: String,
+    pub queue: QueueCommandSink,
 }
 
 #[derive(Debug)]
 pub struct TopicBinding {
-    routing_key: String,
-    queue_name: String,
-    queue: QueueCommandSink,
+    pub routing_key: String,
+    pub queue_name: String,
+    pub queue: QueueCommandSink,
 }
 
 #[derive(Debug)]
 pub struct HeadersBinding {
-    headers: HashMap<String, AMQPFieldValue>,
-    x_match_all: bool,
-    queue_name: String,
-    queue: QueueCommandSink,
+    pub headers: HashMap<String, AMQPFieldValue>,
+    pub x_match_all: bool,
+    pub queue_name: String,
+    pub queue: QueueCommandSink,
 }
 
 /// Represents exchange-queue binding. In one binding the different binding types should be of the
