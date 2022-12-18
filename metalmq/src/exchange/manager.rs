@@ -240,7 +240,7 @@ impl ExchangeManagerState {
                 };
 
                 exchange_state.command_sink.send(cmd).await?;
-                rx.await?;
+                rx.await??;
 
                 Ok(())
             }

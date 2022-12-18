@@ -113,17 +113,24 @@ impl ExchangeState {
             } => {
                 let (queue_info_tx, queue_info_rx) = oneshot::channel();
 
-                sink.send(QueueCommand::GetInfo { result: queue_info_tx }).await;
+                sink.send(QueueCommand::GetInfo { result: queue_info_tx })
+                    .await
+                    .unwrap();
 
+                // TODO binding to non-existent queues, we need to test
                 let queue_info = queue_info_rx.await.unwrap();
 
+                info!("Got queue info {:?}", queue_info);
+
                 if conn_id != queue_info.declaring_connection {
-                    result.send(channel_error(
-                        channel,
-                        frame::QUEUE_BIND,
-                        ChannelError::AccessRefused,
-                        "Exclusive queue belongs to another connections",
-                    ));
+                    result
+                        .send(channel_error(
+                            channel,
+                            frame::QUEUE_BIND,
+                            ChannelError::AccessRefused,
+                            "Exclusive queue belongs to another connections",
+                        ))
+                        .unwrap();
 
                     return Ok(true);
                 }
@@ -228,8 +235,9 @@ impl ExchangeState {
                     }
                 } else {
                     self.bindings
-                        .broadcast_exchange_unbound(self.exchange.name.clone())
-                        .await;
+                        .broadcast_exchange_unbound(&self.exchange.name)
+                        .await
+                        .unwrap();
 
                     logerr!(result.send(Ok(())));
 

@@ -1,15 +1,15 @@
-import helper
 import logging
-import pika
-import pytest
 import threading
 import time
 
+import pytest
+import pika
+import helper
+
 LOG = logging.getLogger()
 NUM = 10
-end = threading.Condition()
 
-def consumer_thread(channel):
+def consumer_thread(channel, end):
     counter = 0
 
     for method, props, body in channel.consume("speed1"):
@@ -35,7 +35,8 @@ def test_one_publisher_one_consumer(caplog):
     consumer = helper.connect()
     channel = consumer.channel(channel_number=9)
 
-    threading.Thread(target=consumer_thread, args=(channel,)).start()
+    end = threading.Condition()
+    threading.Thread(target=consumer_thread, args=(channel, end)).start()
 
     for i in range(0, NUM):
         pchan.basic_publish(
@@ -54,7 +55,7 @@ def test_one_publisher_one_consumer(caplog):
         end.wait()
     LOG.info("End")
 
-def test_unrouted_mandatory_message(caplog):
+def test_unrouted_mandatory_message():
     """
     If an exchange doesn't route messages to anywhere, or that specific message
     is not routed to any queue and mandatory is true, we need to send back an
@@ -62,8 +63,6 @@ def test_unrouted_mandatory_message(caplog):
     """
     def on_return(channel, method, props, body):
         LOG.info("Return %s %s %s", method, props, body)
-
-    #caplog.set_level(logging.DEBUG)
 
     publisher = helper.connect()
     pc = publisher.channel(channel_number=13)

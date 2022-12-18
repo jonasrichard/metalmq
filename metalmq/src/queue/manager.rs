@@ -215,6 +215,7 @@ impl QueueManagerState {
     /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
     /// creates that.
     async fn handle_declare(&mut self, command: QueueDeclareCommand) -> Result<()> {
+        // TODO passive declaration of an exclusive queue on a different connection is not allowed
         // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
         match self.queues.get(&command.queue.name) {
             // FIXME we need to check here if in case of passive declare the properties match or

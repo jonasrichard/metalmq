@@ -197,3 +197,5 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
 
     // we could check if exchange manager gets the unbind command for that queue
 }
+
+// TODO when a consumer cancel consuming on an exclusive queue, the queue should be deleted

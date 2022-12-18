@@ -287,21 +287,38 @@ impl Bindings {
         }
     }
 
-    // TODO it should be something generic which receives a Clonable
-    pub async fn broadcast_exchange_unbound(&self, exchange_name: String) -> Result<()> {
+    async fn send_exchange_unbound(&self, cmd_sink: &QueueCommandSink, exchange_name: &str) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = QueueCommand::ExchangeUnbound {
+            exchange_name: exchange_name.to_string(),
+            result: tx,
+        };
+        cmd_sink.send(cmd).await?;
+        rx.await?
+    }
+
+    pub async fn broadcast_exchange_unbound(&self, exchange_name: &str) -> Result<()> {
         match self {
             Bindings::Direct(bs) => {
                 for b in bs {
-                    let (tx, rx) = oneshot::channel();
-                    let cmd = QueueCommand::ExchangeUnbound {
-                        exchange_name: exchange_name.clone(),
-                        result: tx,
-                    };
-                    b.queue.send(cmd);
-                    rx.await?;
+                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
                 }
             }
-            _ => todo!(),
+            Bindings::Fanout(bs) => {
+                for b in bs {
+                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                }
+            }
+            Bindings::Topic(bs) => {
+                for b in bs {
+                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                }
+            }
+            Bindings::Headers(bs) => {
+                for b in bs {
+                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                }
+            }
         }
 
         Ok(())
