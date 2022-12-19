@@ -117,52 +117,67 @@ impl ExchangeState {
                     .await
                     .unwrap();
 
-                // TODO binding to non-existent queues, we need to test
-                let queue_info = queue_info_rx.await.unwrap();
+                match queue_info_rx.await {
+                    Err(_) => {
+                        result
+                            .send(channel_error(
+                                channel,
+                                frame::QUEUE_BIND,
+                                ChannelError::NotFound,
+                                "Cannot be found the queue",
+                            ))
+                            .unwrap();
+                    }
+                    Ok(queue_info) => {
+                        info!("Got queue info {:?}", queue_info);
 
-                info!("Got queue info {:?}", queue_info);
-
-                if conn_id != queue_info.declaring_connection {
-                    result
-                        .send(channel_error(
-                            channel,
-                            frame::QUEUE_BIND,
-                            ChannelError::ResourceLocked,
-                            "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
+                        if conn_id != queue_info.declaring_connection {
+                            result
+                                .send(channel_error(
+                                    channel,
+                                    frame::QUEUE_BIND,
+                                    ChannelError::ResourceLocked,
+                                    "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
                             another connection",
-                        ))
-                        .unwrap();
+                                ))
+                                .unwrap();
 
-                    return Ok(true);
-                }
-
-                // TODO refactor this to Bindings
-                let bind_result = match self.exchange.exchange_type {
-                    ExchangeType::Direct => self.bindings.add_direct_binding(routing_key, queue_name, sink.clone()),
-                    ExchangeType::Topic => self.bindings.add_topic_binding(routing_key, queue_name, sink.clone()),
-                    ExchangeType::Fanout => self.bindings.add_fanout_binding(queue_name, sink.clone()),
-                    ExchangeType::Headers => self.bindings.add_headers_binding(queue_name, args, sink.clone()),
-                };
-
-                if bind_result {
-                    self.bound_queues.insert(queue_info.queue_name.clone(), queue_info);
-
-                    let (tx, rx) = oneshot::channel();
-
-                    logerr!(send!(
-                        sink,
-                        QueueCommand::ExchangeBound {
-                            conn_id: conn_id.clone(),
-                            channel,
-                            exchange_name: self.exchange.name.clone(),
-                            result: tx,
+                            return Ok(true);
                         }
-                    ));
 
-                    rx.await.unwrap()?;
+                        // TODO refactor this to Bindings
+                        let bind_result = match self.exchange.exchange_type {
+                            ExchangeType::Direct => {
+                                self.bindings.add_direct_binding(routing_key, queue_name, sink.clone())
+                            }
+                            ExchangeType::Topic => {
+                                self.bindings.add_topic_binding(routing_key, queue_name, sink.clone())
+                            }
+                            ExchangeType::Fanout => self.bindings.add_fanout_binding(queue_name, sink.clone()),
+                            ExchangeType::Headers => self.bindings.add_headers_binding(queue_name, args, sink.clone()),
+                        };
+
+                        if bind_result {
+                            self.bound_queues.insert(queue_info.queue_name.clone(), queue_info);
+
+                            let (tx, rx) = oneshot::channel();
+
+                            logerr!(send!(
+                                sink,
+                                QueueCommand::ExchangeBound {
+                                    conn_id: conn_id.clone(),
+                                    channel,
+                                    exchange_name: self.exchange.name.clone(),
+                                    result: tx,
+                                }
+                            ));
+
+                            rx.await.unwrap()?;
+                        }
+
+                        logerr!(result.send(Ok(bind_result)));
+                    }
                 }
-
-                logerr!(result.send(Ok(bind_result)));
 
                 Ok(true)
             }

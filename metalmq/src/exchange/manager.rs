@@ -250,7 +250,11 @@ impl ExchangeManagerState {
                     r.map(|_| ())
                 }
             }
-            None => client::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
+            None => {
+                warn!("Exchange not found {}", command.exchange_name);
+
+                client::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found")
+            }
         }
     }
 

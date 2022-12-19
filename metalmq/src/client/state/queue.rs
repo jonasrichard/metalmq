@@ -46,13 +46,11 @@ impl Connection {
                 self.send_frame(Frame::Frame(frame::queue_bind_ok(channel))).await?;
             }
             Err(_) => {
-                self.send_frame(client::channel_error_frame(
-                    channel,
-                    frame::QUEUE_BIND,
-                    ChannelError::NotFound,
-                    "Exchange not found",
-                ))
-                .await?;
+                handle_error!(
+                    self,
+                    client::channel_error::<()>(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Queue not found",)
+                )
+                .unwrap();
             }
         }
 
