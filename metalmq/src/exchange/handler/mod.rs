@@ -127,8 +127,9 @@ impl ExchangeState {
                         .send(channel_error(
                             channel,
                             frame::QUEUE_BIND,
-                            ChannelError::AccessRefused,
-                            "Exclusive queue belongs to another connections",
+                            ChannelError::ResourceLocked,
+                            "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
+                            another connection",
                         ))
                         .unwrap();
 
@@ -158,7 +159,7 @@ impl ExchangeState {
                         }
                     ));
 
-                    rx.await.unwrap();
+                    rx.await.unwrap()?;
                 }
 
                 logerr!(result.send(Ok(bind_result)));

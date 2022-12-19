@@ -3,7 +3,7 @@ use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -240,9 +240,15 @@ impl ExchangeManagerState {
                 };
 
                 exchange_state.command_sink.send(cmd).await?;
-                rx.await??;
 
-                Ok(())
+                let r = rx.await?;
+
+                if let Ok(_) = r {
+                    Ok(())
+                } else {
+                    warn!("Bind error {:?}", r);
+                    r.map(|_| ())
+                }
             }
             None => client::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found"),
         }

@@ -41,7 +41,7 @@ impl Connection {
                     queue_sink: sink,
                 };
 
-                em::bind_queue(&self.em, cmd).await?;
+                handle_error!(self, em::bind_queue(&self.em, cmd).await).unwrap();
 
                 self.send_frame(Frame::Frame(frame::queue_bind_ok(channel))).await?;
             }
