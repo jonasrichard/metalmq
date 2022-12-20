@@ -5,7 +5,7 @@ use crate::exchange::manager as em;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager as qm;
 use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
-use log::{error, info};
+use log::{error, info, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{Channel, ContentHeaderFrame};
 use std::collections::HashMap;
@@ -143,7 +143,17 @@ impl Connection {
         Ok(())
     }
 
+    /// Handle a runtime error a connection or a channel error. At first it sends the error frame
+    /// and then handle the closing of a channel or connection depending what kind of exception
+    /// happened.
+    ///
+    /// This function just sends out the error frame and return with `Err` if it is a connection
+    /// error, or it returns with `Ok` if it is a channel error. This is handy if we want to handle
+    /// the output with a `?` operator and we want to die in case of a connection error (aka we
+    /// want to propagate the error to the client handler).
     async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
+        trace!("Handling error {:?}", err);
+
         self.send_frame(client::runtime_error_to_frame(&err)).await?;
 
         match err.scope {

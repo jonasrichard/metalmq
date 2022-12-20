@@ -3,6 +3,7 @@ use crate::client::{self, ChannelError};
 use crate::exchange::manager::{self as em, BindQueueCommand, UnbindQueueCommand};
 use crate::queue::manager as qm;
 use crate::{handle_error, Result};
+use log::{info, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -45,12 +46,21 @@ impl Connection {
 
                 self.send_frame(Frame::Frame(frame::queue_bind_ok(channel))).await?;
             }
-            Err(_) => {
+            Err(e) => {
+                warn!("{:?}", e);
+
                 handle_error!(
                     self,
                     client::channel_error::<()>(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Queue not found",)
                 )
                 .unwrap();
+                //handle_error!(
+                //    self,
+                //    client::channel_error::<()>(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Queue not found",)
+                //)
+                //.unwrap();
+
+                info!("Survived error handling");
             }
         }
 

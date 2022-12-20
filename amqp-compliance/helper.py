@@ -16,13 +16,15 @@ def connect(username: str ="guest", password="guest", host="localhost", port=567
 @contextmanager
 def channel(number=None):
     conn = connect()
-    channel = conn.channel(number)
+    ch = conn.channel(number)
 
     try:
-        yield channel
+        yield ch
     finally:
-        channel.close()
-        conn.close()
+        if ch.is_open:
+            ch.close()
+        if conn.is_open:
+            conn.close()
 
 @contextmanager
 def direct_exchange(channel, exchange, *queues):

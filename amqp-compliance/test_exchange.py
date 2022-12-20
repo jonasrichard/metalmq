@@ -96,7 +96,7 @@ def test_exchange_bind_nonexisting_queue():
     with helper.channel(1) as channel:
         channel.exchange_declare("normal-exchange")
 
-        with pytest.raises(pika.exceptions.ChannelError) as exp:
+        with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
             channel.queue_bind("non-existent-queue", "normal-exchange", "*")
 
         assert 404 == exp.value.reply_code

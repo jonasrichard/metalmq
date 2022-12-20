@@ -241,14 +241,7 @@ impl ExchangeManagerState {
 
                 exchange_state.command_sink.send(cmd).await?;
 
-                let r = rx.await?;
-
-                if let Ok(_) = r {
-                    Ok(())
-                } else {
-                    warn!("Bind error {:?}", r);
-                    r.map(|_| ())
-                }
+                rx.await?.map(|_| ())
             }
             None => {
                 warn!("Exchange not found {}", command.exchange_name);
@@ -273,9 +266,7 @@ impl ExchangeManagerState {
                 };
 
                 exchange_state.command_sink.send(cmd).await?;
-                rx.await?;
-
-                Ok(())
+                rx.await?.map(|_| ())
             }
             None => client::channel_error(
                 command.channel,

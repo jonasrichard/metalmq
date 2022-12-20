@@ -214,7 +214,7 @@ impl ExchangeState {
                             }
                         ));
 
-                        rx.await?;
+                        rx.await?.unwrap();
 
                         self.bound_queues.remove(&queue_name);
 

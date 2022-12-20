@@ -257,15 +257,17 @@ impl QueueState {
                 result,
             } => {
                 if self.declaring_connection != conn_id {
-                    result.send(channel_error(
-                        channel,
-                        frame::QUEUE_BIND,
-                        ChannelError::AccessRefused,
-                        "Exclusive queue belongs to another connection",
-                    ));
+                    result
+                        .send(channel_error(
+                            channel,
+                            frame::QUEUE_BIND,
+                            ChannelError::AccessRefused,
+                            "Exclusive queue belongs to another connection",
+                        ))
+                        .unwrap();
                 } else {
                     self.bound_exchanges.insert(exchange_name);
-                    result.send(Ok(()));
+                    result.send(Ok(())).unwrap();
                 }
 
                 Ok(true)
@@ -280,7 +282,7 @@ impl QueueState {
                 //    ));
                 //} else {
                 self.bound_exchanges.remove(&exchange_name);
-                result.send(Ok(()));
+                result.send(Ok(())).unwrap();
                 //}
 
                 Ok(true)
@@ -463,13 +465,15 @@ impl QueueState {
             QueueCommand::MessageRejected => Ok(true),
             QueueCommand::Recover => Ok(true),
             QueueCommand::GetInfo { result } => {
-                result.send(QueueInfo {
-                    queue_name: self.queue.name.clone(),
-                    declaring_connection: self.declaring_connection.clone(),
-                    exclusive: self.queue.exclusive,
-                    durable: self.queue.durable,
-                    auto_delete: self.queue.auto_delete,
-                });
+                result
+                    .send(QueueInfo {
+                        queue_name: self.queue.name.clone(),
+                        declaring_connection: self.declaring_connection.clone(),
+                        exclusive: self.queue.exclusive,
+                        durable: self.queue.durable,
+                        auto_delete: self.queue.auto_delete,
+                    })
+                    .unwrap();
 
                 Ok(true)
             }
