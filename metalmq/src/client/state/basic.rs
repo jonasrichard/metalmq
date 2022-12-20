@@ -1,10 +1,11 @@
 use crate::client::state::{Connection, ConsumedQueue, PublishedContent};
+use crate::client::ChannelError;
 use crate::exchange::handler::ExchangeCommand;
-use crate::message;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
+use crate::{client, message};
 use crate::{handle_error, logerr, Result};
-use log::{error, warn};
+use log::{error, info, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 use std::sync::Arc;
@@ -132,58 +133,92 @@ impl Connection {
     }
 
     pub async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> Result<()> {
-        if let Some(pc) = self.in_flight_contents.remove(&body.channel) {
-            let msg = message::Message {
-                source_connection: self.id.clone(),
-                channel: pc.channel,
-                exchange: pc.exchange.clone(),
-                routing_key: pc.routing_key,
-                mandatory: pc.mandatory,
-                immediate: pc.immediate,
-                content: message::MessageContent {
-                    class_id: pc.content_header.class_id,
-                    weight: pc.content_header.weight,
-                    body: body.body,
-                    body_size: pc.content_header.body_size,
-                    prop_flags: pc.content_header.prop_flags,
-                    content_encoding: pc.content_header.content_encoding,
-                    content_type: pc.content_header.content_type,
-                    delivery_mode: pc.content_header.delivery_mode,
-                    message_id: pc.content_header.message_id,
-                    timestamp: pc.content_header.timestamp,
-                    headers: pc.content_header.headers,
-                    // TODO copy all the message properties
-                    ..Default::default()
-                },
-            };
+        info!("Message length {}", body.body.len());
 
-            // FIXME this logic
-            //
-            // We need to deal with mandatory if the channel is in confirm mode.
-            // If confirm is on, message sending to exchange will be a blocking process because
-            // based on the message properties, we may need to wait for the message to be sent to
-            // the consumer.
-            // Of course, here we cannot block/yield that much, so we need to keep track of the
-            // messages on what we are waiting confirm, and the message needs to have a oneshot
-            // channel with which the exchange/queue/consumer can tell us that it managed to
-            // process the message.
-            //
-            // We can even have two types of message command as ExchangeCommand: one which is async
-            // and one which waits for confirmation.
-            match self.exchanges.get(&pc.exchange) {
-                Some(ch) => {
-                    // FIXME again, this is not good, we shouldn't clone outgoing channels all the
-                    // time
-                    let cmd = ExchangeCommand::Message {
-                        message: msg,
-                        outgoing: self.outgoing.clone(),
-                    };
-                    // TODO is this the correct way of returning Err(_)
-                    logerr!(ch.send_timeout(cmd, time::Duration::from_secs(1)).await);
+        if let Some(mut pc) = self.in_flight_contents.remove(&body.channel) {
+            let channel = body.channel;
+
+            pc.body_size += body.body.len() as usize;
+            if pc.body_size > 131_072 {
+                error!("Content is too large {}", pc.body_size);
+
+                handle_error!(
+                    self,
+                    client::channel_error::<()>(
+                        channel,
+                        frame::BASIC_PUBLISH,
+                        ChannelError::ContentTooLarge,
+                        "Body is too long",
+                    )
+                )
+                .unwrap();
+            }
+
+            pc.content_bodies.push(body);
+
+            if pc.body_size < pc.content_header.body_size as usize {
+                self.in_flight_contents.insert(channel, pc);
+
+                return Ok(());
+            } else {
+                let mut message_body = vec![];
+
+                for cb in pc.content_bodies {
+                    message_body.extend(cb.body);
                 }
-                None => {
-                    if msg.mandatory {
-                        logerr!(message::send_basic_return(Arc::new(msg), &self.outgoing).await);
+
+                let msg = message::Message {
+                    source_connection: self.id.clone(),
+                    channel: pc.channel,
+                    exchange: pc.exchange.clone(),
+                    routing_key: pc.routing_key,
+                    mandatory: pc.mandatory,
+                    immediate: pc.immediate,
+                    content: message::MessageContent {
+                        class_id: pc.content_header.class_id,
+                        weight: pc.content_header.weight,
+                        body: message_body,
+                        body_size: pc.content_header.body_size,
+                        prop_flags: pc.content_header.prop_flags,
+                        content_encoding: pc.content_header.content_encoding,
+                        content_type: pc.content_header.content_type,
+                        delivery_mode: pc.content_header.delivery_mode,
+                        message_id: pc.content_header.message_id,
+                        timestamp: pc.content_header.timestamp,
+                        headers: pc.content_header.headers,
+                        // TODO copy all the message properties
+                        ..Default::default()
+                    },
+                };
+
+                // FIXME this logic
+                //
+                // We need to deal with mandatory if the channel is in confirm mode.
+                // If confirm is on, message sending to exchange will be a blocking process because
+                // based on the message properties, we may need to wait for the message to be sent to
+                // the consumer.
+                // Of course, here we cannot block/yield that much, so we need to keep track of the
+                // messages on what we are waiting confirm, and the message needs to have a oneshot
+                // channel with which the exchange/queue/consumer can tell us that it managed to
+                // process the message.
+                //
+                // We can even have two types of message command as ExchangeCommand: one which is async
+                // and one which waits for confirmation.
+                match self.exchanges.get(&pc.exchange) {
+                    Some(ch) => {
+                        // FIXME again, this is not good, we shouldn't clone outgoing channels all the
+                        // time
+                        let cmd = ExchangeCommand::Message {
+                            message: msg,
+                            outgoing: self.outgoing.clone(),
+                        };
+                        // TODO is this the correct way of returning Err(_)
+                        logerr!(ch.send_timeout(cmd, time::Duration::from_secs(1)).await);
+                    }
+                    None => {
+                        if msg.mandatory {
+                            logerr!(message::send_basic_return(Arc::new(msg), &self.outgoing).await);
+                        }
                     }
                 }
             }

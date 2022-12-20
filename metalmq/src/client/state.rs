@@ -7,6 +7,7 @@ use crate::queue::manager as qm;
 use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
 use log::{error, info, trace};
 use metalmq_codec::codec::Frame;
+use metalmq_codec::frame::ContentBodyFrame;
 use metalmq_codec::frame::{Channel, ContentHeaderFrame};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -69,6 +70,8 @@ struct PublishedContent {
     mandatory: bool,
     immediate: bool,
     content_header: ContentHeaderFrame,
+    content_bodies: Vec<ContentBodyFrame>,
+    body_size: usize,
 }
 
 #[macro_export]

@@ -11,7 +11,8 @@ pub struct Queue {
     pub name: String,
     /// Durable queue remains active when server restarts.
     pub durable: bool,
-    /// Exclusive queues can be accessed by the declaring connection.
+    /// Exclusive queues can be accessed by the declaring connection, so other connections cannot
+    /// bind exchanges to that queue and cannot consume the queue either.
     pub exclusive: bool,
     /// Queue is deleted when all consumers cancelled on it.
     pub auto_delete: bool,

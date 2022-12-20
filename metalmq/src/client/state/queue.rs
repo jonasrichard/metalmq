@@ -54,13 +54,6 @@ impl Connection {
                     client::channel_error::<()>(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Queue not found",)
                 )
                 .unwrap();
-                //handle_error!(
-                //    self,
-                //    client::channel_error::<()>(channel, frame::QUEUE_BIND, ChannelError::NotFound, "Queue not found",)
-                //)
-                //.unwrap();
-
-                info!("Survived error handling");
             }
         }
 

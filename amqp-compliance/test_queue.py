@@ -45,7 +45,7 @@ def test_queue_delete_unbinds_exchange():
         assert "routing-key" == msg.method.routing_key
         assert "silent-unbind-exchange" == msg.method.exchange
 
-def test_exclusive_queue():
+def test_exclusive_queue_cannot_be_bound_by_other_connection():
     """
     An exclusive queue can be bound, consumed, be unbound and deleted by the same
     connection which crated that.
@@ -64,3 +64,19 @@ def test_exclusive_queue():
         offending_channel.queue_bind("exclusive-queue", "exclusive-try-bind", "routing")
 
     assert 405 == exp.value.reply_code
+
+def test_exclusive_queue_cannot_consume_by_other_connection():
+    """
+    An exclusive queue cannot be consumer by another connection.
+    """
+    def on_message(ch, method, properties, body):
+        None
+
+    with helper.channel(1) as declaring_channel:
+        declaring_channel.queue_declare("exclusive-queue", exclusive=True)
+
+        with helper.channel(1) as consuming_channel:
+            with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
+                consuming_channel.basic_consume("exclusive-queue", on_message)
+
+            assert 405 == exp.value.reply_code
