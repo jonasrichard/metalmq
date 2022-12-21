@@ -20,6 +20,7 @@ pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
 pub enum ExchangeCommand {
     Message {
         message: Message,
+        frame_size: usize,
         outgoing: mpsc::Sender<Frame>,
     },
     QueueBind {
@@ -93,10 +94,14 @@ impl ExchangeState {
 
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
-            ExchangeCommand::Message { message, outgoing } => {
+            ExchangeCommand::Message {
+                message,
+                frame_size,
+                outgoing,
+            } => {
                 if let Some(failed_message) = self.bindings.route_message(message).await? {
                     if failed_message.mandatory {
-                        message::send_basic_return(failed_message, &outgoing).await?;
+                        message::send_basic_return(failed_message, frame_size, &outgoing).await?;
                     }
                 }
 

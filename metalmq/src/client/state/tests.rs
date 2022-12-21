@@ -8,8 +8,6 @@ use tokio::sync::mpsc;
 
 use crate::{
     client::{state::Connection, ConnectionError},
-    exchange::manager::ExchangeManagerSink,
-    queue::manager::QueueManagerSink,
     ErrorScope, RuntimeError,
 };
 
@@ -30,6 +28,7 @@ impl ConnectionTest {
                 qm,
                 em,
                 channel_max: 127,
+                frame_max: 32_768,
                 heartbeat_interval: None,
                 open_channels: HashMap::new(),
                 exchanges: HashMap::new(),

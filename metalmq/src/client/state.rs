@@ -37,6 +37,8 @@ pub struct Connection {
     em: em::ExchangeManagerSink,
     /// The highest channel number, 0 if there is no limit.
     channel_max: u16,
+    /// The maximal size of frames the client can accept.
+    frame_max: usize,
     /// How frequently the server sends heartbeat (at most).
     heartbeat_interval: Option<std::time::Duration>,
     /// Opened channels by this connection.
@@ -101,6 +103,7 @@ pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
         qm: context.queue_manager,
         em: context.exchange_manager,
         channel_max: 2047,
+        frame_max: 131_072,
         heartbeat_interval: None,
         open_channels: HashMap::new(),
         exchanges: HashMap::new(),

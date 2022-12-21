@@ -54,6 +54,10 @@ impl Connection {
             self.channel_max = args.channel_max;
         }
 
+        if (args.frame_max as usize) < self.frame_max {
+            self.frame_max = args.frame_max as usize;
+        }
+
         Ok(())
     }
 

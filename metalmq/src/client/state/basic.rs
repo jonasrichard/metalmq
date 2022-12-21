@@ -41,6 +41,7 @@ impl Connection {
             no_ack: args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
             exclusive: args.flags.contains(frame::BasicConsumeFlags::EXCLUSIVE),
             outgoing: self.outgoing.clone(),
+            frame_size: self.frame_max,
         };
 
         let queue_sink = handle_error!(self, qm::consume(&self.qm, cmd).await).unwrap();
@@ -251,6 +252,7 @@ impl Connection {
                         // time
                         let cmd = ExchangeCommand::Message {
                             message: msg,
+                            frame_size: self.frame_max,
                             outgoing: self.outgoing.clone(),
                         };
                         // TODO is this the correct way of returning Err(_)
@@ -258,7 +260,7 @@ impl Connection {
                     }
                     None => {
                         if msg.mandatory {
-                            logerr!(message::send_basic_return(Arc::new(msg), &self.outgoing).await);
+                            logerr!(message::send_basic_return(Arc::new(msg), self.frame_max, &self.outgoing).await);
                         }
                     }
                 }

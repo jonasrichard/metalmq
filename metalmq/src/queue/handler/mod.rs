@@ -52,6 +52,7 @@ pub enum QueueCommand {
         no_ack: bool,
         exclusive: bool,
         sink: FrameSink,
+        frame_size: usize,
         result: oneshot::Sender<Result<()>>,
     },
     StartDelivering {
@@ -130,6 +131,8 @@ struct Consumer {
     sink: FrameSink,
     /// The next delivery tag it needs to send out
     delivery_tag_counter: u64,
+    /// The maximum frame size the consumer can process
+    frame_size: usize,
 }
 
 // Message delivery
@@ -306,6 +309,7 @@ impl QueueState {
                 no_ack,
                 exclusive,
                 sink,
+                frame_size,
                 result,
             } => {
                 info!(
@@ -335,6 +339,7 @@ impl QueueState {
                         exclusive,
                         sink,
                         delivery_tag_counter: 1u64,
+                        frame_size,
                     };
                     self.candidate_consumers.push(consumer);
 
@@ -495,7 +500,14 @@ impl QueueState {
                     delivery_tag: consumer.delivery_tag_counter,
                 };
 
-                let res = message::send_message(consumer.channel, message.clone(), &tag, &consumer.sink).await;
+                let res = message::send_message(
+                    consumer.channel,
+                    message.clone(),
+                    &tag,
+                    consumer.frame_size,
+                    &consumer.sink,
+                )
+                .await;
                 match res {
                     Ok(()) => {
                         self.outbox.on_sent_out(OutgoingMessage {

@@ -49,6 +49,7 @@ async fn send_basic_return_on_mandatory_unroutable_message() {
     };
     let cmd = ExchangeCommand::Message {
         message: msg,
+        frame_size: 32_768,
         outgoing: msg_tx,
     };
     let res = es.handle_command(cmd).await;

@@ -123,6 +123,7 @@ async fn publish_to_queue_with_one_consumer() {
         no_ack: false,
         exclusive: false,
         sink: msg_tx,
+        frame_size: 32_768,
         result: tx,
     };
 

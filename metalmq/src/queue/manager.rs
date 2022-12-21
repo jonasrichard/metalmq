@@ -54,6 +54,7 @@ pub struct QueueConsumeCommand {
     pub consumer_tag: String,
     pub no_ack: bool,
     pub exclusive: bool,
+    pub frame_size: usize,
     pub outgoing: mpsc::Sender<Frame>,
 }
 
@@ -282,6 +283,7 @@ impl QueueManagerState {
                         no_ack: command.no_ack,
                         exclusive: command.exclusive,
                         sink: command.outgoing,
+                        frame_size: command.frame_size,
                         result: tx,
                     }
                 )?;

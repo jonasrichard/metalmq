@@ -61,9 +61,13 @@ impl fmt::Debug for Message {
     }
 }
 
-/// Create content header and content body frames from a message
-pub fn message_to_content_frames(channel: frame::Channel, content: MessageContent) -> Vec<frame::AMQPFrame> {
-    // TODO make multiple content body frames if the message is too big
+/// Create content header and content body frames from a message. If content is bigger than the
+/// frame size, it makes more content body frames.
+pub fn message_to_content_frames(
+    channel: frame::Channel,
+    content: MessageContent,
+    frame_size: usize,
+) -> Vec<frame::AMQPFrame> {
     let header = frame::ContentHeaderFrame {
         channel,
         class_id: content.class_id, // TODO ???
@@ -86,10 +90,14 @@ pub fn message_to_content_frames(channel: frame::Channel, content: MessageConten
         content_type: content.content_type,
     };
 
-    vec![
-        AMQPFrame::ContentHeader(header),
-        AMQPFrame::ContentBody(frame::content_body(channel, content.body.as_slice())),
-    ]
+    let mut frames = vec![AMQPFrame::ContentHeader(header)];
+
+    // TODO check if body size is 0 in the header, we don't make content body frames
+    for chunk in content.body.chunks(frame_size) {
+        frames.push(AMQPFrame::ContentBody(frame::content_body(channel, chunk)));
+    }
+
+    frames
 }
 
 /// Send out a message to the specified channel.
@@ -97,9 +105,10 @@ pub async fn send_message(
     channel: frame::Channel,
     message: Arc<Message>,
     tag: &Tag,
+    frame_size: usize,
     outgoing: &FrameSink,
 ) -> Result<()> {
-    let mut frames = message_to_content_frames(channel, message.content.clone());
+    let mut frames = message_to_content_frames(channel, message.content.clone(), frame_size);
 
     let basic_deliver = frame::basic_deliver(
         channel,
@@ -116,8 +125,8 @@ pub async fn send_message(
     Ok(())
 }
 
-pub async fn send_basic_return(message: Arc<Message>, outgoing: &FrameSink) -> Result<()> {
-    let mut frames = message_to_content_frames(message.channel, message.content.clone());
+pub async fn send_basic_return(message: Arc<Message>, frame_size: usize, outgoing: &FrameSink) -> Result<()> {
+    let mut frames = message_to_content_frames(message.channel, message.content.clone(), frame_size);
 
     frames.insert(
         0,
@@ -153,5 +162,14 @@ pub mod tests {
             },
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn check_zero_length_body() {
+        let message = empty_message();
+
+        let frames = message_to_content_frames(1, message.content, 32_768);
+
+        assert_eq!(1, frames.len());
     }
 }
