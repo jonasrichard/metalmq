@@ -63,6 +63,7 @@ impl fmt::Debug for Message {
 
 /// Create content header and content body frames from a message
 pub fn message_to_content_frames(channel: frame::Channel, content: MessageContent) -> Vec<frame::AMQPFrame> {
+    // TODO make multiple content body frames if the message is too big
     let header = frame::ContentHeaderFrame {
         channel,
         class_id: content.class_id, // TODO ???

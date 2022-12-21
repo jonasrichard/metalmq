@@ -19,6 +19,9 @@ pub mod connect;
 pub mod exchange;
 pub mod queue;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 struct ConsumedQueue {
     queue_name: String,
@@ -69,6 +72,8 @@ struct PublishedContent {
     routing_key: String,
     mandatory: bool,
     immediate: bool,
+    /// The method frame class id which initiated the sending of the content.
+    method_frame_class_id: u32,
     content_header: ContentHeaderFrame,
     content_bodies: Vec<ContentBodyFrame>,
     body_size: usize,

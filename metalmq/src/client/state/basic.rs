@@ -1,5 +1,5 @@
 use crate::client::state::{Connection, ConsumedQueue, PublishedContent};
-use crate::client::ChannelError;
+use crate::client::{ChannelError, ConnectionError};
 use crate::exchange::handler::ExchangeCommand;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
@@ -22,6 +22,7 @@ impl Connection {
                 routing_key: args.routing_key,
                 mandatory: args.flags.contains(frame::BasicPublishFlags::MANDATORY),
                 immediate: args.flags.contains(frame::BasicPublishFlags::IMMEDIATE),
+                method_frame_class_id: frame::BASIC_PUBLISH,
                 ..Default::default()
             },
         );
@@ -125,7 +126,47 @@ impl Connection {
 
     pub async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> Result<()> {
         // TODO collect info into a data struct
+        // TODO if body_size is 0, there won't be content body frame
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
+            // Class Id in content header must match to the class id of the method frame initiated
+            // the sending of the content.
+            if header.class_id != (pc.method_frame_class_id >> 16) as u16 {
+                handle_error!(
+                    self,
+                    client::connection_error::<()>(
+                        pc.method_frame_class_id,
+                        ConnectionError::FrameError,
+                        "Class ID in content header must match that of the method frame"
+                    )
+                )
+                .unwrap();
+            }
+
+            // Weight must be zero.
+            if header.weight != 0 {
+                handle_error!(
+                    self,
+                    client::connection_error::<()>(
+                        pc.method_frame_class_id,
+                        ConnectionError::FrameError,
+                        "Weight must be 0"
+                    )
+                )
+                .unwrap();
+            }
+
+            if header.channel == 0 {
+                handle_error!(
+                    self,
+                    client::connection_error::<()>(
+                        pc.method_frame_class_id,
+                        ConnectionError::ChannelError,
+                        "Channel must not be 0"
+                    )
+                )
+                .unwrap();
+            }
+
             pc.content_header = header;
         }
 
@@ -133,27 +174,25 @@ impl Connection {
     }
 
     pub async fn receive_content_body(&mut self, body: frame::ContentBodyFrame) -> Result<()> {
-        info!("Message length {}", body.body.len());
+        let channel = body.channel;
+
+        if body.body.len() > 131_072 {
+            error!("Content is too large {}", body.body.len());
+
+            handle_error!(
+                self,
+                client::channel_error::<()>(
+                    channel,
+                    frame::BASIC_PUBLISH,
+                    ChannelError::ContentTooLarge,
+                    "Body is too long",
+                )
+            )
+            .unwrap();
+        }
 
         if let Some(mut pc) = self.in_flight_contents.remove(&body.channel) {
-            let channel = body.channel;
-
             pc.body_size += body.body.len() as usize;
-            if pc.body_size > 131_072 {
-                error!("Content is too large {}", pc.body_size);
-
-                handle_error!(
-                    self,
-                    client::channel_error::<()>(
-                        channel,
-                        frame::BASIC_PUBLISH,
-                        ChannelError::ContentTooLarge,
-                        "Body is too long",
-                    )
-                )
-                .unwrap();
-            }
-
             pc.content_bodies.push(body);
 
             if pc.body_size < pc.content_header.body_size as usize {
@@ -163,6 +202,8 @@ impl Connection {
             } else {
                 let mut message_body = vec![];
 
+                // TODO we shouldn't concatenate the body parts, because we need to send them in
+                // chunks anyway. Can a consumer support less or more frame size than a server?
                 for cb in pc.content_bodies {
                     message_body.extend(cb.body);
                 }

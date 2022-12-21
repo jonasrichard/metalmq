@@ -2,6 +2,9 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use serde_derive::Deserialize;
 
+pub const MAX_FRAME_SIZE: usize = 131_072;
+pub const MAX_CHANNELS_PER_CONNECTION: u16 = 2047;
+
 pub(crate) struct CliConfig {
     pub(crate) config_file_path: String,
 }

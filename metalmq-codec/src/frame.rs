@@ -151,6 +151,9 @@ impl Default for HeaderPropertyFlags {
     }
 }
 
+// FIXME The property flags is 16 bits but a message can contain more than 16 properties.
+// If the last bit of the flags is 0, there are more properties sent. I cannot see how, I need to
+// see a good example.
 #[derive(Debug, Default)]
 pub struct ContentHeaderFrame {
     pub channel: Channel,
