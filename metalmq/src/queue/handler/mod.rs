@@ -557,7 +557,8 @@ impl QueueState {
     /// Put back the outgoing messages which were sent out to a consumer but the consumer cancelled
     /// without acking those messages.
     fn enqueue_outbox_messages(&mut self, consumer_tag: &str) {
-        let msgs = self.outbox.remove_messages_by_ctag(consumer_tag);
+        let mut msgs = self.outbox.remove_messages_by_ctag(consumer_tag);
+        msgs.reverse();
 
         for msg in msgs {
             self.messages.push_front(msg);

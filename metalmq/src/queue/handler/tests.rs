@@ -46,8 +46,8 @@ impl TestCase {
         }
     }
 
-    fn default_message(&self) -> Message {
-        let body = self.message_body.clone().into_bytes();
+    fn default_message(&self, body: &str) -> Message {
+        let body = body.to_owned().as_bytes().to_vec();
         let body_len = body.len() as u64;
 
         Message {
@@ -93,8 +93,8 @@ impl TestCase {
         }
     }
 
-    fn command_publish(&self) -> QueueCommand {
-        QueueCommand::PublishMessage(Arc::new(self.default_message()))
+    fn command_publish(&self, body: &str) -> QueueCommand {
+        QueueCommand::PublishMessage(Arc::new(self.default_message(body)))
     }
 }
 
@@ -152,7 +152,7 @@ fn parse_message(frame: Frame) -> Option<Message> {
 #[tokio::test]
 async fn publish_to_queue_without_consumers() {
     let test_case = TestCase::default();
-    let message = test_case.default_message();
+    let message = test_case.default_message("Hey, man");
     let mut qs = test_case.default_queue_state();
 
     let cmd = QueueCommand::PublishMessage(Arc::new(message.clone()));
@@ -175,7 +175,7 @@ async fn publish_to_queue_with_one_consumer() {
     use metalmq_codec::frame::{self, AMQPFrame};
 
     let test_case = TestCase::default();
-    let message = test_case.default_message();
+    let message = test_case.default_message("Hey, man");
     let mut qs = test_case.default_queue_state();
 
     let (msg_tx, mut msg_rx) = mpsc::channel(1);
@@ -231,7 +231,7 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
     use crate::RuntimeError;
 
     let test_case = TestCase::default();
-    let message = test_case.default_message();
+    let message = test_case.default_message("Hey, man");
     let mut qs = test_case.default_queue_state();
 
     qs.handle_command(QueueCommand::PublishMessage(Arc::new(message)))
@@ -282,9 +282,11 @@ async fn unacked_messages_should_be_put_back_in_the_queue() {
         .await
         .unwrap();
 
-    qs.handle_command(test_case.command_publish()).await.unwrap();
+    qs.handle_command(test_case.command_publish("1st")).await.unwrap();
+    let _msg_res = recv_timeout(&mut frx).await.unwrap();
 
-    let msg_res = recv_timeout(&mut frx).await.unwrap();
+    qs.handle_command(test_case.command_publish("2nd")).await.unwrap();
+    let _msg_res = recv_timeout(&mut frx).await.unwrap();
 
     //let message = parse_message(msg_res);
 
@@ -297,8 +299,13 @@ async fn unacked_messages_should_be_put_back_in_the_queue() {
 
     // Test the original order of two messages not just one
 
-    assert_eq!(qs.messages.len(), 1);
-    assert_eq!(qs.messages.get(0).unwrap().content.body, b"Hey, buddy!");
+    assert_eq!(qs.messages.len(), 2);
+
+    let message1 = qs.messages.pop_front().unwrap();
+    assert_eq!(message1.content.body, b"1st");
+
+    let message2 = qs.messages.pop_front().unwrap();
+    assert_eq!(message2.content.body, b"2nd");
 }
 
 // TODO when a consumer cancel consuming on an exclusive queue, the queue should be deleted
