@@ -54,6 +54,7 @@ impl Connection {
             self.channel_max = args.channel_max;
         }
 
+        // Server recommends a maximum frame size, and client can lower that value.
         if (args.frame_max as usize) < self.frame_max {
             self.frame_max = args.frame_max as usize;
         }

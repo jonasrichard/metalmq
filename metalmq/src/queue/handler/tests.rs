@@ -1,6 +1,6 @@
 use super::*;
 use crate::message::{Message, MessageContent};
-use metalmq_codec::codec::Frame;
+use metalmq_codec::{codec::Frame, frame::AMQPFrame};
 use std::sync::Arc;
 
 struct TestCase {
@@ -66,6 +66,36 @@ impl TestCase {
             },
         }
     }
+
+    fn command_consuming(&self, ctag: &str, ftx: FrameSink, rtx: oneshot::Sender<Result<()>>) -> QueueCommand {
+        QueueCommand::StartConsuming {
+            conn_id: self.connection_id.clone(),
+            channel: self.used_channel,
+            consumer_tag: ctag.to_string(),
+            no_ack: false,
+            exclusive: false,
+            sink: ftx,
+            frame_size: 1024,
+            result: rtx,
+        }
+    }
+
+    fn command_start_delivering(&self, ctag: &str) -> QueueCommand {
+        QueueCommand::StartDelivering {
+            consumer_tag: ctag.to_string(),
+        }
+    }
+
+    fn command_cancel_consume(&self, ctag: &str, rtx: oneshot::Sender<bool>) -> QueueCommand {
+        QueueCommand::CancelConsuming {
+            consumer_tag: ctag.to_string(),
+            result: rtx,
+        }
+    }
+
+    fn command_publish(&self) -> QueueCommand {
+        QueueCommand::PublishMessage(Arc::new(self.default_message()))
+    }
 }
 
 async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
@@ -79,6 +109,41 @@ async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
         _ = &mut sleep => {
             return None;
         }
+    }
+}
+
+fn parse_message(frame: Frame) -> Option<Message> {
+    let mut message = Message { ..Default::default() };
+
+    if let Frame::Frames(fs) = frame {
+        for f in fs {
+            match f {
+                AMQPFrame::Method(
+                    channel,
+                    frame::BASIC_DELIVER,
+                    frame::MethodFrameArgs::BasicDeliver(frame::BasicDeliverArgs {
+                        exchange_name,
+                        routing_key,
+                        ..
+                    }),
+                ) => {
+                    message.channel = channel;
+                    message.exchange = exchange_name;
+                    message.routing_key = routing_key;
+                }
+                AMQPFrame::ContentHeader(frame::ContentHeaderFrame { body_size, .. }) => {
+                    message.content.body_size = body_size;
+                }
+                AMQPFrame::ContentBody(frame::ContentBodyFrame { body, .. }) => {
+                    message.content.body = body;
+                }
+                _ => (),
+            }
+        }
+
+        Some(message)
+    } else {
+        return None;
     }
 }
 
@@ -197,6 +262,43 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
     assert_eq!(err.text, "Queue is not empty".to_string());
 
     // we could check if exchange manager gets the unbind command for that queue
+}
+
+#[tokio::test]
+async fn unacked_messages_should_be_put_back_in_the_queue() {
+    let test_case = TestCase::default();
+    let mut qs = test_case.default_queue_state();
+
+    let ctag = "ctag-1".to_string();
+    let (ftx, mut frx) = mpsc::channel(1);
+    let (rtx, rrx) = oneshot::channel();
+    qs.handle_command(test_case.command_consuming(&ctag, ftx, rtx))
+        .await
+        .unwrap();
+
+    rrx.await.unwrap().unwrap();
+
+    qs.handle_command(test_case.command_start_delivering(&ctag))
+        .await
+        .unwrap();
+
+    qs.handle_command(test_case.command_publish()).await.unwrap();
+
+    let msg_res = recv_timeout(&mut frx).await.unwrap();
+
+    //let message = parse_message(msg_res);
+
+    let (rtx, rrx) = oneshot::channel();
+    qs.handle_command(test_case.command_cancel_consume(&ctag, rtx))
+        .await
+        .unwrap();
+
+    rrx.await.unwrap();
+
+    // Test the original order of two messages not just one
+
+    assert_eq!(qs.messages.len(), 1);
+    assert_eq!(qs.messages.get(0).unwrap().content.body, b"Hey, buddy!");
 }
 
 // TODO when a consumer cancel consuming on an exclusive queue, the queue should be deleted

@@ -16,20 +16,6 @@ use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
-    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-    tokio::pin!(sleep);
-
-    tokio::select! {
-        frame = rx.recv() => {
-            frame
-        }
-        _ = &mut sleep => {
-            return None;
-        }
-    }
-}
-
 #[tokio::test]
 async fn send_basic_return_on_mandatory_unroutable_message() {
     let (msg_tx, mut msg_rx) = mpsc::channel(1);
@@ -225,4 +211,18 @@ fn queue_start(conn_id: String, queue: &Queue) -> mpsc::Sender<QueueCommand> {
     });
 
     tx
+}
+
+async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
+    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
+    tokio::pin!(sleep);
+
+    tokio::select! {
+        frame = rx.recv() => {
+            frame
+        }
+        _ = &mut sleep => {
+            return None;
+        }
+    }
 }

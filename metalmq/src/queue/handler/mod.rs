@@ -354,14 +354,18 @@ impl QueueState {
                     self.queue.name, consumer_tag
                 );
 
+                self.enqueue_outbox_messages(&consumer_tag);
+
                 self.consumers.retain(|c| !c.consumer_tag.eq(&consumer_tag));
                 self.next_consumer = 0;
 
                 if self.queue.auto_delete && self.consumers.is_empty() {
                     logerr!(result.send(false));
+
                     Ok(false)
                 } else {
                     logerr!(result.send(true));
+
                     Ok(true)
                 }
             }
@@ -549,6 +553,16 @@ impl QueueState {
 
         Ok(())
     }
+
+    /// Put back the outgoing messages which were sent out to a consumer but the consumer cancelled
+    /// without acking those messages.
+    fn enqueue_outbox_messages(&mut self, consumer_tag: &str) {
+        let msgs = self.outbox.remove_messages_by_ctag(consumer_tag);
+
+        for msg in msgs {
+            self.messages.push_front(msg);
+        }
+    }
 }
 
 fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option<QueueCommand>> {
@@ -577,5 +591,20 @@ impl Outbox {
 
     fn on_sent_out(&mut self, outgoing_message: OutgoingMessage) {
         self.outgoing_messages.push(outgoing_message);
+    }
+
+    fn remove_messages_by_ctag(&mut self, ctag: &str) -> Vec<Arc<Message>> {
+        let mut messages = vec![];
+        let mut i = 0;
+
+        while i < self.outgoing_messages.len() {
+            if self.outgoing_messages[i].tag.consumer_tag == ctag {
+                messages.push(self.outgoing_messages.remove(i).message);
+            } else {
+                i += 1;
+            }
+        }
+
+        messages
     }
 }
