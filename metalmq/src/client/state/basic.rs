@@ -127,7 +127,8 @@ impl Connection {
 
     pub async fn receive_content_header(&mut self, header: frame::ContentHeaderFrame) -> Result<()> {
         // TODO collect info into a data struct
-        // TODO if body_size is 0, there won't be content body frame
+        // TODO if body_size is 0, there won't be content body frame, so we need to send Message
+        // now!
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
             // Class Id in content header must match to the class id of the method frame initiated
             // the sending of the content.

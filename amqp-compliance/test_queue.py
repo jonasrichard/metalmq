@@ -1,6 +1,6 @@
 """Test queue related behaviours"""
 import logging
-import threading
+import time
 
 import pytest
 import pika
@@ -70,7 +70,7 @@ def test_exclusive_queue_cannot_consume_by_other_connection():
     An exclusive queue cannot be consumer by another connection.
     """
     def on_message(ch, method, properties, body):
-        None
+        pass
 
     with helper.channel(1) as declaring_channel:
         declaring_channel.queue_declare("exclusive-queue", exclusive=True)
@@ -80,3 +80,31 @@ def test_exclusive_queue_cannot_consume_by_other_connection():
                 consuming_channel.basic_consume("exclusive-queue", on_message)
 
             assert 405 == exp.value.reply_code
+
+def test_queue_declare_without_name_has_generated_name():
+    """
+    If client does not provide a name during queue declaration, the server should generate a
+    name to that.
+    """
+    with helper.channel(3) as declaring_channel:
+        declare_ok = declaring_channel.queue_declare("")
+
+        assert '' != declare_ok.method.queue
+
+def test_queue_declare_should_give_back_message_count_if_queue_exists():
+    """
+    In Declare.QueueOk server gives back message count and consumer count if queue already exists.
+    """
+    with helper.channel(4) as declaring_channel:
+        declaring_channel.queue_declare("q-msg-count")
+        declaring_channel.exchange_declare("x-msg-count")
+        declaring_channel.queue_bind("q-msg-count", "x-msg-count", "q-msg-count")
+
+        for i in range(0, 5):
+            declaring_channel.basic_publish("x-msg-count", "q-msg-count", f"Body {i}", mandatory=True)
+
+        time.sleep(0.5)
+
+        declare_ok = declaring_channel.queue_declare("q-msg-count", passive=True)
+
+        assert declare_ok.method.message_count == 5

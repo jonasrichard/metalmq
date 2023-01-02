@@ -3,23 +3,36 @@ use crate::client::{self, ChannelError};
 use crate::exchange::manager::{self as em, BindQueueCommand, UnbindQueueCommand};
 use crate::queue::manager as qm;
 use crate::{handle_error, Result};
-use log::{info, warn};
+use log::warn;
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
+use uuid::Uuid;
 
 impl Connection {
     pub async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {
-        let queue_name = args.name.clone();
+        let mut queue_name = args.name.clone();
+        if queue_name == "" {
+            queue_name = Uuid::new_v4().hyphenated().to_string();
+        }
+
+        let passive = args.flags.contains(frame::QueueDeclareFlags::PASSIVE);
 
         let cmd = qm::QueueDeclareCommand {
             conn_id: self.id.clone(),
             channel,
             queue: args.into(),
+            passive,
         };
-        qm::declare_queue(&self.qm, cmd).await?;
+        let (message_count, consumer_count) = qm::declare_queue(&self.qm, cmd).await?;
 
-        self.send_frame(Frame::Frame(frame::queue_declare_ok(channel, queue_name, 0, 0)))
-            .await?;
+        // TODO get the consumer and message count of the queue
+        self.send_frame(Frame::Frame(frame::queue_declare_ok(
+            channel,
+            queue_name,
+            message_count,
+            consumer_count,
+        )))
+        .await?;
 
         Ok(())
     }

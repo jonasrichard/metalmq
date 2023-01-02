@@ -150,7 +150,7 @@ def test_publish_and_then_consume(caplog):
     s.declare_exchange()
 
     for i in range(0, 2):
-        s.publish('Message {}'.format(i))
+        s.publish(f'Message {i}')
 
     s.close(without_cleanup=True)
 

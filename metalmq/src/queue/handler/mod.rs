@@ -35,6 +35,9 @@ pub enum QueueCommand {
         consumer_tag: String,
         delivery_tag: u64,
     },
+    GetDeclareOk {
+        result: oneshot::Sender<(u32, u32)>,
+    },
     ExchangeBound {
         conn_id: String,
         channel: u16,
@@ -251,6 +254,14 @@ impl QueueState {
                 delivery_tag,
             } => {
                 self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
+                Ok(true)
+            }
+            QueueCommand::GetDeclareOk { result } => {
+                let message_count = self.messages.len();
+                let consumer_count = self.consumers.len();
+
+                result.send((message_count as u32, consumer_count as u32)).unwrap();
+
                 Ok(true)
             }
             QueueCommand::ExchangeBound {

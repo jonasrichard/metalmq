@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     client::{state::Connection, ConnectionError},
-    ErrorScope, RuntimeError,
+    exchange, queue, ErrorScope, RuntimeError,
 };
 
 struct ConnectionTest {
@@ -18,8 +18,8 @@ struct ConnectionTest {
 
 impl ConnectionTest {
     fn new() -> Self {
-        let em = crate::exchange::manager::start();
-        let qm = crate::queue::manager::start(em.clone());
+        let em = exchange::manager::start();
+        let qm = queue::manager::start(em.clone());
         let (frame_tx, frame_rx) = mpsc::channel(1);
 
         ConnectionTest {

@@ -8,7 +8,6 @@ struct TestCase {
     used_channel: u16,
     exchange_name: String,
     queue_name: String,
-    message_body: String,
     message_mandatory: bool,
 }
 
@@ -19,7 +18,6 @@ impl Default for TestCase {
             used_channel: 1u16,
             exchange_name: "my-exchange".to_owned(),
             queue_name: "my-queue".to_owned(),
-            message_body: "Hey, buddy!".to_owned(),
             message_mandatory: false,
         }
     }

@@ -96,7 +96,7 @@ def test_unrouted_mandatory_message():
 
 def test_publish_too_long_message():
     def on_message(ch, method, props, body):
-        None
+        pass
 
     with helper.channel(1) as publishing_channel:
         publishing_channel.exchange_declare("x-too-long")

@@ -31,7 +31,7 @@ def direct_exchange(channel, exchange, *queues):
     try:
         channel.exchange_declare(exchange, exchange_type="direct")
         for queue in queues:
-            if type(queue) is tuple:
+            if isinstance(queue, tuple):
                 (queue_name, routing_key) = queue
                 channel.queue_declare(queue_name)
                 channel.queue_bind(queue_name, exchange, routing_key)
@@ -42,7 +42,7 @@ def direct_exchange(channel, exchange, *queues):
         yield
     finally:
         for queue in queues:
-            if type(queue) is tuple:
+            if isinstance(queue, tuple):
                 (queue_name, routing_key) = queue
                 channel.queue_unbind(queue_name, exchange, routing_key)
                 channel.queue_delete(queue_name)

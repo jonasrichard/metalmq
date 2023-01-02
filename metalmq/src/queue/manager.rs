@@ -36,6 +36,7 @@ use tokio::sync::{mpsc, oneshot};
 #[derive(Debug)]
 struct QueueState {
     pub queue: Queue,
+    pub declaring_connection: String,
     pub command_sink: QueueCommandSink,
 }
 
@@ -44,6 +45,7 @@ pub struct QueueDeclareCommand {
     pub queue: Queue,
     pub conn_id: String,
     pub channel: u16,
+    pub passive: bool,
 }
 
 #[derive(Debug)]
@@ -82,7 +84,7 @@ pub struct GetQueueSinkQuery {
 
 #[derive(Debug)]
 pub enum QueueManagerCommand {
-    Declare(QueueDeclareCommand, oneshot::Sender<Result<()>>),
+    Declare(QueueDeclareCommand, oneshot::Sender<Result<(u32, u32)>>),
     Consume(QueueConsumeCommand, oneshot::Sender<Result<QueueCommandSink>>),
     CancelConsume(QueueCancelConsume, oneshot::Sender<Result<()>>),
     Delete(QueueDeleteCommand, oneshot::Sender<Result<u32>>),
@@ -110,7 +112,7 @@ pub fn start(exchange_manager: ExchangeManagerSink) -> QueueManagerSink {
     sink
 }
 
-pub async fn declare_queue(mgr: &QueueManagerSink, cmd: QueueDeclareCommand) -> Result<()> {
+pub async fn declare_queue(mgr: &QueueManagerSink, cmd: QueueDeclareCommand) -> Result<(u32, u32)> {
     let (tx, rx) = oneshot::channel();
 
     send!(mgr, QueueManagerCommand::Declare(cmd, tx))?;
@@ -189,6 +191,7 @@ impl QueueManagerState {
 
                             if !still_alive {
                                 // Queue is auto delete and the last consumer has cancelled.
+                                // FIXME why do we need to break out of the loop?
                                 break;
                             }
                         }
@@ -215,18 +218,75 @@ impl QueueManagerState {
 
     /// Declare queue with the given parameters. Declare means if the queue hasn't existed yet, it
     /// creates that.
-    async fn handle_declare(&mut self, command: QueueDeclareCommand) -> Result<()> {
-        // TODO passive declaration of an exclusive queue on a different connection is not allowed
-        // TODO implement different queue properties (exclusive, auto-delete, durable, properties)
+    ///
+    /// In case of success it gives back the number of messages in the queue and the number of
+    /// active consumers needed by the Queue.DeclareOk message.
+    async fn handle_declare(&mut self, command: QueueDeclareCommand) -> Result<(u32, u32)> {
+        // TODO
+        // The server MUST create a default binding for a newly-declared queue to the default
+        // exchange, which is an exchange of type 'direct' and use the queue name as the routing key.
+        //
+        // TODO
+        // Queue names starting with "amq." are reserved for pre-declared and standardised queues.
+        // The client MAY declare a queue starting with "amq." if the passive option is set, or the
+        // queue already exists. Error code: access-refused
         match self.queues.get(&command.queue.name) {
-            // FIXME we need to check here if in case of passive declare the properties match or
-            // we need to raise an error if queue is already declared
-            Some(_) => Ok(()),
+            Some(qi) => {
+                if command.passive {
+                    if qi.queue.exclusive && command.conn_id != qi.declaring_connection {
+                        channel_error(
+                            command.channel,
+                            frame::QUEUE_DECLARE,
+                            ChannelError::ResourceLocked,
+                            &format!("Queue {} is declared by another connection already", command.queue.name),
+                        )?;
+                    }
+
+                    if qi.queue.durable != command.queue.durable || qi.queue.auto_delete != command.queue.auto_delete {
+                        channel_error(
+                            command.channel,
+                            frame::QUEUE_DECLARE,
+                            ChannelError::PreconditionFailed,
+                            &format!(
+                                "Queue {} is already declared with different properties",
+                                command.queue.name
+                            ),
+                        )?;
+                    }
+                }
+
+                // TODO query the number of messages and consumers
+                let (tx, rx) = oneshot::channel();
+                qi.command_sink.send(QueueCommand::GetDeclareOk { result: tx }).await?;
+
+                let (message_count, consumer_count) = rx.await?;
+
+                Ok((message_count, consumer_count))
+            }
             None => {
+                if command.passive {
+                    channel_error(
+                        command.channel,
+                        frame::QUEUE_DECLARE,
+                        ChannelError::NotFound,
+                        &format!("Queue {} cannot be found", command.queue.name),
+                    )?;
+                }
+
+                if !validate_queue_name(&command.queue.name) {
+                    channel_error(
+                        command.channel,
+                        frame::QUEUE_DECLARE,
+                        ChannelError::PreconditionFailed,
+                        &format!("Queue name {} is not valid", command.queue.name),
+                    )?;
+                }
+
                 let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
                 let queue_name = command.queue.name.clone();
                 let queue_state = QueueState {
                     queue: command.queue.clone(),
+                    declaring_connection: command.conn_id.clone(),
                     command_sink: cmd_tx,
                 };
 
@@ -236,7 +296,7 @@ impl QueueManagerState {
 
                 self.queues.insert(queue_name, queue_state);
 
-                Ok(())
+                Ok((0, 0))
             }
         }
     }
@@ -337,9 +397,30 @@ impl QueueManagerState {
     }
 }
 
+fn validate_queue_name(name: &str) -> bool {
+    for c in name.chars() {
+        if !(char::is_digit(c, 10) || char::is_alphabetic(c) || "-_.:".contains(c)) {
+            return false;
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::{ErrorScope, RuntimeError};
+
     use super::*;
+
+    #[test]
+    fn queue_name_validator_test() {
+        assert!(validate_queue_name("good-queue-name"));
+        assert!(validate_queue_name("good.queue:name"));
+        assert!(validate_queue_name("another_good_queue_1"));
+        assert!(!validate_queue_name("bad-name?"));
+        assert!(!validate_queue_name("$name"));
+    }
 
     fn new_queue_manager() -> QueueManagerState {
         let (em_tx, _em_rx) = mpsc::channel(1);
@@ -362,6 +443,7 @@ mod tests {
             },
             conn_id: "conn_id".to_string(),
             channel,
+            passive: false,
         }
     }
 
@@ -378,5 +460,20 @@ mod tests {
         let queue_info = qm.queues.get("test-queue").unwrap();
         assert_eq!(queue_info.queue.name, "test-queue".to_string());
         assert_eq!(queue_info.queue.exclusive, false);
+    }
+
+    #[tokio::test]
+    async fn passive_queue_declare_does_not_create_queues_test() {
+        let mut qm = new_queue_manager();
+
+        let mut cmd = queue_declare_command(2u16, "passive-queue");
+        cmd.passive = true;
+
+        let res = qm.handle_declare(cmd).await;
+        assert!(res.is_err());
+
+        let err = res.unwrap_err().downcast::<RuntimeError>().unwrap();
+        assert_eq!(err.scope, ErrorScope::Channel);
+        assert_eq!(err.code, ChannelError::NotFound as u16);
     }
 }

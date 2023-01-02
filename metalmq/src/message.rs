@@ -92,7 +92,6 @@ pub fn message_to_content_frames(
 
     let mut frames = vec![AMQPFrame::ContentHeader(header)];
 
-    // TODO check if body size is 0 in the header, we don't make content body frames
     for chunk in content.body.chunks(frame_size) {
         frames.push(AMQPFrame::ContentBody(frame::content_body(channel, chunk)));
     }
