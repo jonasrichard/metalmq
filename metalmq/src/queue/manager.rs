@@ -255,7 +255,6 @@ impl QueueManagerState {
                     }
                 }
 
-                // TODO query the number of messages and consumers
                 let (tx, rx) = oneshot::channel();
                 qi.command_sink.send(QueueCommand::GetDeclareOk { result: tx }).await?;
 

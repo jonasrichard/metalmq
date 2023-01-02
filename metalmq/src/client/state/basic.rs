@@ -115,6 +115,10 @@ impl Connection {
         Ok(())
     }
 
+    pub async fn basic_get(&mut self, channel: Channel, args: frame::BasicGetArgs) -> Result<()> {
+        Ok(())
+    }
+
     pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> Result<()> {
         if let Some(ch) = self.open_channels.get_mut(&channel) {
             ch.confirm_mode = true;

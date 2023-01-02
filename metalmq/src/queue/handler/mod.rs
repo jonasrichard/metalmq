@@ -48,6 +48,10 @@ pub enum QueueCommand {
         exchange_name: String,
         result: oneshot::Sender<Result<()>>,
     },
+    // TODO we need to implement passive consuming for basic.get
+    // it will have an internal id (connection id and channel number) and
+    // also a delivery tag, so in the outbox we need to unify the two types
+    // of consumers
     StartConsuming {
         conn_id: String,
         channel: u16,

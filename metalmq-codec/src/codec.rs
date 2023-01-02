@@ -166,6 +166,9 @@ fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
         BASIC_CONSUME_OK => decode_basic_consume_ok(src),
         BASIC_CANCEL => decode_basic_cancel(src),
         BASIC_CANCEL_OK => decode_basic_cancel_ok(src),
+        BASIC_GET => decode_basic_get(src),
+        BASIC_GET_OK => decode_basic_get_ok(src),
+        BASIC_GET_EMPTY => decode_basic_get_empty(src),
         BASIC_PUBLISH => decode_basic_publish(src),
         BASIC_RETURN => decode_basic_return(src),
         BASIC_DELIVER => decode_basic_deliver(src),
@@ -415,6 +418,33 @@ fn decode_basic_cancel_ok(src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::BasicCancelOk(args)
 }
 
+fn decode_basic_get(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicGetArgs::default();
+    let _ = src.get_u16();
+
+    args.queue = decode_short_string(src);
+    args.flags = BasicGetFlags::from_bits(src.get_u8()).unwrap_or_default();
+
+    MethodFrameArgs::BasicGet(args)
+}
+
+fn decode_basic_get_ok(src: &mut BytesMut) -> MethodFrameArgs {
+    let mut args = BasicGetOkArgs::default();
+    args.delivery_tag = src.get_u64();
+    args.flags = BasicGetOkFlags::from_bits(src.get_u8()).unwrap_or_default();
+    args.exchange_name = decode_short_string(src);
+    args.routing_key = decode_short_string(src);
+    args.message_count = src.get_u32();
+
+    MethodFrameArgs::BasicGetOk(args)
+}
+
+fn decode_basic_get_empty(src: &mut BytesMut) -> MethodFrameArgs {
+    let _ = src.get_u8();
+
+    MethodFrameArgs::BasicGetEmpty
+}
+
 fn decode_basic_publish(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = BasicPublishArgs::default();
     let _ = src.get_u16();
@@ -655,6 +685,9 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::BasicConsumeOk(args) => encode_basic_consume_ok(&mut fr, args),
         MethodFrameArgs::BasicCancel(args) => encode_basic_cancel(&mut fr, args),
         MethodFrameArgs::BasicCancelOk(args) => encode_basic_cancel_ok(&mut fr, args),
+        MethodFrameArgs::BasicGet(args) => encode_basic_get(&mut fr, args),
+        MethodFrameArgs::BasicGetOk(args) => encode_basic_get_ok(&mut fr, args),
+        MethodFrameArgs::BasicGetEmpty => encode_basic_get_empty(&mut fr),
         MethodFrameArgs::BasicPublish(args) => encode_basic_publish(&mut fr, args),
         MethodFrameArgs::BasicReturn(args) => encode_basic_return(&mut fr, args),
         MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args),
@@ -819,6 +852,24 @@ fn encode_basic_cancel(buf: &mut BytesMut, args: &BasicCancelArgs) {
 
 fn encode_basic_cancel_ok(buf: &mut BytesMut, args: &BasicCancelOkArgs) {
     encode_short_string(buf, &args.consumer_tag);
+}
+
+fn encode_basic_get(buf: &mut BytesMut, args: &BasicGetArgs) {
+    buf.put_u16(0);
+    encode_short_string(buf, &args.queue);
+    buf.put_u8(args.flags.bits());
+}
+
+fn encode_basic_get_ok(buf: &mut BytesMut, args: &BasicGetOkArgs) {
+    buf.put_u64(args.delivery_tag);
+    buf.put_u8(args.flags.bits());
+    encode_short_string(buf, &args.exchange_name);
+    encode_short_string(buf, &args.routing_key);
+    buf.put_u32(args.message_count);
+}
+
+fn encode_basic_get_empty(buf: &mut BytesMut) {
+    buf.put_u8(0);
 }
 
 fn encode_basic_publish(buf: &mut BytesMut, args: &BasicPublishArgs) {

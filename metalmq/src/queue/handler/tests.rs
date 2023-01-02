@@ -65,12 +65,18 @@ impl TestCase {
         }
     }
 
-    fn command_consuming(&self, ctag: &str, ftx: FrameSink, rtx: oneshot::Sender<Result<()>>) -> QueueCommand {
+    fn command_consuming(
+        &self,
+        ctag: &str,
+        no_ack: bool,
+        ftx: FrameSink,
+        rtx: oneshot::Sender<Result<()>>,
+    ) -> QueueCommand {
         QueueCommand::StartConsuming {
             conn_id: self.connection_id.clone(),
             channel: self.used_channel,
             consumer_tag: ctag.to_string(),
-            no_ack: false,
+            no_ack,
             exclusive: false,
             sink: ftx,
             frame_size: 1024,
@@ -94,8 +100,41 @@ impl TestCase {
     fn command_publish(&self, body: &str) -> QueueCommand {
         QueueCommand::PublishMessage(Arc::new(self.default_message(body)))
     }
+
+    fn command_delete(
+        &self,
+        channel: u16,
+        if_unused: bool,
+        if_empty: bool,
+        em: ExchangeManagerSink,
+        rtx: oneshot::Sender<Result<u32>>,
+    ) -> QueueCommand {
+        QueueCommand::DeleteQueue {
+            conn_id: self.connection_id.clone(),
+            channel,
+            if_unused,
+            if_empty,
+            exchange_manager: em,
+            result: rtx,
+        }
+    }
 }
 
+async fn consume(qs: &mut QueueState, tc: &TestCase, ctag: &str, no_ack: bool) -> mpsc::Receiver<Frame> {
+    let (ftx, frx) = mpsc::channel(1);
+
+    let (rtx, rrx) = oneshot::channel();
+    qs.handle_command(tc.command_consuming(ctag, no_ack, ftx, rtx))
+        .await
+        .unwrap();
+    rrx.await.unwrap().unwrap();
+
+    qs.handle_command(tc.command_start_delivering(ctag)).await.unwrap();
+
+    frx
+}
+
+// TODO move this to a test util, also the runtimeerror downcast fn
 async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
     let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
     tokio::pin!(sleep);
@@ -169,9 +208,6 @@ async fn publish_to_queue_without_consumers() {
 /// the queue is passed to the consumer.
 #[tokio::test]
 async fn publish_to_queue_with_one_consumer() {
-    use metalmq_codec::codec::Frame;
-    use metalmq_codec::frame::{self, AMQPFrame};
-
     let test_case = TestCase::default();
     let message = test_case.default_message("Hey, man");
     let mut qs = test_case.default_queue_state();
@@ -179,16 +215,7 @@ async fn publish_to_queue_with_one_consumer() {
     let (msg_tx, mut msg_rx) = mpsc::channel(1);
     let (tx, rx) = oneshot::channel();
 
-    let cmd = QueueCommand::StartConsuming {
-        conn_id: test_case.connection_id.clone(),
-        consumer_tag: "myctag".to_string(),
-        channel: test_case.used_channel,
-        no_ack: false,
-        exclusive: false,
-        sink: msg_tx,
-        frame_size: 32_768,
-        result: tx,
-    };
+    let cmd = test_case.command_consuming("myctag", false, msg_tx, tx);
 
     let result = qs.handle_command(cmd).await;
     assert!(result.is_ok());
@@ -210,18 +237,9 @@ async fn publish_to_queue_with_one_consumer() {
     assert!(result.is_ok());
 
     let frame = recv_timeout(&mut msg_rx).await.unwrap();
-    if let Frame::Frames(fs) = frame {
-        if let AMQPFrame::Method(ch, cm, frame::MethodFrameArgs::BasicDeliver(args)) = fs.get(0).unwrap() {
-            assert_eq!(ch, &1);
-            assert_eq!(cm, &frame::BASIC_DELIVER);
-            assert_eq!(args.consumer_tag, "myctag");
-            assert_eq!(args.delivery_tag, 1);
-        }
-        // TODO check the other frames
-    } else {
-        println!("{:?}", frame);
-        assert!(false, "Basic.Delivery frame is expected");
-    }
+
+    let message = parse_message(frame).unwrap();
+    assert_eq!(message.exchange, test_case.exchange_name);
 }
 
 #[tokio::test]
@@ -238,17 +256,8 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
 
     let (em_tx, _em_rx) = mpsc::channel(1);
     let (del_tx, del_rx) = oneshot::channel();
-    let del_result = qs
-        .handle_command(QueueCommand::DeleteQueue {
-            conn_id: "123".to_owned(),
-            channel: 5u16,
-            if_unused: false,
-            if_empty: true,
-            exchange_manager: em_tx,
-            result: del_tx,
-        })
-        .await
-        .unwrap();
+    let cmd = test_case.command_delete(5u16, false, true, em_tx, del_tx);
+    let del_result = qs.handle_command(cmd).await.unwrap();
 
     assert_eq!(del_result, true);
 
@@ -267,18 +276,7 @@ async fn unacked_messages_should_be_put_back_in_the_queue() {
     let test_case = TestCase::default();
     let mut qs = test_case.default_queue_state();
 
-    let ctag = "ctag-1".to_string();
-    let (ftx, mut frx) = mpsc::channel(1);
-    let (rtx, rrx) = oneshot::channel();
-    qs.handle_command(test_case.command_consuming(&ctag, ftx, rtx))
-        .await
-        .unwrap();
-
-    rrx.await.unwrap().unwrap();
-
-    qs.handle_command(test_case.command_start_delivering(&ctag))
-        .await
-        .unwrap();
+    let mut frx = consume(&mut qs, &test_case, "ctag-2", false).await;
 
     qs.handle_command(test_case.command_publish("1st")).await.unwrap();
     let _msg_res = recv_timeout(&mut frx).await.unwrap();
@@ -286,10 +284,8 @@ async fn unacked_messages_should_be_put_back_in_the_queue() {
     qs.handle_command(test_case.command_publish("2nd")).await.unwrap();
     let _msg_res = recv_timeout(&mut frx).await.unwrap();
 
-    //let message = parse_message(msg_res);
-
     let (rtx, rrx) = oneshot::channel();
-    qs.handle_command(test_case.command_cancel_consume(&ctag, rtx))
+    qs.handle_command(test_case.command_cancel_consume("ctag-2", rtx))
         .await
         .unwrap();
 
@@ -304,6 +300,22 @@ async fn unacked_messages_should_be_put_back_in_the_queue() {
 
     let message2 = qs.messages.pop_front().unwrap();
     assert_eq!(message2.content.body, b"2nd");
+}
+
+#[tokio::test]
+async fn consume_unacked_removes_messages_from_the_queue_after_send() {
+    let test_case = TestCase::default();
+    let mut qs = test_case.default_queue_state();
+
+    let mut frx = consume(&mut qs, &test_case, "ctag-1", true).await;
+
+    qs.handle_command(test_case.command_publish("Message 1st"))
+        .await
+        .unwrap();
+
+    recv_timeout(&mut frx).await;
+
+    assert!(qs.messages.is_empty());
 }
 
 // TODO when a consumer cancel consuming on an exclusive queue, the queue should be deleted

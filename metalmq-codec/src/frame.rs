@@ -118,6 +118,9 @@ pub enum MethodFrameArgs {
     BasicConsumeOk(BasicConsumeOkArgs),
     BasicCancel(BasicCancelArgs),
     BasicCancelOk(BasicCancelOkArgs),
+    BasicGet(BasicGetArgs),
+    BasicGetOk(BasicGetOkArgs),
+    BasicGetEmpty,
     BasicPublish(BasicPublishArgs),
     BasicReturn(BasicReturnArgs),
     BasicDeliver(BasicDeliverArgs),
@@ -447,6 +450,45 @@ pub struct BasicCancelArgs {
 #[derive(Clone, Debug, Default)]
 pub struct BasicCancelOkArgs {
     pub consumer_tag: String,
+}
+
+bitflags! {
+    pub struct BasicGetFlags: u8 {
+        const NO_ACK = 0b00000001;
+    }
+}
+
+impl Default for BasicGetFlags {
+    fn default() -> Self {
+        BasicGetFlags::empty()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BasicGetArgs {
+    pub queue: String,
+    pub flags: BasicGetFlags,
+}
+
+bitflags! {
+    pub struct BasicGetOkFlags: u8 {
+        const REDELIVERED = 0b00000001;
+    }
+}
+
+impl Default for BasicGetOkFlags {
+    fn default() -> Self {
+        BasicGetOkFlags::empty()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BasicGetOkArgs {
+    pub delivery_tag: u64,
+    pub flags: BasicGetOkFlags,
+    pub exchange_name: String,
+    pub routing_key: String,
+    pub message_count: u32,
 }
 
 bitflags! {
