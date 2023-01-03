@@ -3,12 +3,13 @@ use crate::client::{ChannelError, ConnectionError};
 use crate::exchange::handler::ExchangeCommand;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
-use crate::{client, message};
+use crate::{client, message, RuntimeError};
 use crate::{handle_error, logerr, Result};
 use log::{error, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use tokio::time;
 
 impl Connection {
@@ -116,9 +117,38 @@ impl Connection {
     }
 
     pub async fn basic_get(&mut self, channel: Channel, args: frame::BasicGetArgs) -> Result<()> {
-        // TODO send passive consume to the queue
-        // TODO and send get
-        // not sure if we need to maintain passively consumerd queues in a different collection
+        let no_ack = args.flags.contains(frame::BasicGetFlags::NO_ACK);
+
+        match qm::get_command_sink(
+            &self.qm,
+            qm::GetQueueSinkQuery {
+                channel,
+                queue_name: args.queue,
+            },
+        )
+        .await
+        {
+            Ok(q) => {
+                let (tx, rx) = oneshot::channel();
+
+                q.send(queue_handler::QueueCommand::Get {
+                    conn_id: self.id.clone(),
+                    channel,
+                    no_ack,
+                    sink: self.outgoing.clone(),
+                    frame_size: self.frame_max,
+                    result: tx,
+                })
+                .await
+                .unwrap();
+
+                rx.await.unwrap().unwrap();
+            }
+            Err(e) => {
+                self.handle_error(*e.downcast::<RuntimeError>().unwrap()).await?;
+            }
+        }
+
         Ok(())
     }
 

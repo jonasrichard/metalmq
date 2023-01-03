@@ -49,20 +49,6 @@ pub enum QueueCommand {
         exchange_name: String,
         result: oneshot::Sender<Result<()>>,
     },
-    /// Queue register a passive consumer (before basic get).
-    PassiveConsume {
-        conn_id: String,
-        channel: u16,
-        consumer_tag: String,
-        sink: FrameSink,
-        frame_size: usize,
-        result: oneshot::Sender<Result<()>>,
-    },
-    /// Queue deregister the passive consumer (on channel close).
-    PassiveCancel {
-        conn_id: String,
-        channel: u16,
-    },
     StartConsuming {
         conn_id: String,
         channel: u16,
@@ -82,9 +68,12 @@ pub enum QueueCommand {
     },
     /// Client performs a basic get with or without acking.
     Get {
-        consumer_tag: String,
+        conn_id: String,
         channel: u16,
         no_ack: bool,
+        sink: FrameSink,
+        frame_size: usize,
+        result: oneshot::Sender<Result<()>>,
     },
     Purge {
         conn_id: String,
@@ -133,8 +122,9 @@ struct QueueState {
     outbox: Outbox,
     candidate_consumers: Vec<Consumer>,
     consumers: Vec<Consumer>,
-    passive_consumers: Vec<Consumer>,
     next_consumer: usize,
+    /// An increasing counter for Basic.Get requests globally for all consumers of the queue.
+    global_delivery_tag: u64,
     // TODO we need to store the routing key and headers and so on
     bound_exchanges: HashSet<String>,
     // TODO message metrics, current, current outgoing, etc...
@@ -195,8 +185,8 @@ pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mp
         },
         candidate_consumers: vec![],
         consumers: vec![],
-        passive_consumers: vec![],
         next_consumer: 0,
+        global_delivery_tag: 0u64,
         bound_exchanges: HashSet::new(),
     }
     .queue_loop(commands)
@@ -409,115 +399,71 @@ impl QueueState {
                     Ok(true)
                 }
             }
-            QueueCommand::PassiveConsume {
+            QueueCommand::Get {
                 conn_id,
                 channel,
-                consumer_tag,
+                no_ack,
                 sink,
                 frame_size,
                 result,
             } => {
-                if !self.passive_consumers.iter().any(|c| c.consumer_tag == consumer_tag) {
-                    if self.queue.exclusive && conn_id != self.declaring_connection {
-                        result
-                            .send(channel_error(
-                                channel,
-                                frame::BASIC_GET,
-                                ChannelError::ResourceLocked,
-                                &format!("Queue {} is an exclusive queue of another connection", self.queue.name),
-                            ))
-                            .unwrap();
+                if self.queue.exclusive && conn_id != self.declaring_connection {
+                    result
+                        .send(channel_error(
+                            channel,
+                            frame::BASIC_GET,
+                            ChannelError::ResourceLocked,
+                            &format!("Queue {} is an exclusive queue of another connection", self.queue.name),
+                        ))
+                        .unwrap();
 
-                        return Ok(true);
-                    }
-
-                    if self.consumers.iter().any(|c| c.exclusive) {
-                        result
-                            .send(channel_error(
-                                channel,
-                                frame::BASIC_GET,
-                                ChannelError::AccessRefused,
-                                &format!(
-                                    "Queue {} is already exclusively consumed by another connection",
-                                    self.queue.name
-                                ),
-                            ))
-                            .unwrap();
-
-                        return Ok(true);
-                    }
-
-                    let consumer = Consumer {
-                        channel,
-                        consumer_tag: conn_id,
-                        no_ack: false,
-                        exclusive: false,
-                        sink: sink.clone(),
-                        delivery_tag_counter: 1u64,
-                        frame_size,
-                    };
-
-                    self.passive_consumers.push(consumer);
+                    return Ok(true);
                 }
 
-                Ok(true)
-            }
-            QueueCommand::PassiveCancel { conn_id, channel } => {
-                // TODO if there are messages in outbox which has not acked, let us requeue them
-                Ok(true)
-            }
-            QueueCommand::Get {
-                consumer_tag,
-                channel,
-                no_ack,
-            } => {
-                let pos = self
-                    .passive_consumers
-                    .iter()
-                    .position(|c| c.consumer_tag == consumer_tag)
-                    .unwrap();
-                let mut consumer = self.passive_consumers.get_mut(pos).unwrap();
-
-                if self.messages.is_empty() {
-                    consumer
-                        .sink
-                        .send(Frame::Frame(frame::basic_get_empty(channel)))
-                        .await
-                        .unwrap();
-                } else {
-                    if let Some(message) = self.messages.pop_front() {
-                        if !no_ack {
-                            let tag = Tag {
-                                consumer_tag: consumer_tag.clone(),
-                                delivery_tag: consumer.delivery_tag_counter,
-                            };
-
-                            self.outbox.on_sent_out(OutgoingMessage {
-                                message: message.clone(),
-                                tag,
-                                sent_at: Instant::now(),
-                            });
-                        }
-
-                        message::send_basic_get_ok(
+                if self.consumers.iter().any(|c| c.exclusive) {
+                    result
+                        .send(channel_error(
                             channel,
-                            consumer.delivery_tag_counter,
-                            message,
-                            self.messages.len() as u32,
-                            consumer.frame_size,
-                            &consumer.sink,
-                        )
-                        .await
+                            frame::BASIC_GET,
+                            ChannelError::AccessRefused,
+                            &format!(
+                                "Queue {} is already exclusively consumed by another connection",
+                                self.queue.name
+                            ),
+                        ))
                         .unwrap();
 
-                        consumer.delivery_tag_counter += 1;
-                    } else {
-                        consumer
-                            .sink
-                            .send(Frame::Frame(frame::basic_get_empty(channel)))
-                            .await
-                            .unwrap();
+                    return Ok(true);
+                }
+
+                if let Some(message) = self.messages.pop_front() {
+                    if !no_ack {
+                        let tag = Tag {
+                            consumer_tag: "".to_string(),
+                            delivery_tag: self.global_delivery_tag,
+                        };
+
+                        self.outbox.on_sent_out(OutgoingMessage {
+                            message: message.clone(),
+                            tag,
+                            sent_at: Instant::now(),
+                        });
                     }
+
+                    message::send_basic_get_ok(
+                        channel,
+                        self.global_delivery_tag,
+                        message,
+                        self.messages.len() as u32,
+                        frame_size,
+                        &sink,
+                    )
+                    .await
+                    .unwrap();
+
+                    self.global_delivery_tag += 1;
+                } else {
+                    sink.send(Frame::Frame(frame::basic_get_empty(channel))).await.unwrap();
                 }
 
                 Ok(true)
