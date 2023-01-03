@@ -920,6 +920,42 @@ pub fn basic_cancel_ok(channel: Channel, consumer_tag: &str) -> AMQPFrame {
     )
 }
 
+pub fn basic_get(channel: Channel, queue_name: &str, flags: Option<BasicGetFlags>) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        BASIC_GET,
+        MethodFrameArgs::BasicGet(BasicGetArgs {
+            queue: queue_name.to_string(),
+            flags: flags.unwrap_or_default(),
+        }),
+    )
+}
+
+pub fn basic_get_ok(
+    channel: Channel,
+    delivery_tag: u64,
+    flags: Option<BasicGetOkFlags>,
+    exchange_name: &str,
+    routing_key: &str,
+    message_count: u32,
+) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        BASIC_GET_OK,
+        MethodFrameArgs::BasicGetOk(BasicGetOkArgs {
+            delivery_tag,
+            flags: flags.unwrap_or_default(),
+            exchange_name: exchange_name.to_string(),
+            routing_key: routing_key.to_string(),
+            message_count,
+        }),
+    )
+}
+
+pub fn basic_get_empty(channel: Channel) -> AMQPFrame {
+    AMQPFrame::Method(channel, BASIC_GET_EMPTY, MethodFrameArgs::BasicGetEmpty)
+}
+
 pub fn basic_publish(
     channel: Channel,
     exchange_name: &str,

@@ -40,6 +40,7 @@ impl TestCase {
             bound_exchanges: HashSet::new(),
             candidate_consumers: vec![],
             consumers: vec![],
+            passive_consumers: vec![],
             next_consumer: 0,
         }
     }

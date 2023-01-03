@@ -138,11 +138,39 @@ pub async fn send_basic_return(message: Arc<Message>, frame_size: usize, outgoin
         ),
     );
 
+    // FIXME why the channel here is fixed?
     frames.push(frame::basic_ack(message.channel, 1u64, false));
 
     chk!(send!(outgoing, Frame::Frames(frames)))?;
 
     Ok(())
+}
+
+pub async fn send_basic_get_ok(
+    channel: u16,
+    delivery_tag: u64,
+    message: Arc<Message>,
+    message_count: u32,
+    frame_size: usize,
+    outgoing: &FrameSink,
+) -> Result<()> {
+    let mut frames = message_to_content_frames(message.channel, message.content.clone(), frame_size);
+    let flags = frame::BasicGetOkFlags::default();
+    // TODO handle redelivered
+
+    let basic_get = frame::basic_get_ok(
+        channel,
+        delivery_tag,
+        Some(flags),
+        &message.exchange,
+        &message.routing_key,
+        message_count,
+    );
+    frames.insert(0, basic_get);
+
+    chk!(send!(outgoing, Frame::Frames(frames)))?;
+
+    todo!()
 }
 
 #[cfg(test)]
