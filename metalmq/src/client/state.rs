@@ -22,10 +22,18 @@ pub mod queue;
 #[cfg(test)]
 mod tests;
 
+/// Queues consumed by the connection with Basic.Consume
 #[derive(Debug)]
-struct ConsumedQueue {
+struct ActivelyConsumedQueue {
     queue_name: String,
     consumer_tag: String,
+    queue_sink: queue_handler::QueueCommandSink,
+}
+
+/// Queues consumed by the connection with Basic.Get
+#[derive(Debug)]
+struct PassivelyConsumedQueue {
+    delivery_tag: u64,
     queue_sink: queue_handler::QueueCommandSink,
 }
 
@@ -48,7 +56,9 @@ pub struct Connection {
     /// Exchanges which declared by this channel as auto-delete
     auto_delete_exchanges: Vec<String>,
     /// Consumed queues by this connection. One channel can have one queue consumed.
-    consumed_queues: HashMap<Channel, ConsumedQueue>,
+    consumed_queues: HashMap<Channel, ActivelyConsumedQueue>,
+    /// Passively consumed queues by Basic.Get
+    passively_consumed_queues: HashMap<Channel, PassivelyConsumedQueue>,
     /// Incoming messages come in different messages, we need to collect their properties
     in_flight_contents: HashMap<Channel, PublishedContent>,
     /// Sink for AMQP frames toward the client
@@ -109,6 +119,7 @@ pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
         consumed_queues: HashMap::new(),
+        passively_consumed_queues: HashMap::new(),
         in_flight_contents: HashMap::new(),
         outgoing,
     }

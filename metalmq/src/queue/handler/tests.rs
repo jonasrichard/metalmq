@@ -102,6 +102,13 @@ impl TestCase {
         QueueCommand::PublishMessage(Arc::new(self.default_message(body)))
     }
 
+    fn command_basic_ack(&self, consumer_tag: &str, delivery_tag: u64) -> QueueCommand {
+        QueueCommand::AckMessage {
+            consumer_tag: consumer_tag.to_string(),
+            delivery_tag,
+        }
+    }
+
     fn command_delete(
         &self,
         channel: u16,
@@ -150,8 +157,16 @@ async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
     }
 }
 
-fn parse_message(frame: Frame) -> Option<Message> {
-    let mut message = Message { ..Default::default() };
+#[derive(Default)]
+struct DeliveredMessage {
+    consumer_tag: String,
+    delivery_tag: u64,
+    redelivered: bool,
+    message: Message,
+}
+
+fn parse_message(frame: Frame) -> Option<DeliveredMessage> {
+    let mut dm = DeliveredMessage { ..Default::default() };
 
     if let Frame::Frames(fs) = frame {
         for f in fs {
@@ -160,26 +175,49 @@ fn parse_message(frame: Frame) -> Option<Message> {
                     channel,
                     frame::BASIC_DELIVER,
                     frame::MethodFrameArgs::BasicDeliver(frame::BasicDeliverArgs {
+                        consumer_tag,
+                        delivery_tag,
+                        redelivered,
+                        exchange_name,
+                        routing_key,
+                    }),
+                ) => {
+                    dm.message.channel = channel;
+                    dm.consumer_tag = consumer_tag;
+                    dm.delivery_tag = delivery_tag;
+                    dm.redelivered = redelivered;
+                    dm.message.exchange = exchange_name;
+                    dm.message.routing_key = routing_key;
+                }
+                AMQPFrame::Method(
+                    channel,
+                    frame::BASIC_GET_OK,
+                    frame::MethodFrameArgs::BasicGetOk(frame::BasicGetOkArgs {
+                        delivery_tag,
+                        flags,
                         exchange_name,
                         routing_key,
                         ..
                     }),
                 ) => {
-                    message.channel = channel;
-                    message.exchange = exchange_name;
-                    message.routing_key = routing_key;
+                    dm.message.channel = channel;
+                    dm.consumer_tag = String::from("");
+                    dm.delivery_tag = delivery_tag;
+                    dm.redelivered = flags.contains(frame::BasicGetOkFlags::REDELIVERED);
+                    dm.message.exchange = exchange_name;
+                    dm.message.routing_key = routing_key;
                 }
                 AMQPFrame::ContentHeader(frame::ContentHeaderFrame { body_size, .. }) => {
-                    message.content.body_size = body_size;
+                    dm.message.content.body_size = body_size;
                 }
                 AMQPFrame::ContentBody(frame::ContentBodyFrame { body, .. }) => {
-                    message.content.body = body;
+                    dm.message.content.body = body;
                 }
                 _ => (),
             }
         }
 
-        Some(message)
+        Some(dm)
     } else {
         return None;
     }
@@ -240,7 +278,7 @@ async fn publish_to_queue_with_one_consumer() {
     let frame = recv_timeout(&mut msg_rx).await.unwrap();
 
     let message = parse_message(frame).unwrap();
-    assert_eq!(message.exchange, test_case.exchange_name);
+    assert_eq!(message.message.exchange, test_case.exchange_name);
 }
 
 #[tokio::test]
@@ -317,6 +355,48 @@ async fn consume_unacked_removes_messages_from_the_queue_after_send() {
     recv_timeout(&mut frx).await;
 
     assert!(qs.messages.is_empty());
+}
+
+#[tokio::test]
+async fn basic_get_then_basic_ack_deletes_the_message_from_the_queue() {
+    let test_case = TestCase::default();
+    let mut qs = test_case.default_queue_state();
+
+    qs.handle_command(test_case.command_publish("Acked message"))
+        .await
+        .unwrap();
+
+    let (ftx, mut frx) = mpsc::channel(1);
+    let (rtx, rrx) = oneshot::channel();
+
+    qs.handle_command(QueueCommand::Get {
+        conn_id: "".to_string(),
+        channel: 2,
+        no_ack: false,
+        sink: ftx,
+        frame_size: 1024,
+        result: rtx,
+    })
+    .await
+    .unwrap();
+
+    let inner_delivery_tag = rrx.await.unwrap().unwrap();
+
+    assert_eq!(inner_delivery_tag, Some(1u64));
+
+    let fr = recv_timeout(&mut frx).await.unwrap();
+    let msg = parse_message(fr).unwrap();
+
+    assert_eq!(msg.consumer_tag, "");
+    assert_eq!(msg.delivery_tag, 1);
+    assert_eq!(msg.redelivered, false);
+
+    qs.handle_command(test_case.command_basic_ack("", msg.delivery_tag))
+        .await
+        .unwrap();
+
+    assert!(qs.messages.is_empty());
+    assert!(qs.outbox.outgoing_messages.is_empty());
 }
 
 // TODO when a consumer cancel consuming on an exclusive queue, the queue should be deleted

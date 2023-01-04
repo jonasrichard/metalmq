@@ -36,6 +36,8 @@ pub enum QueueCommand {
         consumer_tag: String,
         delivery_tag: u64,
     },
+    /// In case of re-declaration or passive declaration of the queue, the Declare.GetOk message
+    /// should contain the number of messages and current consumers count.
     GetDeclareOk {
         result: oneshot::Sender<(u32, u32)>,
     },
@@ -73,7 +75,8 @@ pub enum QueueCommand {
         no_ack: bool,
         sink: FrameSink,
         frame_size: usize,
-        result: oneshot::Sender<Result<()>>,
+        /// The delivery tag sent out or `None` if there has been no message sent.
+        result: oneshot::Sender<Result<Option<u64>>>,
     },
     Purge {
         conn_id: String,
@@ -101,12 +104,6 @@ pub enum SendResult {
     //QueueEmpty,
     NoConsumer,
     ConsumerInvalid(String, Arc<Message>),
-}
-
-#[derive(Debug)]
-pub enum DeliveryMethod {
-    BasicGetOk { queue: String },
-    BasicDeliver,
 }
 
 pub type FrameSink = mpsc::Sender<Frame>;
@@ -272,6 +269,7 @@ impl QueueState {
                 consumer_tag,
                 delivery_tag,
             } => {
+                // TODO the message must not be acknowledged more than once (channel exception)
                 self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
                 Ok(true)
             }
@@ -461,12 +459,14 @@ impl QueueState {
                     .await
                     .unwrap();
 
+                    result.send(Ok(Some(self.global_delivery_tag))).unwrap();
+
                     self.global_delivery_tag += 1;
                 } else {
                     sink.send(Frame::Frame(frame::basic_get_empty(channel))).await.unwrap();
-                }
 
-                result.send(Ok(())).unwrap();
+                    result.send(Ok(None)).unwrap();
+                }
 
                 Ok(true)
             }
@@ -620,11 +620,13 @@ impl QueueState {
 
                 match res {
                     Ok(()) => {
-                        self.outbox.on_sent_out(OutgoingMessage {
-                            message,
-                            tag,
-                            sent_at: Instant::now(),
-                        });
+                        if !consumer.no_ack {
+                            self.outbox.on_sent_out(OutgoingMessage {
+                                message,
+                                tag,
+                                sent_at: Instant::now(),
+                            });
+                        }
 
                         if let Some(p) = self
                             .consumers

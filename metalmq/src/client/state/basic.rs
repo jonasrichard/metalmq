@@ -1,4 +1,4 @@
-use crate::client::state::{Connection, ConsumedQueue, PublishedContent};
+use crate::client::state::{ActivelyConsumedQueue, Connection, PublishedContent};
 use crate::client::{ChannelError, ConnectionError};
 use crate::exchange::handler::ExchangeCommand;
 use crate::queue::handler as queue_handler;
@@ -11,6 +11,8 @@ use metalmq_codec::frame::{self, Channel};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time;
+
+use super::PassivelyConsumedQueue;
 
 impl Connection {
     pub async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> Result<()> {
@@ -52,7 +54,7 @@ impl Connection {
 
         self.consumed_queues.insert(
             channel,
-            ConsumedQueue {
+            ActivelyConsumedQueue {
                 consumer_tag: args.consumer_tag.clone(),
                 queue_name: args.queue.clone(),
                 queue_sink,
@@ -107,10 +109,24 @@ impl Connection {
                     )
                     .await?;
             }
-            None => {
-                // TODO error? out of band ack?
-                warn!("Acking a messages without consuming the queue {}", args.delivery_tag);
-            }
+            None => match self.passively_consumed_queues.get(&channel) {
+                Some(pq) => {
+                    pq.queue_sink
+                        .send(queue_handler::QueueCommand::AckMessage {
+                            consumer_tag: String::from(""),
+                            delivery_tag: args.delivery_tag,
+                        })
+                        .await?;
+
+                    // FIXME here it is not clear when we need to remove this queue from the
+                    // passively consumed queue. Rather, we need to handle the basic-get thing as a
+                    // passive consume in the queue handler, and everywhere else they will be
+                    // handled in the same way (queue delete, etc).
+                }
+                None => {
+                    warn!("Basic.Ack arrived without consuming the queue");
+                }
+            },
         }
 
         Ok(())
@@ -142,7 +158,18 @@ impl Connection {
                 .await
                 .unwrap();
 
-                rx.await.unwrap().unwrap();
+                let delivery_tag = rx.await.unwrap().unwrap();
+
+                if let Some(delivery_tag) = delivery_tag {
+                    if !no_ack {
+                        let consumed = PassivelyConsumedQueue {
+                            delivery_tag,
+                            queue_sink: q.clone(),
+                        };
+
+                        self.passively_consumed_queues.insert(channel, consumed);
+                    }
+                }
             }
             Err(e) => {
                 self.handle_error(*e.downcast::<RuntimeError>().unwrap()).await?;

@@ -34,6 +34,7 @@ impl ConnectionTest {
                 exchanges: HashMap::new(),
                 auto_delete_exchanges: vec![],
                 consumed_queues: HashMap::new(),
+                passively_consumed_queues: HashMap::new(),
                 in_flight_contents: HashMap::new(),
                 outgoing: frame_tx,
             },
