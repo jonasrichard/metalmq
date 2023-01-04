@@ -18,14 +18,17 @@ def test_basic_get():
             assert method is None
 
             sender.basic_publish("x-get-test", "rk", "A message")
+            sender.basic_publish("x-get-test", "rk", "Another message")
             time.sleep(0.2)
 
             (method, properties, _message_body) = consumer.basic_get("q-get-test")
 
             assert method.exchange == "x-get-test"
             assert method.routing_key == "rk"
-            breakpoint()
+            assert method.message_count == 1
 
             consumer.basic_ack(method.delivery_tag)
+
+            consumer.basic_get("q-get-test")
 
 # Test redelivered is True

@@ -136,7 +136,7 @@ impl ExchangeState {
                     Ok(queue_info) => {
                         info!("Got queue info {:?}", queue_info);
 
-                        if conn_id != queue_info.declaring_connection {
+                        if queue_info.exclusive && conn_id != queue_info.declaring_connection {
                             result
                                 .send(channel_error(
                                     channel,

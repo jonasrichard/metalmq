@@ -466,6 +466,8 @@ impl QueueState {
                     sink.send(Frame::Frame(frame::basic_get_empty(channel))).await.unwrap();
                 }
 
+                result.send(Ok(())).unwrap();
+
                 Ok(true)
             }
             QueueCommand::Purge {
