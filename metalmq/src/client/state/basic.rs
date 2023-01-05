@@ -1,5 +1,5 @@
 use crate::client::state::{ActivelyConsumedQueue, Connection, PublishedContent};
-use crate::client::{ChannelError, ConnectionError};
+use crate::client::{channel_error, ChannelError, ConnectionError};
 use crate::exchange::handler::ExchangeCommand;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
@@ -135,48 +135,71 @@ impl Connection {
     pub async fn basic_get(&mut self, channel: Channel, args: frame::BasicGetArgs) -> Result<()> {
         let no_ack = args.flags.contains(frame::BasicGetFlags::NO_ACK);
 
-        match qm::get_command_sink(
-            &self.qm,
-            qm::GetQueueSinkQuery {
-                channel,
-                queue_name: args.queue,
-            },
-        )
-        .await
-        {
-            Ok(q) => {
-                let (tx, rx) = oneshot::channel();
+        let mut queue = self.passively_consumed_queues.get(&channel);
 
-                q.send(queue_handler::QueueCommand::Get {
+        if queue.is_none() {
+            let sink = qm::get_command_sink(
+                &self.qm,
+                qm::GetQueueSinkQuery {
+                    channel,
+                    queue_name: args.queue.clone(),
+                },
+            )
+            .await;
+
+            if sink.is_err() {
+                return channel_error(
+                    channel,
+                    frame::BASIC_GET,
+                    ChannelError::NotFound,
+                    &format!("Queue {} not found", args.queue),
+                );
+            }
+
+            let sink = sink.unwrap();
+            let (tx, rx) = oneshot::channel();
+
+            sink.send(queue_handler::QueueCommand::PassiveConsume(
+                queue_handler::PassiveConsumeCmd {
                     conn_id: self.id.clone(),
                     channel,
-                    no_ack,
                     sink: self.outgoing.clone(),
                     frame_size: self.frame_max,
                     result: tx,
-                })
-                .await
-                .unwrap();
+                },
+            ))
+            .await
+            .unwrap();
 
-                let delivery_tag = rx.await.unwrap().unwrap();
+            rx.await.unwrap().unwrap();
 
-                if let Some(delivery_tag) = delivery_tag {
-                    if !no_ack {
-                        let consumed = PassivelyConsumedQueue {
-                            delivery_tag,
-                            queue_sink: q.clone(),
-                        };
+            let pq = PassivelyConsumedQueue {
+                delivery_tag: 1u64,
+                queue_sink: sink,
+            };
 
-                        self.passively_consumed_queues.insert(channel, consumed);
-                    }
-                }
-            }
-            Err(e) => {
-                self.handle_error(*e.downcast::<RuntimeError>().unwrap()).await?;
-            }
+            self.passively_consumed_queues.insert(channel, pq);
+
+            queue = self.passively_consumed_queues.get(&channel);
         }
 
-        Ok(())
+        let queue = queue.unwrap();
+
+        let (tx, rx) = oneshot::channel();
+
+        queue
+            .queue_sink
+            .send(queue_handler::QueueCommand::Get(queue_handler::GetCmd {
+                conn_id: self.id.clone(),
+                channel,
+                no_ack,
+                result: tx,
+            }))
+            .await
+            .unwrap();
+
+        // TODO handle error here
+        rx.await.unwrap()
     }
 
     pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> Result<()> {

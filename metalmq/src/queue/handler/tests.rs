@@ -40,8 +40,8 @@ impl TestCase {
             bound_exchanges: HashSet::new(),
             candidate_consumers: vec![],
             consumers: vec![],
+            passive_consumers: vec![],
             next_consumer: 0,
-            global_delivery_tag: 1u64,
         }
     }
 
@@ -368,21 +368,29 @@ async fn basic_get_then_basic_ack_deletes_the_message_from_the_queue() {
 
     let (ftx, mut frx) = mpsc::channel(1);
     let (rtx, rrx) = oneshot::channel();
-
-    qs.handle_command(QueueCommand::Get {
+    qs.handle_command(QueueCommand::PassiveConsume(PassiveConsumeCmd {
         conn_id: "".to_string(),
         channel: 2,
-        no_ack: false,
-        sink: ftx,
         frame_size: 1024,
+        sink: ftx,
         result: rtx,
-    })
+    }))
     .await
     .unwrap();
 
-    let inner_delivery_tag = rrx.await.unwrap().unwrap();
+    rrx.await.unwrap().unwrap();
 
-    assert_eq!(inner_delivery_tag, Some(1u64));
+    let (rtx, rrx) = oneshot::channel();
+    qs.handle_command(QueueCommand::Get(GetCmd {
+        conn_id: "".to_string(),
+        channel: 2,
+        no_ack: false,
+        result: rtx,
+    }))
+    .await
+    .unwrap();
+
+    rrx.await.unwrap().unwrap();
 
     let fr = recv_timeout(&mut frx).await.unwrap();
     let msg = parse_message(fr).unwrap();

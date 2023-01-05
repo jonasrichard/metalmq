@@ -27,6 +27,23 @@ pub struct Tag {
     pub delivery_tag: u64,
 }
 
+#[derive(Debug)]
+pub struct PassiveConsumeCmd {
+    pub conn_id: String,
+    pub channel: u16,
+    pub sink: FrameSink,
+    pub frame_size: usize,
+    pub result: oneshot::Sender<Result<()>>,
+}
+
+#[derive(Debug)]
+pub struct GetCmd {
+    pub conn_id: String,
+    pub channel: u16,
+    pub no_ack: bool,
+    pub result: oneshot::Sender<Result<()>>,
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum QueueCommand {
@@ -68,16 +85,11 @@ pub enum QueueCommand {
         consumer_tag: String,
         result: oneshot::Sender<bool>,
     },
+    /// Even for a single Basic.Get the consumer is registered and treated as a normal active
+    /// consumer.
+    PassiveConsume(PassiveConsumeCmd),
     /// Client performs a basic get with or without acking.
-    Get {
-        conn_id: String,
-        channel: u16,
-        no_ack: bool,
-        sink: FrameSink,
-        frame_size: usize,
-        /// The delivery tag sent out or `None` if there has been no message sent.
-        result: oneshot::Sender<Result<Option<u64>>>,
-    },
+    Get(GetCmd),
     Purge {
         conn_id: String,
         channel: u16,
@@ -119,9 +131,8 @@ struct QueueState {
     outbox: Outbox,
     candidate_consumers: Vec<Consumer>,
     consumers: Vec<Consumer>,
+    passive_consumers: Vec<Consumer>,
     next_consumer: usize,
-    /// An increasing counter for Basic.Get requests globally for all consumers of the queue.
-    global_delivery_tag: u64,
     // TODO we need to store the routing key and headers and so on
     bound_exchanges: HashSet<String>,
     // TODO message metrics, current, current outgoing, etc...
@@ -182,8 +193,8 @@ pub async fn start(queue: Queue, declaring_connection: String, commands: &mut mp
         },
         candidate_consumers: vec![],
         consumers: vec![],
+        passive_consumers: vec![],
         next_consumer: 0,
-        global_delivery_tag: 0u64,
         bound_exchanges: HashSet::new(),
     }
     .queue_loop(commands)
@@ -397,76 +408,9 @@ impl QueueState {
                     Ok(true)
                 }
             }
-            QueueCommand::Get {
-                conn_id,
-                channel,
-                no_ack,
-                sink,
-                frame_size,
-                result,
-            } => {
-                if self.queue.exclusive && conn_id != self.declaring_connection {
-                    result
-                        .send(channel_error(
-                            channel,
-                            frame::BASIC_GET,
-                            ChannelError::ResourceLocked,
-                            &format!("Queue {} is an exclusive queue of another connection", self.queue.name),
-                        ))
-                        .unwrap();
-
-                    return Ok(true);
-                }
-
-                if self.consumers.iter().any(|c| c.exclusive) {
-                    result
-                        .send(channel_error(
-                            channel,
-                            frame::BASIC_GET,
-                            ChannelError::AccessRefused,
-                            &format!(
-                                "Queue {} is already exclusively consumed by another connection",
-                                self.queue.name
-                            ),
-                        ))
-                        .unwrap();
-
-                    return Ok(true);
-                }
-
-                if let Some(message) = self.messages.pop_front() {
-                    if !no_ack {
-                        let tag = Tag {
-                            consumer_tag: "".to_string(),
-                            delivery_tag: self.global_delivery_tag,
-                        };
-
-                        self.outbox.on_sent_out(OutgoingMessage {
-                            message: message.clone(),
-                            tag,
-                            sent_at: Instant::now(),
-                        });
-                    }
-
-                    message::send_basic_get_ok(
-                        channel,
-                        self.global_delivery_tag,
-                        message,
-                        self.messages.len() as u32,
-                        frame_size,
-                        &sink,
-                    )
-                    .await
-                    .unwrap();
-
-                    result.send(Ok(Some(self.global_delivery_tag))).unwrap();
-
-                    self.global_delivery_tag += 1;
-                } else {
-                    sink.send(Frame::Frame(frame::basic_get_empty(channel))).await.unwrap();
-
-                    result.send(Ok(None)).unwrap();
-                }
+            QueueCommand::PassiveConsume(cmd) => self.handle_passive_consume(cmd).await,
+            QueueCommand::Get(cmd) => {
+                self.handle_get(cmd).await.unwrap();
 
                 Ok(true)
             }
@@ -591,6 +535,110 @@ impl QueueState {
 
                 Ok(true)
             }
+        }
+    }
+
+    async fn handle_passive_consume(&mut self, cmd: PassiveConsumeCmd) -> Result<bool> {
+        if self.queue.exclusive && cmd.conn_id != self.declaring_connection {
+            cmd.result
+                .send(channel_error(
+                    cmd.channel,
+                    frame::BASIC_GET,
+                    ChannelError::ResourceLocked,
+                    &format!("Queue {} is an exclusive queue of another connection", self.queue.name),
+                ))
+                .unwrap();
+
+            return Ok(true);
+        }
+
+        if self.consumers.iter().any(|c| c.exclusive) {
+            cmd.result
+                .send(channel_error(
+                    cmd.channel,
+                    frame::BASIC_GET,
+                    ChannelError::AccessRefused,
+                    &format!(
+                        "Queue {} is already exclusively consumed by another connection",
+                        self.queue.name
+                    ),
+                ))
+                .unwrap();
+
+            return Ok(true);
+        }
+
+        let consumer = Consumer {
+            channel: cmd.channel,
+            consumer_tag: cmd.conn_id,
+            no_ack: false,
+            exclusive: false,
+            sink: cmd.sink,
+            delivery_tag_counter: 1u64,
+            frame_size: cmd.frame_size,
+        };
+
+        self.passive_consumers.push(consumer);
+
+        cmd.result.send(Ok(())).unwrap();
+
+        Ok(true)
+    }
+
+    async fn handle_get(&mut self, cmd: GetCmd) -> Result<Option<u64>> {
+        let pos = self
+            .passive_consumers
+            .iter()
+            .position(|c| c.consumer_tag == cmd.conn_id);
+
+        if pos.is_none() {
+            return Ok(None);
+        }
+
+        let consumer = self.passive_consumers.get_mut(pos.unwrap()).unwrap();
+
+        if let Some(message) = self.messages.pop_front() {
+            let delivery_tag = consumer.delivery_tag_counter;
+
+            if !cmd.no_ack {
+                let tag = Tag {
+                    consumer_tag: consumer.consumer_tag.clone(),
+                    delivery_tag,
+                };
+
+                self.outbox.on_sent_out(OutgoingMessage {
+                    message: message.clone(),
+                    tag,
+                    sent_at: Instant::now(),
+                });
+            }
+
+            message::send_basic_get_ok(
+                cmd.channel,
+                delivery_tag,
+                message,
+                self.messages.len() as u32,
+                consumer.frame_size,
+                &consumer.sink,
+            )
+            .await
+            .unwrap();
+
+            cmd.result.send(Ok(())).unwrap();
+
+            consumer.delivery_tag_counter += 1;
+
+            Ok(Some(delivery_tag))
+        } else {
+            consumer
+                .sink
+                .send(Frame::Frame(frame::basic_get_empty(cmd.channel)))
+                .await
+                .unwrap();
+
+            cmd.result.send(Ok(())).unwrap();
+
+            Ok(None)
         }
     }
 
