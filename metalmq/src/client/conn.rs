@@ -229,6 +229,7 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma:
         BasicCancel(args) => conn.basic_cancel(channel, args).await,
         BasicAck(args) => conn.basic_ack(channel, args).await,
         BasicGet(args) => conn.basic_get(channel, args).await,
+        BasicReject(args) => conn.basic_reject(channel, args).await,
         ConfirmSelect(args) => conn.confirm_select(channel, args).await,
         _ => {
             error!("Unhandler method frame type {ma:?}");

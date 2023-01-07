@@ -125,6 +125,7 @@ pub enum MethodFrameArgs {
     BasicReturn(BasicReturnArgs),
     BasicDeliver(BasicDeliverArgs),
     BasicAck(BasicAckArgs),
+    BasicReject(BasicRejectArgs),
     ConfirmSelect(ConfirmSelectArgs),
     ConfirmSelectOk,
 }
@@ -452,40 +453,16 @@ pub struct BasicCancelOkArgs {
     pub consumer_tag: String,
 }
 
-bitflags! {
-    pub struct BasicGetFlags: u8 {
-        const NO_ACK = 0b00000001;
-    }
-}
-
-impl Default for BasicGetFlags {
-    fn default() -> Self {
-        BasicGetFlags::empty()
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct BasicGetArgs {
     pub queue: String,
-    pub flags: BasicGetFlags,
-}
-
-bitflags! {
-    pub struct BasicGetOkFlags: u8 {
-        const REDELIVERED = 0b00000001;
-    }
-}
-
-impl Default for BasicGetOkFlags {
-    fn default() -> Self {
-        BasicGetOkFlags::empty()
-    }
+    pub no_ack: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BasicGetOkArgs {
     pub delivery_tag: u64,
-    pub flags: BasicGetOkFlags,
+    pub redelivered: bool,
     pub exchange_name: String,
     pub routing_key: String,
     pub message_count: u32,
@@ -532,6 +509,12 @@ pub struct BasicDeliverArgs {
 pub struct BasicAckArgs {
     pub delivery_tag: u64,
     pub multiple: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BasicRejectArgs {
+    pub delivery_tag: u64,
+    pub requeue: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -920,13 +903,13 @@ pub fn basic_cancel_ok(channel: Channel, consumer_tag: &str) -> AMQPFrame {
     )
 }
 
-pub fn basic_get(channel: Channel, queue_name: &str, flags: Option<BasicGetFlags>) -> AMQPFrame {
+pub fn basic_get(channel: Channel, queue_name: &str, no_ack: bool) -> AMQPFrame {
     AMQPFrame::Method(
         channel,
         BASIC_GET,
         MethodFrameArgs::BasicGet(BasicGetArgs {
             queue: queue_name.to_string(),
-            flags: flags.unwrap_or_default(),
+            no_ack,
         }),
     )
 }
@@ -934,7 +917,7 @@ pub fn basic_get(channel: Channel, queue_name: &str, flags: Option<BasicGetFlags
 pub fn basic_get_ok(
     channel: Channel,
     delivery_tag: u64,
-    flags: Option<BasicGetOkFlags>,
+    redelivered: bool,
     exchange_name: &str,
     routing_key: &str,
     message_count: u32,
@@ -944,7 +927,7 @@ pub fn basic_get_ok(
         BASIC_GET_OK,
         MethodFrameArgs::BasicGetOk(BasicGetOkArgs {
             delivery_tag,
-            flags: flags.unwrap_or_default(),
+            redelivered,
             exchange_name: exchange_name.to_string(),
             routing_key: routing_key.to_string(),
             message_count,
@@ -1018,6 +1001,14 @@ pub fn basic_ack(channel: Channel, delivery_tag: u64, multiple: bool) -> AMQPFra
         channel,
         BASIC_ACK,
         MethodFrameArgs::BasicAck(BasicAckArgs { delivery_tag, multiple }),
+    )
+}
+
+pub fn basic_reject(channel: Channel, delivery_tag: u64, requeue: bool) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        BASIC_REJECT,
+        MethodFrameArgs::BasicReject(BasicRejectArgs { delivery_tag, requeue }),
     )
 }
 

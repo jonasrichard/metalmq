@@ -173,6 +173,7 @@ fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
         BASIC_RETURN => decode_basic_return(src),
         BASIC_DELIVER => decode_basic_deliver(src),
         BASIC_ACK => decode_basic_ack(src),
+        BASIC_REJECT => decode_basic_reject(src),
         CONFIRM_SELECT => decode_confirm_select(src),
         CONFIRM_SELECT_OK => MethodFrameArgs::ConfirmSelectOk,
         _ => unimplemented!("{:08X}", class_method),
@@ -423,7 +424,7 @@ fn decode_basic_get(src: &mut BytesMut) -> MethodFrameArgs {
     let _ = src.get_u16();
 
     args.queue = decode_short_string(src);
-    args.flags = BasicGetFlags::from_bits(src.get_u8()).unwrap_or_default();
+    args.no_ack = src.get_u8() != 0;
 
     MethodFrameArgs::BasicGet(args)
 }
@@ -431,7 +432,7 @@ fn decode_basic_get(src: &mut BytesMut) -> MethodFrameArgs {
 fn decode_basic_get_ok(src: &mut BytesMut) -> MethodFrameArgs {
     let mut args = BasicGetOkArgs::default();
     args.delivery_tag = src.get_u64();
-    args.flags = BasicGetOkFlags::from_bits(src.get_u8()).unwrap_or_default();
+    args.redelivered = src.get_u8() != 0;
     args.exchange_name = decode_short_string(src);
     args.routing_key = decode_short_string(src);
     args.message_count = src.get_u32();
@@ -485,6 +486,15 @@ fn decode_basic_ack(src: &mut BytesMut) -> MethodFrameArgs {
     };
 
     MethodFrameArgs::BasicAck(args)
+}
+
+fn decode_basic_reject(src: &mut BytesMut) -> MethodFrameArgs {
+    let args = BasicRejectArgs {
+        delivery_tag: src.get_u64(),
+        requeue: src.get_u8() != 0,
+    };
+
+    MethodFrameArgs::BasicReject(args)
 }
 
 fn decode_confirm_select(src: &mut BytesMut) -> MethodFrameArgs {
@@ -692,6 +702,7 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::BasicReturn(args) => encode_basic_return(&mut fr, args),
         MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args),
         MethodFrameArgs::BasicAck(args) => encode_basic_ack(&mut fr, args),
+        MethodFrameArgs::BasicReject(args) => encode_basic_reject(&mut fr, args),
         MethodFrameArgs::ConfirmSelect(args) => encode_confirm_select(&mut fr, args),
         MethodFrameArgs::ConfirmSelectOk => (),
     }
@@ -857,12 +868,12 @@ fn encode_basic_cancel_ok(buf: &mut BytesMut, args: &BasicCancelOkArgs) {
 fn encode_basic_get(buf: &mut BytesMut, args: &BasicGetArgs) {
     buf.put_u16(0);
     encode_short_string(buf, &args.queue);
-    buf.put_u8(args.flags.bits());
+    buf.put_u8(if args.no_ack { 1 } else { 0 });
 }
 
 fn encode_basic_get_ok(buf: &mut BytesMut, args: &BasicGetOkArgs) {
     buf.put_u64(args.delivery_tag);
-    buf.put_u8(args.flags.bits());
+    buf.put_u8(if args.redelivered { 1 } else { 0 });
     encode_short_string(buf, &args.exchange_name);
     encode_short_string(buf, &args.routing_key);
     buf.put_u32(args.message_count);
@@ -897,6 +908,11 @@ fn encode_basic_deliver(buf: &mut BytesMut, args: &BasicDeliverArgs) {
 fn encode_basic_ack(buf: &mut BytesMut, args: &BasicAckArgs) {
     buf.put_u64(args.delivery_tag);
     buf.put_u8(if args.multiple { 1 } else { 0 });
+}
+
+fn encode_basic_reject(buf: &mut BytesMut, args: &BasicRejectArgs) {
+    buf.put_u64(args.delivery_tag);
+    buf.put_u8(if args.requeue { 1 } else { 0 });
 }
 
 fn encode_confirm_select(buf: &mut BytesMut, args: &ConfirmSelectArgs) {

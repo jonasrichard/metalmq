@@ -133,8 +133,6 @@ impl Connection {
     }
 
     pub async fn basic_get(&mut self, channel: Channel, args: frame::BasicGetArgs) -> Result<()> {
-        let no_ack = args.flags.contains(frame::BasicGetFlags::NO_ACK);
-
         let mut queue = self.passively_consumed_queues.get(&channel);
 
         if queue.is_none() {
@@ -192,7 +190,7 @@ impl Connection {
             .send(queue_handler::QueueCommand::Get(queue_handler::GetCmd {
                 conn_id: self.id.clone(),
                 channel,
-                no_ack,
+                no_ack: args.no_ack,
                 result: tx,
             }))
             .await
@@ -200,6 +198,11 @@ impl Connection {
 
         // TODO handle error here
         rx.await.unwrap()
+    }
+
+    pub async fn basic_reject(&mut self, channel: Channel, args: frame::BasicRejectArgs) -> Result<()> {
+        // TODO reject passively and actively listened queue's messages
+        Ok(())
     }
 
     pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> Result<()> {

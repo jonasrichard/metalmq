@@ -111,14 +111,21 @@ pub enum QueueCommand {
 }
 
 #[derive(Debug)]
-pub enum SendResult {
+enum SendResult {
     MessageSent,
     //QueueEmpty,
     NoConsumer,
-    ConsumerInvalid(String, Arc<Message>),
+    ConsumerInvalid(String, DeliveredMessage),
 }
 
 pub type FrameSink = mpsc::Sender<Frame>;
+
+#[derive(Clone, Debug)]
+struct DeliveredMessage {
+    message: Arc<Message>,
+    /// How many times it tried to be delivered.
+    delivery_count: u8,
+}
 
 /// Information about the queue instance
 struct QueueState {
@@ -127,7 +134,7 @@ struct QueueState {
     /// Messages represents the current message queue. It stores Arc references because we need to
     /// keep multiple copies of the same message (send that out, waiting for the ack, resending if
     /// there is no ack, etc).
-    messages: VecDeque<Arc<Message>>,
+    messages: VecDeque<DeliveredMessage>,
     outbox: Outbox,
     candidate_consumers: Vec<Consumer>,
     consumers: Vec<Consumer>,
@@ -272,7 +279,12 @@ impl QueueState {
 
         match command {
             QueueCommand::PublishMessage(message) => {
-                logerr!(self.send_out_message(message).await);
+                let delivered_message = DeliveredMessage {
+                    message,
+                    delivery_count: 0,
+                };
+
+                logerr!(self.send_out_message(delivered_message).await);
 
                 Ok(true)
             }
@@ -616,7 +628,7 @@ impl QueueState {
             message::send_basic_get_ok(
                 cmd.channel,
                 delivery_tag,
-                message,
+                message.message,
                 self.messages.len() as u32,
                 consumer.frame_size,
                 &consumer.sink,
@@ -642,7 +654,7 @@ impl QueueState {
         }
     }
 
-    async fn send_out_message(&mut self, message: Arc<Message>) -> Result<()> {
+    async fn send_out_message(&mut self, message: DeliveredMessage) -> Result<()> {
         let res = match self.consumers.get(self.next_consumer) {
             None => {
                 trace!("No consumers, pushing message back to the queue");
@@ -659,7 +671,7 @@ impl QueueState {
 
                 let res = message::send_message(
                     consumer.channel,
-                    message.clone(),
+                    message.message.clone(),
                     &tag,
                     consumer.frame_size,
                     &consumer.sink,
@@ -716,7 +728,9 @@ impl QueueState {
         let mut msgs = self.outbox.remove_messages_by_ctag(consumer_tag);
         msgs.reverse();
 
-        for msg in msgs {
+        for mut msg in msgs {
+            msg.delivery_count += 1;
+
             self.messages.push_front(msg);
         }
     }
@@ -731,7 +745,7 @@ fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option
 }
 
 struct OutgoingMessage {
-    message: Arc<Message>,
+    message: DeliveredMessage,
     tag: Tag,
     sent_at: Instant,
 }
@@ -750,7 +764,7 @@ impl Outbox {
         self.outgoing_messages.push(outgoing_message);
     }
 
-    fn remove_messages_by_ctag(&mut self, ctag: &str) -> Vec<Arc<Message>> {
+    fn remove_messages_by_ctag(&mut self, ctag: &str) -> Vec<DeliveredMessage> {
         let mut messages = vec![];
         let mut i = 0;
 
