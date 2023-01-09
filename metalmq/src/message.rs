@@ -104,6 +104,7 @@ pub async fn send_message(
     channel: frame::Channel,
     message: Arc<Message>,
     tag: &Tag,
+    redelivered: bool,
     frame_size: usize,
     outgoing: &FrameSink,
 ) -> Result<()> {
@@ -113,7 +114,7 @@ pub async fn send_message(
         channel,
         &tag.consumer_tag,
         tag.delivery_tag,
-        false,
+        redelivered,
         &message.exchange,
         &message.routing_key,
     );
@@ -149,6 +150,7 @@ pub async fn send_basic_return(message: Arc<Message>, frame_size: usize, outgoin
 pub async fn send_basic_get_ok(
     channel: u16,
     delivery_tag: u64,
+    redelivered: bool,
     message: Arc<Message>,
     message_count: u32,
     frame_size: usize,
@@ -160,7 +162,7 @@ pub async fn send_basic_get_ok(
     let basic_get = frame::basic_get_ok(
         channel,
         delivery_tag,
-        false,
+        redelivered,
         &message.exchange,
         &message.routing_key,
         message_count,

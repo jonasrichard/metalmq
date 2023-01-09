@@ -7,7 +7,7 @@ use crate::exchange::manager::{self as em, ExchangeManagerSink, QueueDeletedEven
 use crate::message::{self, Message};
 use crate::queue::Queue;
 use crate::{logerr, Result};
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::{HashSet, VecDeque};
@@ -42,6 +42,12 @@ pub struct GetCmd {
     pub channel: u16,
     pub no_ack: bool,
     pub result: oneshot::Sender<Result<()>>,
+}
+
+#[derive(Debug)]
+pub struct PassiveCancelConsumeCmd {
+    pub conn_id: String,
+    pub channel: u16,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -90,6 +96,7 @@ pub enum QueueCommand {
     PassiveConsume(PassiveConsumeCmd),
     /// Client performs a basic get with or without acking.
     Get(GetCmd),
+    PassiveCancelConsume(PassiveCancelConsumeCmd),
     Purge {
         conn_id: String,
         channel: u16,
@@ -420,9 +427,18 @@ impl QueueState {
                     Ok(true)
                 }
             }
-            QueueCommand::PassiveConsume(cmd) => self.handle_passive_consume(cmd).await,
+            QueueCommand::PassiveConsume(cmd) => {
+                self.handle_passive_consume(cmd).await.unwrap();
+
+                Ok(true)
+            }
             QueueCommand::Get(cmd) => {
                 self.handle_get(cmd).await.unwrap();
+
+                Ok(true)
+            }
+            QueueCommand::PassiveCancelConsume(cmd) => {
+                self.handle_passive_cancel_consume(cmd).await.unwrap();
 
                 Ok(true)
             }
@@ -550,7 +566,7 @@ impl QueueState {
         }
     }
 
-    async fn handle_passive_consume(&mut self, cmd: PassiveConsumeCmd) -> Result<bool> {
+    async fn handle_passive_consume(&mut self, cmd: PassiveConsumeCmd) -> Result<()> {
         if self.queue.exclusive && cmd.conn_id != self.declaring_connection {
             cmd.result
                 .send(channel_error(
@@ -561,7 +577,7 @@ impl QueueState {
                 ))
                 .unwrap();
 
-            return Ok(true);
+            return Ok(());
         }
 
         if self.consumers.iter().any(|c| c.exclusive) {
@@ -577,12 +593,16 @@ impl QueueState {
                 ))
                 .unwrap();
 
-            return Ok(true);
+            return Ok(());
         }
 
+        // Passive consumers don't have consumer tags and that is a pity because this is how the
+        // queue identifies them. So for passive consumers the queue generates a consumer tag from
+        // the connection id and a channel number (in case of a client from two channels wants to
+        // Basic.Get the same queue).
         let consumer = Consumer {
             channel: cmd.channel,
-            consumer_tag: cmd.conn_id,
+            consumer_tag: format!("{}-{}", cmd.conn_id, cmd.channel),
             no_ack: false,
             exclusive: false,
             sink: cmd.sink,
@@ -594,16 +614,19 @@ impl QueueState {
 
         cmd.result.send(Ok(())).unwrap();
 
-        Ok(true)
+        Ok(())
     }
 
     async fn handle_get(&mut self, cmd: GetCmd) -> Result<Option<u64>> {
+        let consumer_tag = format!("{}-{}", cmd.conn_id, cmd.channel);
         let pos = self
             .passive_consumers
             .iter()
-            .position(|c| c.consumer_tag == cmd.conn_id);
+            .position(|c| c.consumer_tag == consumer_tag);
 
         if pos.is_none() {
+            cmd.result.send(Ok(())).unwrap();
+
             return Ok(None);
         }
 
@@ -628,6 +651,7 @@ impl QueueState {
             message::send_basic_get_ok(
                 cmd.channel,
                 delivery_tag,
+                message.delivery_count > 0,
                 message.message,
                 self.messages.len() as u32,
                 consumer.frame_size,
@@ -654,6 +678,25 @@ impl QueueState {
         }
     }
 
+    async fn handle_passive_cancel_consume(&mut self, cmd: PassiveCancelConsumeCmd) -> Result<()> {
+        let consumer_tag = format!("{}-{}", cmd.conn_id, cmd.channel);
+        let pos = self
+            .passive_consumers
+            .iter()
+            .position(|c| c.consumer_tag == consumer_tag);
+
+        if pos.is_none() {
+            warn!("Invalid passive consumer during cancellation {}", consumer_tag);
+
+            return Ok(());
+        }
+
+        self.passive_consumers.remove(pos.unwrap());
+        self.enqueue_outbox_messages(&consumer_tag);
+
+        Ok(())
+    }
+
     async fn send_out_message(&mut self, message: DeliveredMessage) -> Result<()> {
         let res = match self.consumers.get(self.next_consumer) {
             None => {
@@ -673,6 +716,7 @@ impl QueueState {
                     consumer.channel,
                     message.message.clone(),
                     &tag,
+                    message.delivery_count > 0,
                     consumer.frame_size,
                     &consumer.sink,
                 )
