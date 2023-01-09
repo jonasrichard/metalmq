@@ -162,6 +162,17 @@ impl Connection {
             .await?;
         }
 
+        if let Some(pq) = self.passively_consumed_queues.remove(&channel) {
+            pq.queue_sink
+                .send(queue_handler::QueueCommand::PassiveCancelConsume(
+                    queue_handler::PassiveCancelConsumeCmd {
+                        conn_id: self.id.clone(),
+                        channel,
+                    },
+                ))
+                .await?;
+        }
+
         Ok(())
     }
 
