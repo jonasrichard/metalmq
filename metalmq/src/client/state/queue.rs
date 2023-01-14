@@ -8,6 +8,8 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 use uuid::Uuid;
 
+use super::ExclusiveQueue;
+
 impl Connection {
     pub async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {
         let mut queue_name = args.name.clone();
@@ -16,6 +18,7 @@ impl Connection {
         }
 
         let passive = args.flags.contains(frame::QueueDeclareFlags::PASSIVE);
+        let exclusive = args.flags.contains(frame::QueueDeclareFlags::EXCLUSIVE);
 
         let cmd = qm::QueueDeclareCommand {
             conn_id: self.id.clone(),
@@ -24,6 +27,12 @@ impl Connection {
             passive,
         };
         let (message_count, consumer_count) = qm::declare_queue(&self.qm, cmd).await?;
+
+        if exclusive {
+            self.exclusive_queues.push(ExclusiveQueue {
+                queue_name: queue_name.clone(),
+            });
+        }
 
         // TODO get the consumer and message count of the queue
         self.send_frame(Frame::Frame(frame::queue_declare_ok(

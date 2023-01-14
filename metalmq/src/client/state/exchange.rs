@@ -56,6 +56,8 @@ impl Connection {
 
         logerr!(handle_error!(self, manager::delete_exchange(&self.em, cmd).await));
 
+        // TODO what happens if the previous code returns with an error and we never removes that
+        // exchange?
         self.exchanges.remove(&exchange_name);
 
         self.send_frame(Frame::Frame(frame::exchange_delete_ok(channel))).await

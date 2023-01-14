@@ -33,8 +33,15 @@ struct ActivelyConsumedQueue {
 /// Queues consumed by the connection with Basic.Get
 #[derive(Debug)]
 struct PassivelyConsumedQueue {
+    queue_name: String,
     delivery_tag: u64,
     queue_sink: queue_handler::QueueCommandSink,
+}
+
+/// Exclusive queue declared by the connection
+#[derive(Debug)]
+struct ExclusiveQueue {
+    queue_name: String,
 }
 
 /// All the transient data of a connection are stored here.
@@ -57,6 +64,8 @@ pub struct Connection {
     auto_delete_exchanges: Vec<String>,
     /// Consumed queues by this connection. One channel can have one queue consumed.
     consumed_queues: HashMap<Channel, ActivelyConsumedQueue>,
+    /// Exclusive queues created by the connection.
+    exclusive_queues: Vec<ExclusiveQueue>,
     /// Passively consumed queues by Basic.Get
     passively_consumed_queues: HashMap<Channel, PassivelyConsumedQueue>,
     /// Incoming messages come in different messages, we need to collect their properties
@@ -119,6 +128,7 @@ pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
         exchanges: HashMap::new(),
         auto_delete_exchanges: vec![],
         consumed_queues: HashMap::new(),
+        exclusive_queues: vec![],
         passively_consumed_queues: HashMap::new(),
         in_flight_contents: HashMap::new(),
         outgoing,
@@ -134,6 +144,9 @@ impl Connection {
     }
 
     async fn handle_connection_close(&mut self) -> Result<()> {
+        // TODO should be here just to close all channels, not repeating the channel close logic
+        // Most of the time we have all channels closed at this point, but what if the connection
+        // has been cut and client didn't have a chance to close everything properly?
         for (channel, cq) in self.consumed_queues.drain() {
             let cmd = qm::QueueCancelConsume {
                 channel,
@@ -142,6 +155,17 @@ impl Connection {
             };
 
             logerr!(qm::cancel_consume(&self.qm, cmd).await);
+        }
+
+        for qs in &self.exclusive_queues {
+            qm::queue_deleted(
+                &self.qm,
+                qm::QueueDeletedEvent {
+                    queue: qs.queue_name.clone(),
+                },
+            )
+            .await
+            .unwrap();
         }
 
         // TODO cleanup, like close all channels, delete temporal queues, etc
@@ -162,6 +186,7 @@ impl Connection {
             .await?;
         }
 
+        // Cancel passive consumers registered because of a Basic.Get
         if let Some(pq) = self.passively_consumed_queues.remove(&channel) {
             pq.queue_sink
                 .send(queue_handler::QueueCommand::PassiveCancelConsume(

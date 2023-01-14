@@ -110,6 +110,11 @@ pub enum QueueCommand {
         exchange_manager: ExchangeManagerSink,
         result: oneshot::Sender<Result<u32>>,
     },
+    /// Delete the exclusive queue, only queue manager can send this.
+    DeleteExclusive {
+        exchange_manager: ExchangeManagerSink,
+        result: oneshot::Sender<Result<()>>,
+    },
     MessageRejected,
     Recover,
     GetInfo {
@@ -546,6 +551,23 @@ impl QueueState {
                 logerr!(result.send(Ok(self.messages.len() as u32)));
 
                 // Quit the queue event loop.
+                Ok(false)
+            }
+            QueueCommand::DeleteExclusive {
+                exchange_manager,
+                result,
+            } => {
+                em::queue_deleted(
+                    &exchange_manager,
+                    em::QueueDeletedEvent {
+                        queue_name: self.queue.name.clone(),
+                    },
+                )
+                .await
+                .unwrap();
+
+                result.send(Ok(())).unwrap();
+
                 Ok(false)
             }
             QueueCommand::MessageRejected => Ok(true),

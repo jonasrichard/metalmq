@@ -77,7 +77,7 @@ impl Connection {
         }
     }
 
-    pub async fn connection_close(&self, _args: frame::ConnectionCloseArgs) -> Result<()> {
+    pub async fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> Result<()> {
         info!("Connection {} is being closed", self.id);
 
         // TODO cleanup
@@ -85,18 +85,7 @@ impl Connection {
         //     no consumers there
         //   - exchange handler -> deregister (auto-delete exchange)
         //   - queues -> delete the exclusive queues
-        for (channel_number, cq) in &self.consumed_queues {
-            trace!("Cleaning up consumers {:?}", cq);
-
-            let cmd = manager::QueueCancelConsume {
-                channel: *channel_number,
-                queue_name: cq.queue_name.clone(),
-                consumer_tag: cq.consumer_tag.clone(),
-            };
-            if let Err(e) = manager::cancel_consume(&self.qm, cmd).await {
-                error!("Err {:?}", e);
-            }
-        }
+        self.handle_connection_close().await.unwrap();
 
         self.send_frame(Frame::Frame(frame::connection_close_ok(0))).await
     }

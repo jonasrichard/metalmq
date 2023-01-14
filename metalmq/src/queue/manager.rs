@@ -1,3 +1,12 @@
+/// Queue manager holds reference to queues and works as a sort of database when all or same of the
+/// queues needs to be accessed by name.
+///
+/// In a queue lifecycle, during creation and deleting it is mandatory to initiate the operation in
+/// the queue manager because that way the queue manager can register or deregister the queue
+/// itself. Queue lookup is via queue manager, but for more optimal performance once someone wants
+/// to send messages to a queue, it can hold the reference to the command sink of the queue.
+/// Although when the queue is deleted, all such queue command sink cachers needs to be notified,
+/// or they need to check if the queue sink is closed, not to get `SendError`.
 use crate::client::{channel_error, ChannelError};
 use crate::exchange::manager::ExchangeManagerSink;
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
@@ -83,6 +92,11 @@ pub struct GetQueueSinkQuery {
 }
 
 #[derive(Debug)]
+pub struct QueueDeletedEvent {
+    pub queue: String,
+}
+
+#[derive(Debug)]
 pub enum QueueManagerCommand {
     Declare(QueueDeclareCommand, oneshot::Sender<Result<(u32, u32)>>),
     Consume(QueueConsumeCommand, oneshot::Sender<Result<QueueCommandSink>>),
@@ -90,6 +104,7 @@ pub enum QueueManagerCommand {
     Delete(QueueDeleteCommand, oneshot::Sender<Result<u32>>),
     GetQueueSink(GetQueueSinkQuery, oneshot::Sender<Result<QueueCommandSink>>),
     GetQueues(oneshot::Sender<Vec<Queue>>),
+    QueueDeleted(QueueDeletedEvent, oneshot::Sender<Result<()>>),
 }
 
 pub type QueueManagerSink = mpsc::Sender<QueueManagerCommand>;
@@ -163,6 +178,14 @@ pub async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
     }
 }
 
+pub async fn queue_deleted(mgr: &QueueManagerSink, evt: QueueDeletedEvent) -> Result<()> {
+    let (tx, rx) = oneshot::channel();
+
+    logerr!(mgr.send(QueueManagerCommand::QueueDeleted(evt, tx)).await);
+
+    rx.await?
+}
+
 struct QueueManagerState {
     command_stream: mpsc::Receiver<QueueManagerCommand>,
     queues: HashMap<String, QueueState>,
@@ -209,6 +232,9 @@ impl QueueManagerState {
                     let qs = self.queues.iter().map(|kv| kv.1.queue.clone()).collect();
 
                     logerr!(tx.send(qs));
+                }
+                QueueDeleted(evt, tx) => {
+                    logerr!(tx.send(self.handle_queue_deleted(evt).await));
                 }
             }
         }
@@ -392,6 +418,28 @@ impl QueueManagerState {
                 ChannelError::NotFound,
                 "Not found",
             ),
+        }
+    }
+
+    async fn handle_queue_deleted(&mut self, evt: QueueDeletedEvent) -> Result<()> {
+        match self.queues.remove(&evt.queue) {
+            Some(queue) => {
+                let (tx, rx) = oneshot::channel();
+
+                queue
+                    .command_sink
+                    .send(QueueCommand::DeleteExclusive {
+                        exchange_manager: self.exchange_manager.clone(),
+                        result: tx,
+                    })
+                    .await
+                    .unwrap();
+
+                rx.await.unwrap().unwrap();
+
+                Ok(())
+            }
+            None => Ok(()),
         }
     }
 }

@@ -22,9 +22,11 @@ impl Default for TestCase {
 }
 
 impl TestCase {
-    fn with_queue(mut self, name: &str) -> Self {
-        self.queue_name = name.to_string();
-        self
+    fn with_queue(self, name: &str) -> Self {
+        Self {
+            queue_name: name.to_string(),
+            ..self
+        }
     }
 
     fn default_queue_state(&self) -> QueueState {
@@ -493,5 +495,3 @@ async fn basic_get_and_consume_without_ack_and_get_should_redeliver() {
 
     assert!(msg.redelivered);
 }
-
-// TODO when a consumer cancel consuming on an exclusive queue, the queue should be deleted

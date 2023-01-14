@@ -172,6 +172,7 @@ impl Connection {
             rx.await.unwrap().unwrap();
 
             let pq = PassivelyConsumedQueue {
+                queue_name: args.queue,
                 delivery_tag: 1u64,
                 queue_sink: sink,
             };

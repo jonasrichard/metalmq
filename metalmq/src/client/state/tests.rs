@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use metalmq_codec::{
     codec::Frame,
-    frame::{BasicPublishArgs, BasicPublishFlags, ContentHeaderFrame},
+    frame::{self, BasicPublishArgs, BasicPublishFlags, ContentHeaderFrame},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     client::{state::Connection, ConnectionError},
-    exchange, queue, ErrorScope, RuntimeError,
+    exchange, queue, ErrorScope, Result, RuntimeError,
 };
 
 struct ConnectionTest {
@@ -20,7 +20,8 @@ impl ConnectionTest {
     fn new() -> Self {
         let em = exchange::manager::start();
         let qm = queue::manager::start(em.clone());
-        let (frame_tx, frame_rx) = mpsc::channel(1);
+        // Buffer is larger than 1 in order not to block main thread.
+        let (frame_tx, frame_rx) = mpsc::channel(16);
 
         ConnectionTest {
             connection: Connection {
@@ -34,11 +35,40 @@ impl ConnectionTest {
                 exchanges: HashMap::new(),
                 auto_delete_exchanges: vec![],
                 consumed_queues: HashMap::new(),
+                exclusive_queues: vec![],
                 passively_consumed_queues: HashMap::new(),
                 in_flight_contents: HashMap::new(),
                 outgoing: frame_tx,
             },
             frame_rx,
+        }
+    }
+
+    async fn queue_declare(&mut self, channel: u16, name: &str, exclusive: bool) -> Result<()> {
+        let mut flags = frame::QueueDeclareFlags::default();
+        flags.set(frame::QueueDeclareFlags::EXCLUSIVE, exclusive);
+
+        let args = frame::QueueDeclareArgs {
+            name: name.to_string(),
+            flags,
+            ..Default::default()
+        };
+
+        self.connection.queue_declare(channel, args).await
+    }
+}
+
+// TODO move this to a test util, also the runtimeerror downcast fn
+async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
+    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
+    tokio::pin!(sleep);
+
+    tokio::select! {
+        frame = rx.recv() => {
+            frame
+        }
+        _ = &mut sleep => {
+            return None;
         }
     }
 }
@@ -71,5 +101,42 @@ async fn sending_mismatched_content_header() {
     assert_eq!(err.class_id, 60);
 }
 
+#[tokio::test]
+async fn on_connection_close_deletes_exclusive_queues() {
+    let mut ct = ConnectionTest::new();
+
+    ct.queue_declare(1, "q-exclusive", true).await.unwrap();
+
+    ct.connection
+        .connection_close(frame::ConnectionCloseArgs {
+            code: 200,
+            text: "Normal close".to_string(),
+            class_id: 0x0A,
+            method_id: 0x32,
+        })
+        .await
+        .unwrap();
+
+    let channel_closed_ok_frame = recv_timeout(&mut ct.frame_rx).await;
+
+    let (tx, rx) = oneshot::channel();
+    ct.connection
+        .qm
+        .send(queue::manager::QueueManagerCommand::GetQueueSink(
+            queue::manager::GetQueueSinkQuery {
+                channel: 1,
+                queue_name: "q-exclusive".to_string(),
+            },
+            tx,
+        ))
+        .await
+        .unwrap();
+
+    let queue_sink = rx.await;
+
+    assert!(queue_sink.unwrap().is_err());
+}
+
 // TODO send zero body size trigger sending content to the exchange or queue
 // TODO send too large content
+// TODO exclusive queue should be deleted when client closes the connection
