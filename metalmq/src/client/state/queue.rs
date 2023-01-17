@@ -34,13 +34,13 @@ impl Connection {
             });
         }
 
-        // TODO get the consumer and message count of the queue
-        self.send_frame(Frame::Frame(frame::queue_declare_ok(
-            channel,
-            queue_name,
-            message_count,
-            consumer_count,
-        )))
+        self.send_frame(Frame::Frame(
+            frame::QueueDeclareOkArgs::default()
+                .name(&queue_name)
+                .message_count(message_count)
+                .consumer_count(consumer_count)
+                .frame(channel),
+        ))
         .await?;
 
         Ok(())
@@ -93,13 +93,19 @@ impl Connection {
 
         let message_count = handle_error!(self, qm::delete_queue(&self.qm, cmd).await).unwrap();
 
-        self.send_frame(Frame::Frame(frame::queue_delete_ok(channel, message_count)))
-            .await?;
+        self.send_frame(Frame::Frame(
+            frame::QueueDeleteOkArgs::default()
+                .message_count(message_count)
+                .frame(channel),
+        ))
+        .await?;
 
         Ok(())
     }
 
     pub async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
+        let queue_name = args.queue_name.clone();
+        let exchange_name = args.exchange_name.clone();
         let cmd = UnbindQueueCommand {
             conn_id: self.id.clone(),
             channel,
@@ -110,7 +116,10 @@ impl Connection {
 
         em::unbind_queue(&self.em, cmd).await?;
 
-        self.send_frame(Frame::Frame(frame::queue_unbind_ok(channel))).await?;
+        self.send_frame(Frame::Frame(
+            frame::QueueUnbindArgs::new(&queue_name, &exchange_name).frame(channel),
+        ))
+        .await?;
 
         Ok(())
     }

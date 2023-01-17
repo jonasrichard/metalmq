@@ -521,11 +521,9 @@ impl QueueState {
                     logerr!(
                         consumer
                             .sink
-                            .send(Frame::Frame(frame::basic_cancel(
-                                consumer.channel,
-                                "Queue is deleted",
-                                false
-                            )))
+                            .send(Frame::Frame(
+                                frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(channel)
+                            ))
                             .await
                     );
                 }
@@ -535,11 +533,9 @@ impl QueueState {
                     logerr!(
                         consumer
                             .sink
-                            .send(Frame::Frame(frame::basic_cancel(
-                                consumer.channel,
-                                "Queue is deleted",
-                                false
-                            )))
+                            .send(Frame::Frame(
+                                frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(channel)
+                            ))
                             .await
                     );
                 }

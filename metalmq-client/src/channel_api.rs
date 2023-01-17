@@ -73,14 +73,23 @@ impl Channel {
     }
 
     /// Declare exchange.
-    // TODO make a convenient builder for flags
     pub async fn exchange_declare(
         &self,
         exchange_name: &str,
         exchange_type: ExchangeType,
-        flags: Option<frame::ExchangeDeclareFlags>,
+        passive: bool,
+        durable: bool,
+        auto_delete: bool,
+        internal: bool,
     ) -> Result<()> {
-        let frame = frame::exchange_declare(self.channel, exchange_name, exchange_type.into(), flags, None);
+        let frame = frame::ExchangeDeclareArgs::default()
+            .exchange_name(exchange_name)
+            .exchange_type(exchange_type.into())
+            .passive(passive)
+            .durable(durable)
+            .auto_delete(auto_delete)
+            .internal(internal)
+            .frame(self.channel);
 
         processor::call(&self.sink, frame).await
     }
@@ -98,33 +107,47 @@ impl Channel {
     /// # }
     /// ```
     pub async fn exchange_delete(&self, exchange_name: &str, if_unused: IfUnused) -> Result<()> {
-        let mut flags = frame::ExchangeDeleteFlags::default();
-
-        if if_unused.0 {
-            flags.toggle(frame::ExchangeDeleteFlags::IF_UNUSED);
-        }
-
-        let frame = frame::exchange_delete(self.channel, exchange_name, Some(flags));
+        let frame = frame::ExchangeDeleteArgs::default()
+            .exchange_name(exchange_name)
+            .if_unused(if_unused.0)
+            .frame(self.channel);
 
         processor::call(&self.sink, frame).await
     }
 
     /// Declare queue.
-    pub async fn queue_declare(&self, queue_name: &str, flags: Option<frame::QueueDeclareFlags>) -> Result<()> {
-        let frame = frame::queue_declare(self.channel, queue_name, flags, None);
+    pub async fn queue_declare(
+        &self,
+        queue_name: &str,
+        passive: bool,
+        durable: bool,
+        exclusive: bool,
+        auto_delete: bool,
+    ) -> Result<()> {
+        let frame = frame::QueueDeclareArgs::default()
+            .name(queue_name)
+            .passive(passive)
+            .durable(durable)
+            .exclusive(exclusive)
+            .auto_delete(auto_delete)
+            .frame(self.channel);
 
         processor::call(&self.sink, frame).await
     }
 
     /// Bind queue to exchange.
     pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        let frame = frame::queue_bind(self.channel, queue_name, exchange_name, routing_key, None);
+        let frame = frame::QueueBindArgs::new(queue_name, exchange_name)
+            .routing_key(routing_key)
+            .frame(self.channel);
 
         processor::call(&self.sink, frame).await
     }
 
     pub async fn queue_unbind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        let frame = frame::queue_unbind(self.channel, queue_name, exchange_name, routing_key, None);
+        let frame = frame::QueueUnbindArgs::new(queue_name, exchange_name)
+            .routing_key(routing_key)
+            .frame(self.channel);
 
         processor::call(&self.sink, frame).await
     }
@@ -134,11 +157,11 @@ impl Channel {
     }
 
     pub async fn queue_delete(&self, queue_name: &str, if_unused: IfUnused, if_empty: IfEmpty) -> Result<()> {
-        let mut flags = frame::QueueDeleteFlags::empty();
-        flags.set(frame::QueueDeleteFlags::IF_UNUSED, if_unused.0);
-        flags.set(frame::QueueDeleteFlags::IF_EMPTY, if_empty.0);
-
-        let frame = frame::queue_delete(self.channel, queue_name, Some(flags));
+        let frame = frame::QueueDeleteArgs::default()
+            .queue_name(queue_name)
+            .if_empty(if_empty.0)
+            .if_unused(if_unused.0)
+            .frame(self.channel);
 
         processor::call(&self.sink, frame).await
     }
@@ -151,11 +174,11 @@ impl Channel {
         mandatory: bool,
         immediate: bool,
     ) -> Result<()> {
-        let mut flags = frame::BasicPublishFlags::empty();
-        flags.set(frame::BasicPublishFlags::MANDATORY, mandatory);
-        flags.set(frame::BasicPublishFlags::IMMEDIATE, immediate);
-
-        let frame = frame::basic_publish(self.channel, exchange_name, routing_key, Some(flags));
+        let frame = frame::BasicPublishArgs::new(exchange_name)
+            .routing_key(routing_key)
+            .immediate(immediate)
+            .mandatory(mandatory)
+            .frame(self.channel);
 
         self.sink
             .send(ClientRequest {
@@ -169,11 +192,9 @@ impl Channel {
 
     /// Closes the channel.
     pub async fn close(&self) -> Result<()> {
-        let (cid, mid) = frame::split_class_method(frame::CHANNEL_CLOSE);
-
         processor::call(
             &self.sink,
-            frame::channel_close(self.channel, 200, "Normal close", cid, mid),
+            frame::channel_close(self.channel, 200, "Normal close", frame::CHANNEL_CLOSE),
         )
         .await
     }

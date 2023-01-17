@@ -44,7 +44,7 @@ async fn connect_frame_exchange() {
 
     // Server send back a connection-start
     frame_in_tx
-        .send(Frame::Frame(frame::connection_start(0)))
+        .send(Frame::Frame(frame::ConnectionStartArgs::new().frame()))
         .await
         .unwrap();
 
@@ -57,7 +57,7 @@ async fn connect_frame_exchange() {
     }
 
     // Server send back a connection-tune
-    frame_in_tx.send(Frame::Frame(frame::connection_tune(0))).await.unwrap();
+    frame_in_tx.send(Frame::Frame(frame::connection_tune())).await.unwrap();
 
     // Client send back a connection-tune-ok
     let conn_tune_ok = extract_method_frame(frame_out_rx.recv().await);
@@ -72,7 +72,7 @@ async fn connect_frame_exchange() {
     assert!(matches!(conn_open, MethodFrameArgs::ConnectionOpen(_)));
 
     frame_in_tx
-        .send(Frame::Frame(frame::connection_open_ok(0)))
+        .send(Frame::Frame(frame::connection_open_ok()))
         .await
         .unwrap();
 

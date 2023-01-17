@@ -93,7 +93,13 @@ pub fn message_to_content_frames(
     let mut frames = vec![AMQPFrame::ContentHeader(header)];
 
     for chunk in content.body.chunks(frame_size) {
-        frames.push(AMQPFrame::ContentBody(frame::content_body(channel, chunk)));
+        frames.push(
+            frame::ContentBodyFrame {
+                channel,
+                body: chunk.to_vec(),
+            }
+            .frame(),
+        );
     }
 
     frames
@@ -110,14 +116,10 @@ pub async fn send_message(
 ) -> Result<()> {
     let mut frames = message_to_content_frames(channel, message.content.clone(), frame_size);
 
-    let basic_deliver = frame::basic_deliver(
-        channel,
-        &tag.consumer_tag,
-        tag.delivery_tag,
-        redelivered,
-        &message.exchange,
-        &message.routing_key,
-    );
+    let basic_deliver = frame::BasicDeliverArgs::new(&tag.consumer_tag, tag.delivery_tag, &message.exchange)
+        .redelivered(redelivered)
+        .routing_key(&message.routing_key)
+        .frame(channel);
     frames.insert(0, basic_deliver);
 
     chk!(send!(outgoing, Frame::Frames(frames)))?;
@@ -130,17 +132,17 @@ pub async fn send_basic_return(message: Arc<Message>, frame_size: usize, outgoin
 
     frames.insert(
         0,
-        frame::basic_return(
-            message.channel,
-            ChannelError::NoRoute as u16,
-            "NO_ROUTE",
-            &message.exchange,
-            &message.routing_key,
-        ),
+        frame::BasicReturnArgs {
+            reply_code: ChannelError::NoRoute as u16,
+            reply_text: "NO_ROUTE".to_string(),
+            exchange_name: message.exchange.clone(),
+            routing_key: message.routing_key.clone(),
+        }
+        .frame(message.channel),
     );
 
     // FIXME why the channel here is fixed?
-    frames.push(frame::basic_ack(message.channel, 1u64, false));
+    frames.push(frame::BasicAckArgs::default().delivery_tag(1u64).frame(message.channel));
 
     chk!(send!(outgoing, Frame::Frames(frames)))?;
 
@@ -159,14 +161,12 @@ pub async fn send_basic_get_ok(
     let mut frames = message_to_content_frames(channel, message.content.clone(), frame_size);
     // TODO handle redelivered
 
-    let basic_get = frame::basic_get_ok(
-        channel,
-        delivery_tag,
-        redelivered,
-        &message.exchange,
-        &message.routing_key,
-        message_count,
-    );
+    let basic_get = frame::BasicGetOkArgs::new(delivery_tag, &message.exchange)
+        .redelivered(redelivered)
+        .routing_key(&message.routing_key)
+        .message_count(message_count)
+        .frame(channel);
+
     frames.insert(0, basic_get);
 
     chk!(send!(outgoing, Frame::Frames(frames)))?;

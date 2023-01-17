@@ -130,13 +130,6 @@ impl ClientState {
     pub(crate) async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> Result<()> {
         info!("Server supported mechanisms: {}", args.mechanisms);
 
-        let mut caps = frame::FieldTable::new();
-
-        caps.insert(
-            "authentication_failure_close".to_string(),
-            frame::AMQPFieldValue::Bool(true),
-        );
-
         //caps.insert("basic.nack".to_string(), AMQPFieldValue::Bool(true));
         //caps.insert("connection.blocked".to_string(), AMQPFieldValue::Bool(true));
         //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
@@ -144,7 +137,7 @@ impl ClientState {
 
         send_out(
             &self.outgoing,
-            Frame::Frame(frame::connection_start_ok(&self.username, &self.password, caps)),
+            Frame::Frame(frame::ConnectionStartOkArgs::new(&self.username, &self.password).frame()),
         )
         .await
         .unwrap();
@@ -161,13 +154,17 @@ impl ClientState {
     pub(crate) async fn connection_tune(&mut self, _args: frame::ConnectionTuneArgs) -> Result<()> {
         self.state = Phase::Authenticated;
 
-        send_out(&self.outgoing, Frame::Frame(frame::connection_tune_ok(0)))
+        send_out(&self.outgoing, Frame::Frame(frame::connection_tune_ok()))
             .await
             .unwrap();
 
         send_out(
             &self.outgoing,
-            Frame::Frame(frame::connection_open(0, &self.virtual_host)),
+            Frame::Frame(
+                frame::ConnectionOpenArgs::default()
+                    .virtual_host(&self.virtual_host)
+                    .frame(),
+            ),
         )
         .await
         .unwrap();
@@ -195,7 +192,7 @@ impl ClientState {
     pub(crate) async fn connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> Result<()> {
         send_out(
             &self.outgoing,
-            Frame::Frame(frame::connection_close(0, 200, "Normal close", 0, 0)),
+            Frame::Frame(frame::connection_close(200, "Normal close", 0)),
         )
         .await?;
 
@@ -226,17 +223,7 @@ impl ClientState {
     }
 
     pub(crate) async fn channel_close(&mut self, channel: ChannelNumber, args: frame::ChannelCloseArgs) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::channel_close(
-                channel,
-                args.code,
-                &args.text,
-                args.class_id,
-                args.method_id,
-            )),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -267,17 +254,7 @@ impl ClientState {
         channel: ChannelNumber,
         args: frame::ExchangeDeclareArgs,
     ) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::exchange_declare(
-                channel,
-                &args.exchange_name,
-                &args.exchange_type,
-                Some(args.flags),
-                args.args,
-            )),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -291,11 +268,7 @@ impl ClientState {
         channel: ChannelNumber,
         args: frame::ExchangeDeleteArgs,
     ) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::exchange_delete(channel, &args.exchange_name, Some(args.flags))),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -305,11 +278,7 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_declare(&mut self, channel: ChannelNumber, args: frame::QueueDeclareArgs) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::queue_declare(channel, &args.name, Some(args.flags), args.args)),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -319,17 +288,7 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_bind(&mut self, channel: ChannelNumber, args: frame::QueueBindArgs) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::queue_bind(
-                channel,
-                &args.queue_name,
-                &args.exchange_name,
-                &args.routing_key,
-                args.args,
-            )),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -339,17 +298,7 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_unbind(&mut self, channel: ChannelNumber, args: frame::QueueUnbindArgs) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::queue_unbind(
-                channel,
-                &args.queue_name,
-                &args.exchange_name,
-                &args.routing_key,
-                args.args,
-            )),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -360,11 +309,7 @@ impl ClientState {
 
     pub(crate) async fn queue_delete(&mut self, channel: ChannelNumber, args: frame::QueueDeleteArgs) -> Result<()> {
         // TODO what happens if I am consuming that queue?
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::queue_delete(channel, &args.queue_name, Some(args.flags))),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -383,21 +328,19 @@ impl ClientState {
         args: frame::BasicAckArgs,
         wait_for: WaitFor,
     ) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::basic_ack(channel, args.delivery_tag, args.multiple)),
-        )
-        .await?;
+        let delivery_tag = args.delivery_tag;
+
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         if let WaitFor::SentOut(tx) = wait_for {
             tx.send(Ok(())).unwrap();
         }
 
         if let Some(dt) = self.ack_sent.get_mut(&channel) {
-            debug_assert!(*dt < args.delivery_tag);
-            *dt = args.delivery_tag;
+            debug_assert!(*dt < delivery_tag);
+            *dt = delivery_tag;
         } else {
-            self.ack_sent.insert(channel, args.delivery_tag);
+            self.ack_sent.insert(channel, delivery_tag);
         }
 
         Ok(())
@@ -411,18 +354,9 @@ impl ClientState {
     ) -> Result<()> {
         self.consumers.insert(channel, sink);
 
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::basic_consume(
-                channel,
-                &args.queue,
-                &args.consumer_tag,
-                Some(args.flags),
-                args.args,
-            )),
-        )
-        .await
-        .unwrap();
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel)))
+            .await
+            .unwrap();
 
         Ok(())
     }
@@ -432,11 +366,7 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_cancel(&mut self, channel: ChannelNumber, args: frame::BasicCancelArgs) -> Result<()> {
-        send_out(
-            &self.outgoing,
-            Frame::Frame(frame::basic_cancel(channel, &args.consumer_tag, args.no_wait)),
-        )
-        .await?;
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
         Ok(())
     }
@@ -475,9 +405,14 @@ impl ClientState {
         content: Vec<u8>,
     ) -> Result<()> {
         let fs = vec![
-            frame::basic_publish(channel, &args.exchange_name, &args.routing_key, None),
-            AMQPFrame::ContentHeader(frame::content_header(channel, content.len() as u64)),
-            AMQPFrame::ContentBody(frame::content_body(channel, content.as_slice())),
+            args.frame(channel),
+            frame::ContentHeaderFrame {
+                channel,
+                body_size: content.len() as u64,
+                ..Default::default()
+            }
+            .frame(),
+            frame::ContentBodyFrame { channel, body: content }.frame(),
         ];
 
         send_out(&self.outgoing, Frame::Frames(fs)).await.unwrap();

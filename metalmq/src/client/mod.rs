@@ -34,23 +34,18 @@ pub enum ChannelError {
 
 /// Helper to create connection error frames.
 pub fn connection_error<T>(cm: u32, code: ConnectionError, text: &str) -> Result<T> {
-    let (class_id, method_id) = frame::split_class_method(cm);
-
     Err(Box::new(RuntimeError {
         scope: ErrorScope::Connection,
         channel: 0,
         code: code as u16,
         text: text.to_owned(),
-        class_id,
-        method_id,
+        class_method: cm,
     }))
 }
 
 /// Convert ConnectionError to connection close frame.
 pub fn connection_error_frame(cm: u32, code: ConnectionError, text: &str) -> Frame {
-    let (class_id, method_id) = frame::split_class_method(cm);
-
-    Frame::Frame(frame::connection_close(0, code as u16, text, class_id, method_id))
+    Frame::Frame(frame::connection_close(code as u16, text, cm))
 }
 
 //pub fn connection_error_frame(err: RuntimeError) -> Option<Frame> {
@@ -69,15 +64,12 @@ pub fn connection_error_frame(cm: u32, code: ConnectionError, text: &str) -> Fra
 
 /// Helper to create channel error frames.
 pub fn channel_error<T>(channel: Channel, cm: u32, code: ChannelError, text: &str) -> Result<T> {
-    let (class_id, method_id) = frame::split_class_method(cm);
-
     Err(Box::new(RuntimeError {
         scope: ErrorScope::Channel,
         channel,
         code: code as u16,
         text: text.to_owned(),
-        class_id,
-        method_id,
+        class_method: cm,
     }))
 }
 
@@ -85,13 +77,13 @@ pub fn channel_error<T>(channel: Channel, cm: u32, code: ChannelError, text: &st
 pub fn channel_error_frame(channel: Channel, cm: u32, code: ChannelError, text: &str) -> Frame {
     let (class_id, method_id) = frame::split_class_method(cm);
 
-    Frame::Frame(frame::channel_close(channel, code as u16, text, class_id, method_id))
+    Frame::Frame(frame::channel_close(channel, code as u16, text, cm))
 }
 
 pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
     let amqp_frame = match rte.scope {
-        ErrorScope::Connection => frame::connection_close(0, rte.code, &rte.text, rte.class_id, rte.method_id),
-        ErrorScope::Channel => frame::channel_close(rte.channel, rte.code, &rte.text, rte.class_id, rte.method_id),
+        ErrorScope::Connection => frame::connection_close(rte.code, &rte.text, rte.class_method),
+        ErrorScope::Channel => frame::channel_close(rte.channel, rte.code, &rte.text, rte.class_method),
     };
 
     Frame::Frame(amqp_frame)
@@ -105,8 +97,7 @@ pub fn to_runtime_error(err: Box<dyn std::error::Error>) -> RuntimeError {
             channel: 0,
             code: ConnectionError::InternalError as u16,
             text: format!("Internal error: {e}"),
-            class_id: 0,
-            method_id: 0,
+            class_method: 0,
         },
     }
 }

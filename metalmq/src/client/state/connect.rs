@@ -1,8 +1,7 @@
 use crate::client::state::Connection;
 use crate::client::{self, ConnectionError};
-use crate::queue::manager;
 use crate::Result;
-use log::{error, info, trace};
+use log::{info, trace};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
@@ -30,7 +29,7 @@ impl Connection {
         }
 
         match authenticated {
-            true => self.send_frame(Frame::Frame(frame::connection_tune(channel))).await,
+            true => self.send_frame(Frame::Frame(frame::connection_tune())).await,
             false => {
                 self.send_frame(client::connection_error_frame(
                     0u32,
@@ -73,7 +72,7 @@ impl Connection {
             ))
             .await
         } else {
-            self.send_frame(Frame::Frame(frame::connection_open_ok(channel))).await
+            self.send_frame(Frame::Frame(frame::connection_open_ok())).await
         }
     }
 
@@ -87,6 +86,6 @@ impl Connection {
         //   - queues -> delete the exclusive queues
         self.handle_connection_close().await.unwrap();
 
-        self.send_frame(Frame::Frame(frame::connection_close_ok(0))).await
+        self.send_frame(Frame::Frame(frame::connection_close_ok())).await
     }
 }

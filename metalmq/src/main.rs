@@ -43,18 +43,15 @@ pub struct RuntimeError {
     pub channel: metalmq_codec::frame::Channel,
     pub code: u16,
     pub text: String,
-    pub class_id: u16,
-    pub method_id: u16,
+    pub class_method: u32,
 }
 
 impl From<RuntimeError> for metalmq_codec::frame::AMQPFrame {
     fn from(err: RuntimeError) -> metalmq_codec::frame::AMQPFrame {
         match err.scope {
-            ErrorScope::Connection => {
-                metalmq_codec::frame::connection_close(err.channel, err.code, &err.text, err.class_id, err.method_id)
-            }
+            ErrorScope::Connection => metalmq_codec::frame::connection_close(err.code, &err.text, err.class_method),
             ErrorScope::Channel => {
-                metalmq_codec::frame::channel_close(err.channel, err.code, &err.text, err.class_id, err.method_id)
+                metalmq_codec::frame::channel_close(err.channel, err.code, &err.text, err.class_method)
             }
         }
     }

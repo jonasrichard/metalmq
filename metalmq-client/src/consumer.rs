@@ -24,7 +24,14 @@ pub struct ConsumerHandler {
 
 impl ConsumerHandler {
     pub async fn basic_ack(&self, delivery_tag: u64) -> Result<()> {
-        processor::sync_send(&self.client_sink, frame::basic_ack(self.channel, delivery_tag, false)).await
+        processor::sync_send(
+            &self.client_sink,
+            frame::BasicAckArgs::default()
+                .delivery_tag(delivery_tag)
+                .multiple(false)
+                .frame(self.channel),
+        )
+        .await
     }
 
     //pub async fn basic_nack(&self, delivery_tag: u64, multiple: bool, requeue: bool) -> Result<()> {
@@ -34,7 +41,7 @@ impl ConsumerHandler {
     //pub async fn reject (delivery tag, requeue)
 
     pub async fn basic_cancel(self) -> Result<()> {
-        let frame = frame::basic_cancel(self.channel, &self.consumer_tag, false);
+        let frame = frame::BasicCancelArgs::new(&self.consumer_tag).frame(self.channel);
 
         processor::call(&self.client_sink, frame).await
     }
@@ -59,9 +66,17 @@ impl Channel {
         &'a self,
         queue_name: &'a str,
         consumer_tag: &'a str,
-        flags: Option<frame::BasicConsumeFlags>,
+        no_ack: bool,
+        exclusive: bool,
+        no_local: bool,
     ) -> Result<ConsumerHandler> {
-        let frame = frame::basic_consume(self.channel, queue_name, consumer_tag, flags, None);
+        let frame = frame::BasicConsumeArgs::default()
+            .queue(queue_name)
+            .consumer_tag(consumer_tag)
+            .no_ack(no_ack)
+            .exclusive(exclusive)
+            .no_local(no_local)
+            .frame(self.channel);
 
         // Buffer of the incoming, delivered messages or other signals like
         // consumer cancelled.

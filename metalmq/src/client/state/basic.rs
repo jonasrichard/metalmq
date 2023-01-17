@@ -61,8 +61,10 @@ impl Connection {
             },
         );
 
-        self.send_frame(Frame::Frame(frame::basic_consume_ok(channel, &args.consumer_tag)))
-            .await?;
+        self.send_frame(Frame::Frame(
+            frame::BasicConsumeOkArgs::new(&args.consumer_tag).frame(channel),
+        ))
+        .await?;
 
         let start_deliver_cmd = queue_handler::QueueCommand::StartDelivering {
             consumer_tag: consumer_tag_clone,
@@ -82,8 +84,10 @@ impl Connection {
             };
             qm::cancel_consume(&self.qm, cmd).await?;
 
-            self.send_frame(Frame::Frame(frame::basic_cancel_ok(channel, &args.consumer_tag)))
-                .await?;
+            self.send_frame(Frame::Frame(
+                frame::BasicCancelOkArgs::new(&args.consumer_tag).frame(channel),
+            ))
+            .await?;
         } else {
             // TODO error: canceling consuming which didn't exist
         }

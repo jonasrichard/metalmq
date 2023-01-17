@@ -129,7 +129,7 @@ impl Client {
 
     /// Closes the channel normally.
     pub async fn close(&mut self) -> Result<()> {
-        let fr = frame::connection_close(0, 200, "Normal close", 0, 0);
+        let fr = frame::connection_close(200, "Normal close", 0);
 
         processor::call(&self.request_sink, fr).await?;
 

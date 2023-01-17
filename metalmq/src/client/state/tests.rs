@@ -98,7 +98,7 @@ async fn sending_mismatched_content_header() {
     assert_eq!(err.code, ConnectionError::FrameError as u16);
     assert_eq!(err.scope, ErrorScope::Connection);
     // TODO we need to have classes as constants
-    assert_eq!(err.class_id, 60);
+    assert_eq!(err.class_method, frame::BASIC_PUBLISH);
 }
 
 #[tokio::test]
