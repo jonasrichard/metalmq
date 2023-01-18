@@ -23,7 +23,7 @@ fn queue_purge() {
     let mut codec = AMQPCodec {};
     let mut buf = BytesMut::with_capacity(128);
 
-    let fr = frame::queue_purge(2, "test-queue");
+    let fr = frame::QueuePurgeArgs::default().queue_name("test-queue").frame(2);
     assert!(codec.encode(Frame::Frame(fr), &mut buf).is_ok());
 
     let res = codec.decode(&mut buf);

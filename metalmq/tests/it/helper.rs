@@ -1,6 +1,8 @@
 use anyhow::Result;
-use metalmq_client::*;
-use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
+use metalmq_client::{
+    AutoDelete, Channel, Client, ClientError, ConsumerSignal, Durable, ExchangeType, Exclusive, IfUnused, Internal,
+    Message, NoAck, NoLocal, Passive,
+};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
@@ -55,7 +57,7 @@ impl<'c, 'a: 'c> ConnData<'c> {
         let password = self.params.get("password").unwrap();
         let virtual_host = self.params.get("virtual_host").unwrap();
 
-        let client = metalmq_client::connect("localhost:5672", username, password).await?;
+        let client = Client::connect("localhost:5672", username, password).await?;
 
         Ok(client)
     }
@@ -70,12 +72,23 @@ pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientEr
 /// Declare an exchange and the queue and bind them. Exchange will be auto-delete.
 #[allow(dead_code)]
 pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: &str) -> Result<()> {
-    let mut ex_flags = ExchangeDeclareFlags::empty();
-    ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
-
-    ch.exchange_declare(exchange, ExchangeType::Direct, Some(ex_flags))
-        .await?;
-    ch.queue_declare(queue, None).await?;
+    ch.exchange_declare(
+        exchange,
+        ExchangeType::Direct,
+        Passive(false),
+        Durable(false),
+        AutoDelete(false),
+        Internal(false),
+    )
+    .await?;
+    ch.queue_declare(
+        queue,
+        Passive(false),
+        Durable(false),
+        Exclusive(false),
+        AutoDelete(false),
+    )
+    .await?;
 
     ch.queue_bind(queue, exchange, "").await?;
 
@@ -100,13 +113,15 @@ pub(crate) async fn consume_messages<'a>(
     client_channel: &'a Channel,
     queue: &'a str,
     ctag: &'a str,
-    flags: Option<BasicConsumeFlags>,
+    exclusive: Exclusive,
     n: usize,
 ) -> Result<oneshot::Receiver<Vec<Message>>> {
     use tokio::time;
 
     let (tx, rx) = oneshot::channel();
-    let mut handler = client_channel.basic_consume(queue, ctag, flags).await?;
+    let mut handler = client_channel
+        .basic_consume(queue, ctag, NoAck(false), exclusive, NoLocal(false))
+        .await?;
 
     tokio::spawn(async move {
         let _ = &handler;

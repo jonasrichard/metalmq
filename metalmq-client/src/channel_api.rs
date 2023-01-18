@@ -59,9 +59,15 @@ impl From<ExchangeType> for &'static str {
     }
 }
 
-pub struct IfUnused(pub bool);
-
+pub struct AutoDelete(pub bool);
+pub struct Durable(pub bool);
+pub struct Exclusive(pub bool);
 pub struct IfEmpty(pub bool);
+pub struct IfUnused(pub bool);
+pub struct Immediate(pub bool);
+pub struct Internal(pub bool);
+pub struct Mandatory(pub bool);
+pub struct Passive(pub bool);
 
 impl Channel {
     pub(crate) fn new(channel: ChannelNumber, sink: ClientRequestSink) -> Channel {
@@ -77,18 +83,18 @@ impl Channel {
         &self,
         exchange_name: &str,
         exchange_type: ExchangeType,
-        passive: bool,
-        durable: bool,
-        auto_delete: bool,
-        internal: bool,
+        passive: Passive,
+        durable: Durable,
+        auto_delete: AutoDelete,
+        internal: Internal,
     ) -> Result<()> {
         let frame = frame::ExchangeDeclareArgs::default()
             .exchange_name(exchange_name)
             .exchange_type(exchange_type.into())
-            .passive(passive)
-            .durable(durable)
-            .auto_delete(auto_delete)
-            .internal(internal)
+            .passive(passive.0)
+            .durable(durable.0)
+            .auto_delete(auto_delete.0)
+            .internal(internal.0)
             .frame(self.channel);
 
         processor::call(&self.sink, frame).await
@@ -119,17 +125,17 @@ impl Channel {
     pub async fn queue_declare(
         &self,
         queue_name: &str,
-        passive: bool,
-        durable: bool,
-        exclusive: bool,
-        auto_delete: bool,
+        passive: Passive,
+        durable: Durable,
+        exclusive: Exclusive,
+        auto_delete: AutoDelete,
     ) -> Result<()> {
         let frame = frame::QueueDeclareArgs::default()
             .name(queue_name)
-            .passive(passive)
-            .durable(durable)
-            .exclusive(exclusive)
-            .auto_delete(auto_delete)
+            .passive(passive.0)
+            .durable(durable.0)
+            .exclusive(exclusive.0)
+            .auto_delete(auto_delete.0)
             .frame(self.channel);
 
         processor::call(&self.sink, frame).await
@@ -171,13 +177,13 @@ impl Channel {
         exchange_name: &str,
         routing_key: &str,
         payload: String,
-        mandatory: bool,
-        immediate: bool,
+        mandatory: Mandatory,
+        immediate: Immediate,
     ) -> Result<()> {
         let frame = frame::BasicPublishArgs::new(exchange_name)
             .routing_key(routing_key)
-            .immediate(immediate)
-            .mandatory(mandatory)
+            .immediate(immediate.0)
+            .mandatory(mandatory.0)
             .frame(self.channel);
 
         self.sink

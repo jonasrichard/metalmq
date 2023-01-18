@@ -58,6 +58,9 @@ impl fmt::Debug for ClientRequest {
     }
 }
 
+/// The AMQP client instance which reprensents an open connection.
+///
+/// `Client` can be created with [`Client::connect`].
 pub struct Client {
     pub connection_id: String,
     request_sink: mpsc::Sender<ClientRequest>,
@@ -67,36 +70,6 @@ pub struct Client {
     sync_calls: HashMap<u16, oneshot::Sender<Result<()>>>,
     channels: HashMap<u16, Channel>,
     in_delivery: HashMap<Channel, DeliveredContent>,
-}
-
-// TODO expect only one parameter and parse the url
-pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
-    //let mut rng = rand::thread_rng();
-
-    let (connected_tx, connected_rx) = oneshot::channel();
-    let client_sink = create_connection(url).await?;
-
-    client_sink
-        .send(ClientRequest {
-            param: Param::Connect {
-                username: username.to_owned(),
-                password: password.to_owned(),
-                virtual_host: "/".to_owned(),
-                connected: connected_tx,
-            },
-            response: WaitFor::Nothing,
-        })
-        .await?;
-
-    connected_rx.await?;
-
-    Ok(Client {
-        connection_id: "01234".to_owned(),
-        request_sink: client_sink,
-        sync_calls: HashMap::new(),
-        channels: HashMap::new(),
-        in_delivery: HashMap::new(),
-    })
 }
 
 /// Create a connection to an AMQP server and returns a sink to send the requests.
@@ -120,6 +93,36 @@ async fn create_connection(url: &str) -> Result<ClientRequestSink> {
 }
 
 impl Client {
+    // TODO expect only one parameter and parse the url
+    pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
+        //let mut rng = rand::thread_rng();
+
+        let (connected_tx, connected_rx) = oneshot::channel();
+        let client_sink = create_connection(url).await?;
+
+        client_sink
+            .send(ClientRequest {
+                param: Param::Connect {
+                    username: username.to_owned(),
+                    password: password.to_owned(),
+                    virtual_host: "/".to_owned(),
+                    connected: connected_tx,
+                },
+                response: WaitFor::Nothing,
+            })
+            .await?;
+
+        connected_rx.await?;
+
+        Ok(Client {
+            connection_id: "01234".to_owned(),
+            request_sink: client_sink,
+            sync_calls: HashMap::new(),
+            channels: HashMap::new(),
+            in_delivery: HashMap::new(),
+        })
+    }
+
     /// Open a channel in the current connection.
     pub async fn channel_open(&mut self, channel: ChannelNumber) -> Result<Channel> {
         processor::call(&self.request_sink, frame::channel_open(channel)).await?;

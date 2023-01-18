@@ -13,7 +13,7 @@ use super::ExclusiveQueue;
 impl Connection {
     pub async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {
         let mut queue_name = args.name.clone();
-        if queue_name == "" {
+        if queue_name.is_empty() {
             queue_name = Uuid::new_v4().hyphenated().to_string();
         }
 

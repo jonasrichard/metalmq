@@ -313,7 +313,7 @@ impl ExchangeManagerState {
     }
 
     async fn handle_queue_deleted(&mut self, evt: QueueDeletedEvent) -> Result<()> {
-        for (_, exchange) in &self.exchanges {
+        for exchange in self.exchanges.values() {
             let (tx, rx) = oneshot::channel();
 
             let cmd = ExchangeCommand::QueueDeleted {

@@ -52,7 +52,10 @@ async fn can_read_from_existing_buf() {
     let mut cdc = metalmq_codec::codec::AMQPCodec {};
     let mut buffer = BytesMut::new();
 
-    let res = cdc.encode(codec::Frame::Frame(frame::connection_start(0)), &mut buffer);
+    let res = cdc.encode(
+        codec::Frame::Frame(frame::ConnectionStartArgs::new().frame()),
+        &mut buffer,
+    );
 
     assert!(res.is_ok());
 

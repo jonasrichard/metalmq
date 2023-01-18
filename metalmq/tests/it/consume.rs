@@ -2,8 +2,7 @@
 
 use super::helper;
 use anyhow::Result;
-use metalmq_client::ExchangeType;
-use metalmq_codec::frame::{BasicConsumeFlags, ExchangeDeclareFlags};
+use metalmq_client::{AutoDelete, Durable, ExchangeType, Exclusive, Immediate, Internal, Mandatory, Passive};
 
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
@@ -14,9 +13,10 @@ async fn consume_one_message() -> Result<()> {
     let ch = c.channel_open(1).await?;
     helper::declare_exchange_queue(&ch, exchange, queue).await?;
 
-    let result = helper::consume_messages(&ch, queue, "ctag", None, 1).await?;
+    let result = helper::consume_messages(&ch, queue, "ctag", Exclusive(false), 1).await?;
 
-    ch.basic_publish(exchange, "", "Hello".into(), false, false).await?;
+    ch.basic_publish(exchange, "", "Hello".into(), Mandatory(false), Immediate(false))
+        .await?;
 
     let msgs = result.await.unwrap();
     assert_eq!(msgs.len(), 1);
@@ -39,7 +39,7 @@ async fn consume_not_existing_queue() -> Result<()> {
     let mut c = helper::default().connect().await?;
     let ch = c.channel_open(2).await?;
 
-    let res = helper::consume_messages(&ch, "not-existing-queue", "ctag", None, 1).await;
+    let res = helper::consume_messages(&ch, "not-existing-queue", "ctag", Exclusive(false), 1).await;
 
     assert!(res.is_err());
 
@@ -62,23 +62,33 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     //ch.queue_delete(queue, false, false).await?;
     //ch.exchange_delete(exchange, false).await?;
 
-    let mut ex_flags = ExchangeDeclareFlags::empty();
-    ex_flags |= ExchangeDeclareFlags::AUTO_DELETE;
-    ch.exchange_declare(exchange, ExchangeType::Direct, Some(ex_flags))
-        .await?;
+    ch.exchange_declare(
+        exchange,
+        ExchangeType::Direct,
+        Passive(false),
+        Durable(false),
+        AutoDelete(true),
+        Internal(false),
+    )
+    .await?;
 
     // TODO write another test to get 405 - resource locker for consuming exclusive queue
     //
     //let mut q_flags = QueueDeclareFlags::empty();
     //q_flags |= QueueDeclareFlags::EXCLUSIVE;
     //ch.queue_declare(queue, Some(q_flags)).await?;
-    ch.queue_declare(queue, None).await?;
+    ch.queue_declare(
+        queue,
+        Passive(false),
+        Durable(false),
+        Exclusive(false),
+        AutoDelete(false),
+    )
+    .await?;
 
     ch.queue_bind(queue, exchange, "").await?;
 
-    let mut bc_flags = BasicConsumeFlags::empty();
-    bc_flags |= BasicConsumeFlags::EXCLUSIVE;
-    let res = helper::consume_messages(&ch, queue, "ctag", Some(bc_flags), 1).await;
+    let res = helper::consume_messages(&ch, queue, "ctag", Exclusive(true), 1).await;
 
     assert!(res.is_ok());
 
@@ -86,7 +96,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let ch2 = c2.channel_open(3).await?;
 
-    let result = helper::consume_messages(&ch2, queue, "ctag", Some(bc_flags), 1).await;
+    let result = helper::consume_messages(&ch2, queue, "ctag", Exclusive(true), 1).await;
 
     println!("{:?}", result);
 

@@ -301,22 +301,22 @@ impl Bindings {
         match self {
             Bindings::Direct(bs) => {
                 for b in bs {
-                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                    self.send_exchange_unbound(&b.queue, exchange_name).await?;
                 }
             }
             Bindings::Fanout(bs) => {
                 for b in bs {
-                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                    self.send_exchange_unbound(&b.queue, exchange_name).await?;
                 }
             }
             Bindings::Topic(bs) => {
                 for b in bs {
-                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                    self.send_exchange_unbound(&b.queue, exchange_name).await?;
                 }
             }
             Bindings::Headers(bs) => {
                 for b in bs {
-                    self.send_exchange_unbound(&b.queue, &exchange_name).await?;
+                    self.send_exchange_unbound(&b.queue, exchange_name).await?;
                 }
             }
         }

@@ -47,6 +47,9 @@ impl ConsumerHandler {
     }
 }
 
+pub struct NoAck(pub bool);
+pub struct NoLocal(pub bool);
+
 impl Channel {
     // TODO consume should spawn a thread and on that thread the client can
     // execute its callback. From that thread we can ack or reject the message,
@@ -66,16 +69,16 @@ impl Channel {
         &'a self,
         queue_name: &'a str,
         consumer_tag: &'a str,
-        no_ack: bool,
-        exclusive: bool,
-        no_local: bool,
+        no_ack: NoAck,
+        exclusive: super::Exclusive,
+        no_local: NoLocal,
     ) -> Result<ConsumerHandler> {
         let frame = frame::BasicConsumeArgs::default()
             .queue(queue_name)
             .consumer_tag(consumer_tag)
-            .no_ack(no_ack)
-            .exclusive(exclusive)
-            .no_local(no_local)
+            .no_ack(no_ack.0)
+            .exclusive(exclusive.0)
+            .no_local(no_local.0)
             .frame(self.channel);
 
         // Buffer of the incoming, delivered messages or other signals like

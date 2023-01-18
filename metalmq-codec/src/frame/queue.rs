@@ -121,6 +121,10 @@ impl QueuePurgeArgs {
         self.queue_name = queue_name.to_string();
         self
     }
+
+    pub fn frame(self, channel: Channel) -> AMQPFrame {
+        AMQPFrame::Method(channel, super::QUEUE_PURGE, MethodFrameArgs::QueuePurge(self))
+    }
 }
 
 #[derive(Debug, Default)]

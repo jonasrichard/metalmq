@@ -17,12 +17,29 @@ async fn main() -> Result<()> {
 
     metalmq_client::setup_logger();
 
-    let mut client = metalmq_client::connect("localhost:5672", "guest", "guest").await?;
+    let mut client = Client::connect("localhost:5672", "guest", "guest").await?;
 
     let publisher = client.channel_open(1).await?;
 
-    publisher.exchange_declare(exchange, ExchangeType::Direct, None).await?;
-    publisher.queue_declare(queue, None).await?;
+    publisher
+        .exchange_declare(
+            exchange,
+            ExchangeType::Direct,
+            Passive(false),
+            Durable(false),
+            AutoDelete(false),
+            Internal(false),
+        )
+        .await?;
+    publisher
+        .queue_declare(
+            queue,
+            Passive(false),
+            Durable(false),
+            Exclusive(false),
+            AutoDelete(false),
+        )
+        .await?;
     publisher.queue_bind(queue, exchange, "").await?;
 
     let consumer = client.channel_open(2).await?;
@@ -34,7 +51,9 @@ async fn main() -> Result<()> {
 
     let ctag = format!("ctag-{}", rng.gen::<u32>());
 
-    let mut handler = consumer.basic_consume(queue, &ctag, None).await?;
+    let mut handler = consumer
+        .basic_consume(queue, &ctag, NoAck(false), Exclusive(false), NoLocal(false))
+        .await?;
     let mut received_count = 0u32;
 
     tokio::spawn(async move {
@@ -64,7 +83,7 @@ async fn main() -> Result<()> {
 
     for _ in 0..message_count {
         publisher
-            .basic_publish(exchange, "", message.to_string(), false, false)
+            .basic_publish(exchange, "", message.to_string(), Mandatory(false), Immediate(false))
             .await?;
     }
 

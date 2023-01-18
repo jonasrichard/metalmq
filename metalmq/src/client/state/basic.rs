@@ -289,7 +289,7 @@ impl Connection {
         }
 
         if let Some(mut pc) = self.in_flight_contents.remove(&body.channel) {
-            pc.body_size += body.body.len() as usize;
+            pc.body_size += body.body.len();
             pc.content_bodies.push(body);
 
             if pc.body_size < pc.content_header.body_size as usize {
