@@ -1,5 +1,5 @@
 use anyhow::Result;
-use metalmq_client::{AutoDelete, Client, Durable, ExchangeType, Exclusive, Immediate, Internal, Mandatory, Passive};
+use metalmq_client::{Client, ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory, QueueDeclareOpts};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -12,24 +12,9 @@ async fn main() -> Result<()> {
     let channel = client.channel_open(1).await?;
 
     channel
-        .exchange_declare(
-            exchange,
-            ExchangeType::Fanout,
-            Passive(false),
-            Durable(false),
-            AutoDelete(false),
-            Internal(false),
-        )
+        .exchange_declare(exchange, ExchangeType::Fanout, ExchangeDeclareOpts::default())
         .await?;
-    channel
-        .queue_declare(
-            queue,
-            Passive(false),
-            Durable(false),
-            Exclusive(false),
-            AutoDelete(false),
-        )
-        .await?;
+    channel.queue_declare(queue, QueueDeclareOpts::default()).await?;
     channel.queue_bind(queue, exchange, "").await?;
 
     channel

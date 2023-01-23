@@ -22,24 +22,9 @@ async fn main() -> Result<()> {
     let publisher = client.channel_open(1).await?;
 
     publisher
-        .exchange_declare(
-            exchange,
-            ExchangeType::Direct,
-            Passive(false),
-            Durable(false),
-            AutoDelete(false),
-            Internal(false),
-        )
+        .exchange_declare(exchange, ExchangeType::Direct, ExchangeDeclareOpts::default())
         .await?;
-    publisher
-        .queue_declare(
-            queue,
-            Passive(false),
-            Durable(false),
-            Exclusive(false),
-            AutoDelete(false),
-        )
-        .await?;
+    publisher.queue_declare(queue, QueueDeclareOpts::default()).await?;
     publisher.queue_bind(queue, exchange, "").await?;
 
     let consumer = client.channel_open(2).await?;

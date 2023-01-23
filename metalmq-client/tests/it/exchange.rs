@@ -1,7 +1,6 @@
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{AutoDelete, Durable, ExchangeType, Exclusive, IfUnused, Internal, Passive};
-use metalmq_codec::frame::ExchangeDeclareFlags;
+use metalmq_client::{ExchangeDeclareOpts, ExchangeType, IfUnused, QueueDeclareOpts};
 
 #[tokio::test]
 async fn declare_exchange() -> Result<()> {
@@ -11,10 +10,7 @@ async fn declare_exchange() -> Result<()> {
     ch.exchange_declare(
         "x-new",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
     ch.exchange_delete("x-new", IfUnused(false)).await?;
@@ -33,10 +29,7 @@ async fn passive_declare_existing_exchange() -> Result<()> {
     ch.exchange_declare(
         "x-passive",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
     ch.close().await?;
@@ -45,10 +38,7 @@ async fn passive_declare_existing_exchange() -> Result<()> {
     ch2.exchange_declare(
         "x-passive",
         ExchangeType::Direct,
-        Passive(true),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().passive(true).durable(true),
     )
     .await?;
 
@@ -68,20 +58,14 @@ async fn create_exchange_after_delete_the_old() -> Result<()> {
     ch.exchange_declare(
         "x-del-test",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
     ch.exchange_delete("x-del-test", IfUnused(false)).await?;
     ch.exchange_declare(
         "x-del-test",
         ExchangeType::Fanout,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
 
@@ -102,10 +86,7 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
     ch.exchange_declare(
         "x-conflict",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
 
@@ -113,10 +94,7 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
         .exchange_declare(
             "x-conflict",
             ExchangeType::Fanout,
-            Passive(false),
-            Durable(true),
-            AutoDelete(false),
-            Internal(false),
+            ExchangeDeclareOpts::default().durable(true),
         )
         .await;
 
@@ -165,20 +143,10 @@ async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
     ch.exchange_declare(
         "x-used",
         ExchangeType::Fanout,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
-    ch.queue_declare(
-        "q-used",
-        Passive(false),
-        Durable(false),
-        Exclusive(false),
-        AutoDelete(false),
-    )
-    .await?;
+    ch.queue_declare("q-used", QueueDeclareOpts::default()).await?;
     ch.queue_bind("q-used", "x-used", "").await?;
 
     let result = ch.exchange_delete("x-used", IfUnused(true)).await;
@@ -203,20 +171,10 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
     ch.exchange_declare(
         "x-autodel",
         ExchangeType::Topic,
-        Passive(false),
-        Durable(true),
-        AutoDelete(true),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true).auto_delete(true),
     )
     .await?;
-    ch.queue_declare(
-        "q-autodel",
-        Passive(false),
-        Durable(false),
-        Exclusive(false),
-        AutoDelete(false),
-    )
-    .await?;
+    ch.queue_declare("q-autodel", QueueDeclareOpts::default()).await?;
     ch.queue_bind("q-autodel", "x-autodel", "").await?;
 
     ch.queue_unbind("q-autodel", "x-autodel", "").await?;
@@ -232,10 +190,7 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
         .exchange_declare(
             "x-autodel",
             ExchangeType::Topic,
-            Passive(true),
-            Durable(true),
-            AutoDelete(false),
-            Internal(false),
+            ExchangeDeclareOpts::default().passive(true).durable(true),
         )
         .await;
 

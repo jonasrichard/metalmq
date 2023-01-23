@@ -1,6 +1,6 @@
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{AutoDelete, Durable, ExchangeType, Immediate, Internal, Mandatory, Passive};
+use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory};
 
 #[tokio::test]
 async fn passive_exchange_existing_exchange() -> Result<()> {
@@ -10,10 +10,7 @@ async fn passive_exchange_existing_exchange() -> Result<()> {
     ch.exchange_declare(
         "xchg-existing",
         ExchangeType::Fanout,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
 
@@ -21,10 +18,7 @@ async fn passive_exchange_existing_exchange() -> Result<()> {
         .exchange_declare(
             "xcgh-existing",
             ExchangeType::Fanout,
-            Passive(true),
-            Durable(true),
-            AutoDelete(false),
-            Internal(false),
+            ExchangeDeclareOpts::default().passive(true).durable(true),
         )
         .await;
 
@@ -46,10 +40,7 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     ch1.exchange_declare(
         "xchg-shared",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
 

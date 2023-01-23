@@ -26,15 +26,14 @@ pub use dev::setup_logger;
 
 mod channel_api;
 pub use channel_api::{
-    AutoDelete, Channel, Durable, ExchangeType, Exclusive, IfEmpty, IfUnused, Immediate, Internal, Mandatory, Message,
-    Passive,
+    Channel, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, Immediate, Mandatory, Message, QueueDeclareOpts,
 };
 
 mod client_api;
 pub use client_api::Client;
 
 mod consumer;
-pub use consumer::{ConsumerHandler, ConsumerSignal, NoAck, NoLocal};
+pub use consumer::{ConsumerHandler, ConsumerSignal, Exclusive, NoAck, NoLocal};
 
 mod error;
 pub use error::ClientError;

@@ -1,6 +1,6 @@
 use crate::helper;
 use anyhow::Result;
-use metalmq_client::{AutoDelete, Durable, ExchangeType, Immediate, Internal, Mandatory, Passive};
+use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory};
 
 #[tokio::test]
 async fn unrouted_mandatory_messages_gives_basic_return() -> Result<()> {
@@ -10,10 +10,7 @@ async fn unrouted_mandatory_messages_gives_basic_return() -> Result<()> {
     ch.exchange_declare(
         "x-unrouted",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
 

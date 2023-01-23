@@ -22,6 +22,26 @@ pub struct ConsumerHandler {
     pub signal_stream: mpsc::UnboundedReceiver<ConsumerSignal>,
 }
 
+/// After consuming started with `ConsumerHandler` one can ack, nack or reject messages.
+///
+/// ```no_run
+/// async fn consume(channel: Channel) {
+///     let handler = channel.basic_consume("queue", "consumer-tag-1", NoAck(false),
+///         Exclusive(false), NoLocal(false)).await.unwrap();
+///
+///     while let Some(signal) = handler.signal_stream.recv().await {
+///         match signal {
+///             ConsumerSignal::Delivered(m) => {
+///                 handler.basic_ack(m.delivery_tag).await.unwrap();
+///             }
+///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClose |
+///                 ConsumerSignal::ConnectionClosed => {
+///                 break;
+///             }
+///         }
+///     }
+/// }
+/// ```
 impl ConsumerHandler {
     pub async fn basic_ack(&self, delivery_tag: u64) -> Result<()> {
         processor::sync_send(
@@ -47,6 +67,7 @@ impl ConsumerHandler {
     }
 }
 
+pub struct Exclusive(pub bool);
 pub struct NoAck(pub bool);
 pub struct NoLocal(pub bool);
 
@@ -65,12 +86,14 @@ impl Channel {
     // to run into multithreading issue, we need to move the channel to the
     // thread and forget that channel in the main code which consumes.
 
+    // TODO ConsumerTag should be an enum with a value or we can ask client to generate a ctag
+    /// See [`ConsumerHandler`]
     pub async fn basic_consume<'a>(
         &'a self,
         queue_name: &'a str,
         consumer_tag: &'a str,
         no_ack: NoAck,
-        exclusive: super::Exclusive,
+        exclusive: Exclusive,
         no_local: NoLocal,
     ) -> Result<ConsumerHandler> {
         let frame = frame::BasicConsumeArgs::default()

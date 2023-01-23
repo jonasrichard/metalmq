@@ -1,7 +1,7 @@
 use anyhow::Result;
 use metalmq_client::{
-    AutoDelete, Channel, Client, ClientError, ConsumerSignal, Durable, ExchangeType, Exclusive, IfUnused, Internal,
-    Message, NoAck, NoLocal, Passive,
+    Channel, Client, ClientError, ConsumerSignal, ExchangeDeclareOpts, ExchangeType, Exclusive, IfUnused, Message,
+    NoAck, NoLocal, QueueDeclareOpts,
 };
 use std::collections::HashMap;
 use tokio::sync::oneshot;
@@ -72,23 +72,9 @@ pub(crate) fn to_client_error<T: std::fmt::Debug>(result: Result<T>) -> ClientEr
 /// Declare an exchange and the queue and bind them. Exchange will be auto-delete.
 #[allow(dead_code)]
 pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: &str) -> Result<()> {
-    ch.exchange_declare(
-        exchange,
-        ExchangeType::Direct,
-        Passive(false),
-        Durable(false),
-        AutoDelete(false),
-        Internal(false),
-    )
-    .await?;
-    ch.queue_declare(
-        queue,
-        Passive(false),
-        Durable(false),
-        Exclusive(false),
-        AutoDelete(false),
-    )
-    .await?;
+    ch.exchange_declare(exchange, ExchangeType::Direct, ExchangeDeclareOpts::default())
+        .await?;
+    ch.queue_declare(queue, QueueDeclareOpts::default()).await?;
 
     ch.queue_bind(queue, exchange, "").await?;
 

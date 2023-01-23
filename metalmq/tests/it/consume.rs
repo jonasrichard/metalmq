@@ -2,7 +2,7 @@
 
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{AutoDelete, Durable, ExchangeType, Exclusive, Immediate, Internal, Mandatory, Passive};
+use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Exclusive, Immediate, Mandatory, QueueDeclareOpts};
 
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
@@ -65,26 +65,13 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     ch.exchange_declare(
         exchange,
         ExchangeType::Direct,
-        Passive(false),
-        Durable(false),
-        AutoDelete(true),
-        Internal(false),
+        ExchangeDeclareOpts::default().auto_delete(true),
     )
     .await?;
 
     // TODO write another test to get 405 - resource locker for consuming exclusive queue
     //
-    //let mut q_flags = QueueDeclareFlags::empty();
-    //q_flags |= QueueDeclareFlags::EXCLUSIVE;
-    //ch.queue_declare(queue, Some(q_flags)).await?;
-    ch.queue_declare(
-        queue,
-        Passive(false),
-        Durable(false),
-        Exclusive(false),
-        AutoDelete(false),
-    )
-    .await?;
+    ch.queue_declare(queue, QueueDeclareOpts::default()).await?;
 
     ch.queue_bind(queue, exchange, "").await?;
 

@@ -1,6 +1,6 @@
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{AutoDelete, Durable, ExchangeType, Exclusive, IfEmpty, IfUnused, Internal, Passive};
+use metalmq_client::{ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, QueueDeclareOpts};
 
 #[tokio::test]
 async fn direct_exchange_queue_bind() -> Result<()> {
@@ -10,20 +10,11 @@ async fn direct_exchange_queue_bind() -> Result<()> {
     ch.exchange_declare(
         "prices",
         ExchangeType::Direct,
-        Passive(false),
-        Durable(true),
-        AutoDelete(false),
-        Internal(false),
+        ExchangeDeclareOpts::default().durable(true),
     )
     .await?;
-    ch.queue_declare(
-        "price-queue",
-        Passive(false),
-        Durable(true),
-        Exclusive(false),
-        AutoDelete(false),
-    )
-    .await?;
+    ch.queue_declare("price-queue", QueueDeclareOpts::default().durable(true))
+        .await?;
     ch.queue_bind("price-queue", "prices", "").await?;
 
     ch.exchange_delete("prices", IfUnused(false)).await?;

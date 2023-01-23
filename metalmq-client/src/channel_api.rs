@@ -59,15 +59,74 @@ impl From<ExchangeType> for &'static str {
     }
 }
 
-pub struct AutoDelete(pub bool);
-pub struct Durable(pub bool);
 pub struct Exclusive(pub bool);
 pub struct IfEmpty(pub bool);
 pub struct IfUnused(pub bool);
 pub struct Immediate(pub bool);
-pub struct Internal(pub bool);
 pub struct Mandatory(pub bool);
-pub struct Passive(pub bool);
+
+#[derive(Default)]
+pub struct ExchangeDeclareOpts {
+    passive: bool,
+    durable: bool,
+    /// `AutoDelete` queues are deleted when no longer used. When the last consumer closes the
+    /// connection, the server deletes the queue. Auto delete queues can be deleted explicitly. Auto
+    /// delete queues are not deleted if they are not yet used.
+    auto_delete: bool,
+    internal: bool,
+}
+
+impl ExchangeDeclareOpts {
+    pub fn passive(mut self, mode: bool) -> Self {
+        self.passive = mode;
+        self
+    }
+
+    pub fn durable(mut self, mode: bool) -> Self {
+        self.durable = mode;
+        self
+    }
+
+    pub fn auto_delete(mut self, mode: bool) -> Self {
+        self.auto_delete = mode;
+        self
+    }
+
+    pub fn internal(mut self, mode: bool) -> Self {
+        self.internal = mode;
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct QueueDeclareOpts {
+    passive: bool,
+    durable: bool,
+    exclusive: bool,
+    auto_delete: bool,
+}
+
+impl QueueDeclareOpts {
+    pub fn passive(mut self, mode: bool) -> Self {
+        self.passive = mode;
+        self
+    }
+
+    pub fn durable(mut self, mode: bool) -> Self {
+        self.durable = mode;
+        self
+    }
+
+    pub fn exclusive(mut self, mode: bool) -> Self {
+        self.exclusive = mode;
+        self
+    }
+
+    pub fn auto_delete(mut self, mode: bool) -> Self {
+        self.auto_delete = mode;
+        self
+    }
+}
 
 impl Channel {
     pub(crate) fn new(channel: ChannelNumber, sink: ClientRequestSink) -> Channel {
@@ -83,18 +142,15 @@ impl Channel {
         &self,
         exchange_name: &str,
         exchange_type: ExchangeType,
-        passive: Passive,
-        durable: Durable,
-        auto_delete: AutoDelete,
-        internal: Internal,
+        opts: ExchangeDeclareOpts,
     ) -> Result<()> {
         let frame = frame::ExchangeDeclareArgs::default()
             .exchange_name(exchange_name)
             .exchange_type(exchange_type.into())
-            .passive(passive.0)
-            .durable(durable.0)
-            .auto_delete(auto_delete.0)
-            .internal(internal.0)
+            .passive(opts.passive)
+            .durable(opts.durable)
+            .auto_delete(opts.auto_delete)
+            .internal(opts.internal)
             .frame(self.channel);
 
         processor::call(&self.sink, frame).await
@@ -122,20 +178,13 @@ impl Channel {
     }
 
     /// Declare queue.
-    pub async fn queue_declare(
-        &self,
-        queue_name: &str,
-        passive: Passive,
-        durable: Durable,
-        exclusive: Exclusive,
-        auto_delete: AutoDelete,
-    ) -> Result<()> {
+    pub async fn queue_declare(&self, queue_name: &str, opts: QueueDeclareOpts) -> Result<()> {
         let frame = frame::QueueDeclareArgs::default()
             .name(queue_name)
-            .passive(passive.0)
-            .durable(durable.0)
-            .exclusive(exclusive.0)
-            .auto_delete(auto_delete.0)
+            .passive(opts.passive)
+            .durable(opts.durable)
+            .exclusive(opts.exclusive)
+            .auto_delete(opts.auto_delete)
             .frame(self.channel);
 
         processor::call(&self.sink, frame).await
