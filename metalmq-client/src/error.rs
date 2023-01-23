@@ -13,7 +13,12 @@ pub struct ClientError {
 
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        f.debug_struct("ClientError")
+            .field("channel", &self.channel)
+            .field("code", &self.code)
+            .field("message", &self.message)
+            .field("class_method", &format!("{:08X}", &self.class_method))
+            .finish()
     }
 }
 

@@ -408,6 +408,7 @@ impl ClientState {
             args.frame(channel),
             frame::ContentHeaderFrame {
                 channel,
+                class_id: (frame::BASIC_PUBLISH >> 16) as u16,
                 body_size: content.len() as u64,
                 ..Default::default()
             }

@@ -18,6 +18,9 @@ cargo run --bin metalmq
 RUST_LOG=debug cargo run --bin metalmq
 RUST_LOG=metalmq=trace cargo run --bin metalmq
 cargo test --tests
+
+## or to run integration tests
+cargo test --package metalmq --test it
 ```
 
 There are some examples in the `examples` directory, they implement simple scenarios of the
@@ -25,9 +28,6 @@ There are some examples in the `examples` directory, they implement simple scena
 
 ```bash
 RUST_LOG=metalmq_client=trace cargo run --example publish-consume
-cargo test
-cd metalmq
-cargo test --features integration-tests
 ```
 
 Running tests in `metalmq-client`
@@ -97,6 +97,19 @@ Start the test with the environment variable set.
 
 ```
 RUST_LOG=metalmq_client=trace cargo test -- --exact exchange::declare_exchange_with_different_type --show-output
+```
+
+### Unit test coverage
+
+Run unit test with coverage.
+
+```
+rustup component add llvm-tools-preview
+cargo install grconv
+
+mkdir -p target/coverage/data
+make metalmq-cover
+open target/coverage/html/index.html
 ```
 
 ### Use tokio console

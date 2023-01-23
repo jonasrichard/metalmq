@@ -1,5 +1,8 @@
 use super::*;
-use crate::message::{Message, MessageContent};
+use crate::{
+    message::{Message, MessageContent},
+    ErrorScope, RuntimeError,
+};
 use metalmq_codec::{codec::Frame, frame::AMQPFrame};
 use std::sync::Arc;
 
@@ -211,6 +214,10 @@ impl QueueStateTester {
     }
 }
 
+fn to_runtime_error<T: std::fmt::Debug>(result: Result<T>) -> RuntimeError {
+    *result.unwrap_err().downcast::<RuntimeError>().unwrap()
+}
+
 // TODO move this to a test util, also the runtimeerror downcast fn
 async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
     let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
@@ -350,8 +357,6 @@ async fn publish_to_queue_with_one_consumer() {
 
 #[tokio::test]
 async fn cannot_delete_non_empty_queue_if_empty_true() {
-    use crate::RuntimeError;
-
     let mut tester = TestCase::default().build();
     let message = tester.default_message("Hey, man");
 
@@ -371,7 +376,7 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
     let del_cmd_result = del_rx.await.unwrap();
     assert!(del_cmd_result.is_err());
 
-    let err = del_cmd_result.unwrap_err().downcast::<RuntimeError>().unwrap();
+    let err = to_runtime_error(del_cmd_result);
     assert_eq!(err.code, ChannelError::PreconditionFailed as u16);
     assert_eq!(err.text, "Queue is not empty".to_string());
 
@@ -494,4 +499,28 @@ async fn basic_get_and_consume_without_ack_and_get_should_redeliver() {
     let msg = parse_message(fr).unwrap();
 
     assert!(msg.redelivered);
+}
+
+#[tokio::test]
+async fn exclusive_cannot_be_bound_to_others_exchange() {
+    let mut tester = TestCase::default().build();
+
+    let (tx, rx) = oneshot::channel();
+    let exchange_bound = QueueCommand::ExchangeBound {
+        conn_id: "other".to_string(),
+        channel: 3u16,
+        exchange_name: "valid-exchange".to_string(),
+        result: tx,
+    };
+
+    tester.state.handle_command(exchange_bound).await.unwrap();
+
+    let res = rx.await.unwrap();
+    println!("{:?}", res);
+    assert!(res.is_err());
+
+    let err = to_runtime_error(res);
+    assert_eq!(err.channel, 3u16);
+    assert_eq!(err.scope, ErrorScope::Channel);
+    assert_eq!(err.code, ChannelError::AccessRefused as u16);
 }
