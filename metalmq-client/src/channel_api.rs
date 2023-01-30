@@ -1,6 +1,6 @@
-use crate::client_api::{ClientRequest, ClientRequestSink, Param, WaitFor};
 use crate::model::ChannelNumber;
 use crate::processor;
+use crate::processor::{ClientRequest, ClientRequestSink, Param, WaitFor};
 use anyhow::Result;
 use metalmq_codec::frame;
 use std::collections::HashMap;

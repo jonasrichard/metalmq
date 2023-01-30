@@ -7,10 +7,10 @@
 //! api it is a typed struct.
 
 use crate::channel_api::Message;
-use crate::client_api::WaitFor;
 use crate::consumer::ConsumerSignal;
 use crate::model::ChannelNumber;
 use crate::processor::OutgoingFrame;
+use crate::processor::WaitFor;
 use anyhow::Result;
 use log::{debug, info};
 use metalmq_codec::codec::Frame;

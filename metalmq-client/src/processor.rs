@@ -1,11 +1,13 @@
-use crate::client_api::{self, ClientRequest, FrameResponse, Param, WaitFor};
-use crate::client_error;
-use crate::dev;
-use crate::state;
+use crate::{
+    client_api::{self, ConsumerSink},
+    client_error, dev, state,
+};
 // TODO use thiserror here not anyhow
 use anyhow::Result;
-use futures::stream::{SplitSink, Stream, StreamExt};
-use futures::SinkExt;
+use futures::{
+    stream::{SplitSink, Stream, StreamExt},
+    SinkExt,
+};
 use log::{debug, error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame;
@@ -19,6 +21,49 @@ use tokio_util::codec::Framed;
 
 #[cfg(test)]
 mod processor_tests;
+
+/// Represent a client request. It can be sending a frame, consume a queue or publish data.
+pub(crate) enum Param {
+    Connect {
+        username: String,
+        password: String,
+        virtual_host: String,
+        connected: oneshot::Sender<()>,
+    },
+    Frame(frame::AMQPFrame),
+    Consume(frame::AMQPFrame, ConsumerSink),
+    Publish(frame::AMQPFrame, Vec<u8>),
+}
+
+pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;
+
+pub(crate) enum WaitFor {
+    // TODO this suggests an Option<WaitFor>
+    Nothing,
+    SentOut(oneshot::Sender<Result<()>>),
+    FrameResponse(FrameResponse),
+}
+
+/// Represents a client request, typically send a frame and wait for the answer of the server.
+pub(crate) struct ClientRequest {
+    pub(crate) param: Param,
+    pub(crate) response: WaitFor,
+}
+
+impl std::fmt::Debug for ClientRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.param {
+            Param::Connect {
+                username, virtual_host, ..
+            } => write!(f, "Request{{Connect={:?},{:?}}}", username, virtual_host),
+            Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
+            Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
+            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
+        }
+    }
+}
+
+pub(crate) type ClientRequestSink = mpsc::Sender<ClientRequest>;
 
 #[derive(Debug)]
 pub(crate) struct OutgoingFrame {
@@ -115,7 +160,7 @@ async fn handle_outgoing(
 
 // TODO we shouldn't register waiter always, only when the client wants blocking call
 async fn handle_request(
-    request: client_api::ClientRequest,
+    request: ClientRequest,
     client: &mut state::ClientState,
     feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>,
 ) -> Result<()> {

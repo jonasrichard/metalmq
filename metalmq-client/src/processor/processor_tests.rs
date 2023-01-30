@@ -1,4 +1,3 @@
-use self::client_api::{ClientRequest, Param, WaitFor};
 use super::*;
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};

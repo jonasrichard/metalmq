@@ -1,62 +1,20 @@
 use crate::channel_api::{Channel, DeliveredContent};
 use crate::consumer::ConsumerSignal;
 use crate::model::ChannelNumber;
-use crate::processor;
+use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
 use anyhow::{anyhow, Result};
 //use rand::prelude::*;
 use log::error;
 use metalmq_codec::frame;
 use std::collections::HashMap;
-use std::fmt;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) type ClientRequestSink = mpsc::Sender<ClientRequest>;
 pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 
 // TODO onBasicReturn callback
 // TODO onChannelClose callback
 // TODO onConnectionClose callback
 //   where we should execute them? On a separate tokio thread?
-
-/// Represent a client request. It can be sending a frame, consume a queue or publish data.
-pub(crate) enum Param {
-    Connect {
-        username: String,
-        password: String,
-        virtual_host: String,
-        connected: oneshot::Sender<()>,
-    },
-    Frame(frame::AMQPFrame),
-    Consume(frame::AMQPFrame, ConsumerSink),
-    Publish(frame::AMQPFrame, Vec<u8>),
-}
-
-pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;
-
-pub(crate) enum WaitFor {
-    Nothing,
-    SentOut(oneshot::Sender<Result<()>>),
-    FrameResponse(FrameResponse),
-}
-
-/// Represents a client request, typically send a frame and wait for the answer of the server.
-pub(crate) struct ClientRequest {
-    pub(crate) param: Param,
-    pub(crate) response: WaitFor,
-}
-
-impl fmt::Debug for ClientRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.param {
-            Param::Connect {
-                username, virtual_host, ..
-            } => write!(f, "Request{{Connect={:?},{:?}}}", username, virtual_host),
-            Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
-            Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
-            Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
-        }
-    }
-}
 
 /// The AMQP client instance which reprensents an open connection.
 ///

@@ -1,8 +1,7 @@
 use crate::channel_api::{Channel, Message};
-use crate::client_api::{ClientRequest, ClientRequestSink, Param, WaitFor};
 use crate::client_error;
 use crate::model;
-use crate::processor;
+use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
 use anyhow::Result;
 use metalmq_codec::frame;
 use tokio::sync::{mpsc, oneshot};
