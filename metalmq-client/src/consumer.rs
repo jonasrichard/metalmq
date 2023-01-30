@@ -7,6 +7,7 @@ use anyhow::Result;
 use metalmq_codec::frame;
 use tokio::sync::{mpsc, oneshot};
 
+/// A signal arriving from the server during consuming a queue.
 #[derive(Debug)]
 pub enum ConsumerSignal {
     Delivered(Message),
@@ -15,10 +16,17 @@ pub enum ConsumerSignal {
     ConnectionClosed,
 }
 
+/// Consumer API for `Basic.Consume`.
+///
+/// `ConsumerHandler` can be get by invoking [`Channel::basic_consume`].
 pub struct ConsumerHandler {
+    /// The channel number we are consuming messages. One client can have one consumer per channel.
     pub channel: model::ChannelNumber,
+    /// Identifier of the consumer in server.
     pub consumer_tag: String,
     client_sink: ClientRequestSink,
+    /// From this signal stream the consumer gets the messages as [`ConsumerSignal`] values and can
+    /// handle them by acking messages or handling channel or connection close events.
     pub signal_stream: mpsc::UnboundedReceiver<ConsumerSignal>,
 }
 

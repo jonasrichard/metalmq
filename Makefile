@@ -1,6 +1,10 @@
 
 .PHONY: docker-metalmq metalmq-cover test
 
+# TODO compile it with -C target-cpu=native and with opt level
+# TODO cross compliation
+# TODO docker containers
+
 test:
 	docker-compose up --abort-on-container-exit --exit-code-from amqp-test
 

@@ -60,7 +60,21 @@ impl fmt::Debug for ClientRequest {
 
 /// The AMQP client instance which reprensents an open connection.
 ///
-/// `Client` can be created with [`Client::connect`].
+/// `Client` can be created with [`metalmq_client::Client::connect`].
+///
+/// # Usage
+///
+/// ```no_run
+/// use metalmq_client::Client;
+///
+/// async fn main() {
+///     let mut client = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
+///     let mut channel = client.channel_open(1u16).await.unwrap();
+///     // ...
+///     channel.close().await.unwrap();
+///     client.close().await.unwrap();
+/// }
+/// ```
 pub struct Client {
     pub connection_id: String,
     request_sink: mpsc::Sender<ClientRequest>,

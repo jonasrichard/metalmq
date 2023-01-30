@@ -12,7 +12,7 @@ use crate::exchange::manager::ExchangeManagerSink;
 use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
 use crate::queue::Queue;
 use crate::{chk, logerr, send, Result};
-use log::error;
+use log::{error, warn};
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -374,7 +374,7 @@ impl QueueManagerState {
                 )?;
 
                 if let Err(e) = rx.await? {
-                    error!("Error on queue {} {:?}", command.queue_name, e);
+                    warn!("Error on queue {} {:?}", command.queue_name, e);
 
                     return Err(e);
                 }

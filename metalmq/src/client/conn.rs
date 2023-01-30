@@ -24,6 +24,8 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
         } else {
             outgoing_loop(sink, &mut consume_stream).await
         } {
+            // FIXME here we can catch an 'Os { code: 32, kind: BrokenPipe, message: "Broken pipe"
+            // }' and we need to clean up the connection data, channels, queues, etc
             error!("Error {e:?}");
         }
     });

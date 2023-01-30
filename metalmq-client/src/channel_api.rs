@@ -5,11 +5,14 @@ use anyhow::Result;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 
+/// A channel is the main method of communicating with an AMQP server. Channels can be created on
+/// an open connection by calling the [`Client::channel_open`] function.
 pub struct Channel {
+    /// Channel number identifies the channel in a connection.
     pub(crate) channel: ChannelNumber,
     pub(crate) sink: ClientRequestSink,
     /// Active consumers by consumer tag
-    pub(crate) consumers: HashMap<String, ClientRequest>,
+    consumers: HashMap<String, ClientRequest>,
 }
 
 impl std::fmt::Debug for Channel {
@@ -20,6 +23,10 @@ impl std::fmt::Debug for Channel {
     }
 }
 
+/// A message received from the server.
+///
+/// With the `consumer_tag` and `delivery_tag` a client can send back acknowledgements to the
+/// server, saying that the message was successfully arrived.
 #[derive(Debug)]
 pub struct Message {
     pub channel: ChannelNumber,
@@ -30,6 +37,10 @@ pub struct Message {
     pub body: Vec<u8>,
 }
 
+/// The temporary data structure for collecting message details from different AMQP frames like
+/// Basic.Deliver or Basic.Return and ContentHeader and ContentBody frames. Those frames are sent
+/// consequtively in a channel, so the client should collect them. This is low-level functionality,
+/// this shouldn't be visible to the client.
 #[derive(Debug)]
 pub(crate) struct DeliveredContent {
     channel: ChannelNumber,
@@ -41,10 +52,20 @@ pub(crate) struct DeliveredContent {
     body: Option<Vec<u8>>,
 }
 
+/// Represents the exchange binding type during `Queue.Bind`
 pub enum ExchangeType {
+    /// Messages are sent to the queue if the message routing key is equal to the binding routing
+    /// key.
     Direct,
+    /// Messages are sent to all bound queue and the routing key is ignored.
     Fanout,
+    /// Message routing key are matched to the routing key pattern of different queues bound to the
+    /// exchange, and the message is forwarded to the matching queues only. For example if the
+    /// message routing key is `stock.nyse.goog` the matching routing keys are `stock.*.*`,
+    /// `stock.nyse.*` or `stock.#` where hashmark matches more tags.
     Topic,
+    /// Here the headers of the message are matched to the criteria defined by the binding. All or
+    /// any match is enough, based on the configuration.
     Headers,
 }
 
@@ -59,10 +80,15 @@ impl From<ExchangeType> for &'static str {
     }
 }
 
-pub struct Exclusive(pub bool);
+/// Condition for stating that queue can be deleted if it is empty, doesn't have messages.
 pub struct IfEmpty(pub bool);
+/// Condition for deleting an exchange or a queue if they don't have active consumers.
 pub struct IfUnused(pub bool);
+/// Condition for immediate publishing. Immediate messages are received by a server successfully if
+/// they managed to be sent to a consumer immediately.
 pub struct Immediate(pub bool);
+/// Condition for mandatory publishing. Mandatory messages are failed if the exchange doesn't have
+/// bound queue or if the routing keys are not matched.
 pub struct Mandatory(pub bool);
 
 #[derive(Default)]

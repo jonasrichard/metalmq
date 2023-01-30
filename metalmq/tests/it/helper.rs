@@ -1,7 +1,7 @@
 use anyhow::Result;
 use metalmq_client::{
-    Channel, Client, ClientError, ConsumerSignal, ExchangeDeclareOpts, ExchangeType, Exclusive, IfUnused, Message,
-    NoAck, NoLocal, QueueDeclareOpts,
+    Channel, Client, ClientError, ConsumerSignal, ExchangeDeclareOpts, ExchangeType, Exclusive, IfEmpty, IfUnused,
+    Message, NoAck, NoLocal, QueueDeclareOpts,
 };
 use std::collections::HashMap;
 use tokio::sync::oneshot;
@@ -88,6 +88,23 @@ pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
     let ch = c.channel_open(1).await?;
 
     ch.exchange_delete(exchange, IfUnused(false)).await?;
+
+    ch.close().await?;
+    c.close().await?;
+
+    Ok(())
+}
+
+/// Make a new connection and on the 1st channel it deletes the exchange.
+#[allow(dead_code)]
+pub(crate) async fn delete_queue(queue: &str) -> Result<()> {
+    let mut c = default().connect().await?;
+    let ch = c.channel_open(1).await?;
+
+    ch.queue_delete(queue, IfUnused(false), IfEmpty(false)).await?;
+
+    ch.close().await?;
+    c.close().await?;
 
     Ok(())
 }

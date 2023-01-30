@@ -6,16 +6,20 @@ use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Exclusive, Immediate, Ma
 
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
-    let exchange = "xchg-consume";
-    let queue = "q-consume";
+    const EXCHANGE: &str = "xchg-consume";
+    const QUEUE: &str = "q-consume";
+
+    helper::delete_queue(QUEUE).await?;
+    helper::delete_exchange(EXCHANGE).await?;
+
     let mut c = helper::default().connect().await?;
 
     let ch = c.channel_open(1).await?;
-    helper::declare_exchange_queue(&ch, exchange, queue).await?;
+    helper::declare_exchange_queue(&ch, EXCHANGE, QUEUE).await?;
 
-    let result = helper::consume_messages(&ch, queue, "ctag", Exclusive(false), 1).await?;
+    let result = helper::consume_messages(&ch, QUEUE, "ctag", Exclusive(false), 1).await?;
 
-    ch.basic_publish(exchange, "", "Hello".into(), Mandatory(false), Immediate(false))
+    ch.basic_publish(EXCHANGE, "", "Hello".into(), Mandatory(false), Immediate(false))
         .await?;
 
     let msgs = result.await.unwrap();
@@ -53,17 +57,18 @@ async fn consume_not_existing_queue() -> Result<()> {
 
 #[tokio::test]
 async fn two_consumers_exclusive_queue_error() -> Result<()> {
-    let exchange = "xchg-exclusive";
-    let queue = "q-exclusive";
+    const EXCHANGE: &str = "xchg-exclusive";
+    const QUEUE: &str = "q-exclusive";
+
+    helper::delete_queue(QUEUE).await?;
+    helper::delete_exchange(EXCHANGE).await?;
+
     let mut c = helper::default().connect().await?;
 
     let ch = c.channel_open(4).await?;
 
-    //ch.queue_delete(queue, false, false).await?;
-    //ch.exchange_delete(exchange, false).await?;
-
     ch.exchange_declare(
-        exchange,
+        EXCHANGE,
         ExchangeType::Direct,
         ExchangeDeclareOpts::default().auto_delete(true),
     )
@@ -71,11 +76,11 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     // TODO write another test to get 405 - resource locker for consuming exclusive queue
     //
-    ch.queue_declare(queue, QueueDeclareOpts::default()).await?;
+    ch.queue_declare(QUEUE, QueueDeclareOpts::default()).await?;
 
-    ch.queue_bind(queue, exchange, "").await?;
+    ch.queue_bind(QUEUE, EXCHANGE, "").await?;
 
-    let res = helper::consume_messages(&ch, queue, "ctag", Exclusive(true), 1).await;
+    let res = helper::consume_messages(&ch, QUEUE, "ctag", Exclusive(true), 1).await;
 
     assert!(res.is_ok());
 
@@ -83,7 +88,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let ch2 = c2.channel_open(3).await?;
 
-    let result = helper::consume_messages(&ch2, queue, "ctag", Exclusive(true), 1).await;
+    let result = helper::consume_messages(&ch2, QUEUE, "ctag", Exclusive(true), 1).await;
 
     println!("{:?}", result);
 
