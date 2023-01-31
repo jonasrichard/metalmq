@@ -3,7 +3,7 @@ use crate::client::{channel_error, ChannelError, ConnectionError};
 use crate::exchange::handler::ExchangeCommand;
 use crate::queue::handler as queue_handler;
 use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
-use crate::{client, message, RuntimeError};
+use crate::{client, message};
 use crate::{handle_error, logerr, Result};
 use log::{error, warn};
 use metalmq_codec::codec::Frame;

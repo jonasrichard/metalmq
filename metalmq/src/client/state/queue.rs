@@ -104,8 +104,6 @@ impl Connection {
     }
 
     pub async fn queue_unbind(&mut self, channel: Channel, args: frame::QueueUnbindArgs) -> Result<()> {
-        let queue_name = args.queue_name.clone();
-        let exchange_name = args.exchange_name.clone();
         let cmd = UnbindQueueCommand {
             conn_id: self.id.clone(),
             channel,
@@ -116,9 +114,11 @@ impl Connection {
 
         em::unbind_queue(&self.em, cmd).await?;
 
-        self.send_frame(Frame::Frame(
-            frame::QueueUnbindArgs::new(&queue_name, &exchange_name).frame(channel),
-        ))
+        self.send_frame(Frame::Frame(frame::AMQPFrame::Method(
+            channel,
+            frame::QUEUE_UNBIND_OK,
+            frame::MethodFrameArgs::QueueUnbindOk,
+        )))
         .await?;
 
         Ok(())

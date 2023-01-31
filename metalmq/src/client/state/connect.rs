@@ -7,7 +7,7 @@ use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
     // TODO here we should send back the frames in outgoing channel with a buffer - avoid deadlock
-    pub async fn connection_start_ok(&self, channel: Channel, args: frame::ConnectionStartOkArgs) -> Result<()> {
+    pub async fn connection_start_ok(&self, _channel: Channel, args: frame::ConnectionStartOkArgs) -> Result<()> {
         let mut authenticated = false;
 
         if args.mechanism.eq(&"PLAIN") {
@@ -61,7 +61,7 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn connection_open(&self, channel: Channel, args: frame::ConnectionOpenArgs) -> Result<()> {
+    pub async fn connection_open(&self, _channel: Channel, args: frame::ConnectionOpenArgs) -> Result<()> {
         // TODO in case of virtual host which exists but the client doesn't have permission to work
         // with we need to send back an access-refused connection error.
         if args.virtual_host != "/" {
