@@ -15,6 +15,17 @@ use tokio::sync::{mpsc, oneshot};
 
 pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
 
+#[derive(Debug)]
+pub struct QueueBindCmd {
+    pub conn_id: String,
+    pub channel: u16,
+    pub queue_name: String,
+    pub routing_key: String,
+    pub args: Option<FieldTable>,
+    pub sink: QueueCommandSink,
+    pub result: oneshot::Sender<Result<bool>>,
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ExchangeCommand {
@@ -23,15 +34,7 @@ pub enum ExchangeCommand {
         frame_size: usize,
         outgoing: mpsc::Sender<Frame>,
     },
-    QueueBind {
-        conn_id: String,
-        channel: u16,
-        queue_name: String,
-        routing_key: String,
-        args: Option<FieldTable>,
-        sink: QueueCommandSink,
-        result: oneshot::Sender<Result<bool>>,
-    },
+    QueueBind(QueueBindCmd),
     QueueUnbind {
         channel: u16,
         queue_name: String,
@@ -107,85 +110,7 @@ impl ExchangeState {
 
                 Ok(true)
             }
-            ExchangeCommand::QueueBind {
-                conn_id,
-                channel,
-                queue_name,
-                routing_key,
-                args,
-                sink,
-                result,
-            } => {
-                let (queue_info_tx, queue_info_rx) = oneshot::channel();
-
-                sink.send(QueueCommand::GetInfo { result: queue_info_tx })
-                    .await
-                    .unwrap();
-
-                match queue_info_rx.await {
-                    Err(_) => {
-                        result
-                            .send(channel_error(
-                                channel,
-                                frame::QUEUE_BIND,
-                                ChannelError::NotFound,
-                                "Cannot be found the queue",
-                            ))
-                            .unwrap();
-                    }
-                    Ok(queue_info) => {
-                        info!("Got queue info {:?}", queue_info);
-
-                        if queue_info.exclusive && conn_id != queue_info.declaring_connection {
-                            result
-                                .send(channel_error(
-                                    channel,
-                                    frame::QUEUE_BIND,
-                                    ChannelError::ResourceLocked,
-                                    "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
-                            another connection",
-                                ))
-                                .unwrap();
-
-                            return Ok(true);
-                        }
-
-                        // TODO refactor this to Bindings
-                        let bind_result = match self.exchange.exchange_type {
-                            ExchangeType::Direct => {
-                                self.bindings.add_direct_binding(routing_key, queue_name, sink.clone())
-                            }
-                            ExchangeType::Topic => {
-                                self.bindings.add_topic_binding(routing_key, queue_name, sink.clone())
-                            }
-                            ExchangeType::Fanout => self.bindings.add_fanout_binding(queue_name, sink.clone()),
-                            ExchangeType::Headers => self.bindings.add_headers_binding(queue_name, args, sink.clone()),
-                        };
-
-                        if bind_result {
-                            self.bound_queues.insert(queue_info.queue_name.clone(), queue_info);
-
-                            let (tx, rx) = oneshot::channel();
-
-                            logerr!(send!(
-                                sink,
-                                QueueCommand::ExchangeBound {
-                                    conn_id: conn_id.clone(),
-                                    channel,
-                                    exchange_name: self.exchange.name.clone(),
-                                    result: tx,
-                                }
-                            ));
-
-                            rx.await.unwrap()?;
-                        }
-
-                        logerr!(result.send(Ok(bind_result)));
-                    }
-                }
-
-                Ok(true)
-            }
+            ExchangeCommand::QueueBind(cmd) => self.handle_queue_bind(cmd).await,
             ExchangeCommand::QueueUnbind {
                 channel,
                 queue_name,
@@ -275,5 +200,89 @@ impl ExchangeState {
                 Ok(true)
             }
         }
+    }
+
+    async fn handle_queue_bind(&mut self, cmd: QueueBindCmd) -> Result<bool> {
+        let (queue_info_tx, queue_info_rx) = oneshot::channel();
+
+        match cmd.sink.send(QueueCommand::GetInfo { result: queue_info_tx }).await {
+            Err(_) => cmd
+                .result
+                .send(channel_error(
+                    cmd.channel,
+                    frame::QUEUE_BIND,
+                    ChannelError::NotFound,
+                    "Queue cannot be found",
+                ))
+                .unwrap(),
+            Ok(()) => match queue_info_rx.await {
+                Err(_) => {
+                    cmd.result
+                        .send(channel_error(
+                            cmd.channel,
+                            frame::QUEUE_BIND,
+                            ChannelError::NotFound,
+                            "Queue cannot be found",
+                        ))
+                        .unwrap();
+                }
+                Ok(queue_info) => {
+                    info!("Got queue info {:?}", queue_info);
+
+                    if queue_info.exclusive && cmd.conn_id != queue_info.declaring_connection {
+                        cmd.result
+                            .send(channel_error(
+                                cmd.channel,
+                                frame::QUEUE_BIND,
+                                ChannelError::ResourceLocked,
+                                "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
+                            another connection",
+                            ))
+                            .unwrap();
+
+                        return Ok(true);
+                    }
+
+                    // TODO refactor this to Bindings
+                    let bind_result = match self.exchange.exchange_type {
+                        ExchangeType::Direct => {
+                            self.bindings
+                                .add_direct_binding(cmd.routing_key, cmd.queue_name, cmd.sink.clone())
+                        }
+                        ExchangeType::Topic => {
+                            self.bindings
+                                .add_topic_binding(cmd.routing_key, cmd.queue_name, cmd.sink.clone())
+                        }
+                        ExchangeType::Fanout => self.bindings.add_fanout_binding(cmd.queue_name, cmd.sink.clone()),
+                        ExchangeType::Headers => {
+                            self.bindings
+                                .add_headers_binding(cmd.queue_name, cmd.args, cmd.sink.clone())
+                        }
+                    };
+
+                    if bind_result {
+                        self.bound_queues.insert(queue_info.queue_name.clone(), queue_info);
+
+                        let (tx, rx) = oneshot::channel();
+
+                        logerr!(send!(
+                            cmd.sink,
+                            QueueCommand::ExchangeBound {
+                                conn_id: cmd.conn_id.clone(),
+                                channel: cmd.channel,
+                                exchange_name: self.exchange.name.clone(),
+                                result: tx,
+                            }
+                        ));
+
+                        rx.await.unwrap()?;
+                    }
+
+                    logerr!(cmd.result.send(Ok(bind_result)));
+                }
+            },
+        }
+
+        Ok(true)
     }
 }

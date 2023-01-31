@@ -1,7 +1,9 @@
 use super::*;
 use crate::{
+    client::tests::to_runtime_error,
     message::{Message, MessageContent},
-    ErrorScope, RuntimeError,
+    tests::recv_timeout,
+    ErrorScope,
 };
 use metalmq_codec::{codec::Frame, frame::AMQPFrame};
 use std::sync::Arc;
@@ -211,25 +213,6 @@ impl QueueStateTester {
         rrx.await.unwrap().unwrap();
 
         frx
-    }
-}
-
-fn to_runtime_error<T: std::fmt::Debug>(result: Result<T>) -> RuntimeError {
-    *result.unwrap_err().downcast::<RuntimeError>().unwrap()
-}
-
-// TODO move this to a test util, also the runtimeerror downcast fn
-async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
-    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-    tokio::pin!(sleep);
-
-    tokio::select! {
-        frame = rx.recv() => {
-            frame
-        }
-        _ = &mut sleep => {
-            return None;
-        }
     }
 }
 

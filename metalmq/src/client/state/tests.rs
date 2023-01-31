@@ -8,7 +8,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     client::{state::Connection, ConnectionError},
-    exchange, queue, ErrorScope, Result, RuntimeError,
+    exchange, queue,
+    tests::recv_timeout,
+    ErrorScope, Result, RuntimeError,
 };
 
 struct ConnectionTest {
@@ -55,21 +57,6 @@ impl ConnectionTest {
         };
 
         self.connection.queue_declare(channel, args).await
-    }
-}
-
-// TODO move this to a test util, also the runtimeerror downcast fn
-async fn recv_timeout(rx: &mut mpsc::Receiver<Frame>) -> Option<Frame> {
-    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-    tokio::pin!(sleep);
-
-    tokio::select! {
-        frame = rx.recv() => {
-            frame
-        }
-        _ = &mut sleep => {
-            return None;
-        }
     }
 }
 

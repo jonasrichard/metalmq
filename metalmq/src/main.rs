@@ -5,6 +5,9 @@ mod message;
 mod queue;
 mod restapi;
 
+#[cfg(test)]
+pub mod tests;
+
 use env_logger::Builder;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;

@@ -101,3 +101,14 @@ pub fn to_runtime_error(err: Box<dyn std::error::Error>) -> RuntimeError {
         },
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::RuntimeError;
+    use crate::Result;
+
+    /// Helper for tests to extract the `Err` as `RuntimeError`
+    pub(crate) fn to_runtime_error<T: std::fmt::Debug>(result: Result<T>) -> RuntimeError {
+        *result.unwrap_err().downcast::<RuntimeError>().unwrap()
+    }
+}

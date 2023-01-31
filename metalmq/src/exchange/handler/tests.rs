@@ -1,5 +1,5 @@
 use crate::{
-    client::ChannelError,
+    client::{tests::to_runtime_error, ChannelError},
     exchange::{
         binding::Bindings,
         handler::{ExchangeCommand, ExchangeState},
@@ -7,112 +7,212 @@ use crate::{
     },
     message::{Message, MessageContent},
     queue::{
-        handler::{self, QueueCommand},
+        handler::{self, QueueCommand, QueueCommandSink},
         Queue,
     },
-    ErrorScope, RuntimeError,
+    tests::recv_timeout,
+    ErrorScope, Result,
 };
 use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-#[tokio::test]
-async fn send_basic_return_on_mandatory_unroutable_message() {
-    let (msg_tx, mut msg_rx) = mpsc::channel(1);
-    let mut es = exchange_state_direct("x-name");
+use super::QueueBindCmd;
 
-    let msg = Message {
-        source_connection: "conn-id".to_string(),
-        channel: 2,
-        content: MessageContent {
-            body: b"Okay".to_vec(),
-            ..Default::default()
-        },
-        exchange: "x-name".to_string(),
-        routing_key: "".to_string(),
-        mandatory: true,
-        immediate: false,
-    };
-    let cmd = ExchangeCommand::Message {
-        message: msg,
-        frame_size: 32_768,
-        outgoing: msg_tx,
-    };
-    let res = es.handle_command(cmd).await;
-    assert!(res.is_ok());
+struct TestCase {
+    connection_id: String,
+    channel: u16,
+    exchange_state: ExchangeState,
+}
 
-    match recv_timeout(&mut msg_rx).await {
-        Some(Frame::Frame(_br)) => assert!(true),
-        Some(Frame::Frames(fs)) => if let frame::AMQPFrame::Method(_ch, _cm, _args) = fs.get(0).unwrap() {},
-        None => assert!(false, "Basic.Return frame is expected"),
+impl TestCase {
+    fn direct_exchange(name: &str) -> Self {
+        Self {
+            connection_id: "default-id".to_string(),
+            channel: 1u16,
+            exchange_state: ExchangeState {
+                exchange: Exchange {
+                    name: name.to_string(),
+                    exchange_type: ExchangeType::Direct,
+                    durable: false,
+                    auto_delete: false,
+                    internal: false,
+                },
+                bindings: Bindings::Direct(vec![]),
+                bound_queues: HashMap::new(),
+            },
+        }
+    }
+
+    fn message(&self, exchange_name: &str, body: &str) -> Message {
+        Message {
+            source_connection: self.connection_id.clone(),
+            channel: self.channel,
+            content: MessageContent {
+                body: body.into(),
+                ..Default::default()
+            },
+            exchange: exchange_name.to_string(),
+            routing_key: "".to_string(),
+            mandatory: false,
+            immediate: false,
+        }
+    }
+
+    fn command_message(&self, message: Message, tx: mpsc::Sender<Frame>) -> ExchangeCommand {
+        ExchangeCommand::Message {
+            message,
+            frame_size: 32_768,
+            outgoing: tx,
+        }
+    }
+
+    fn command_bind(
+        &self,
+        queue: &str,
+        routing_key: &str,
+        queue_sink: QueueCommandSink,
+        tx: oneshot::Sender<Result<bool>>,
+    ) -> QueueBindCmd {
+        QueueBindCmd {
+            conn_id: self.connection_id.clone(),
+            channel: self.channel,
+            queue_name: queue.to_string(),
+            routing_key: routing_key.to_string(),
+            args: None,
+            sink: queue_sink,
+            result: tx,
+        }
+    }
+
+    fn first_frame(f: metalmq_codec::codec::Frame) -> frame::AMQPFrame {
+        match f {
+            Frame::Frame(fr) => fr,
+            Frame::Frames(mut frs) => frs.remove(0),
+        }
     }
 }
 
 #[tokio::test]
-async fn cannot_bind_exclusive_queue_with_different_connection() {
-    let mut es = exchange_state_direct("xchg-exclusive");
-    let mut queue = Queue::default();
+async fn send_basic_return_on_mandatory_unroutable_message() {
+    use metalmq_codec::frame;
 
-    queue.name = "exclusive-queue".to_string();
+    let exchange_name: String = String::from("x-name");
+
+    let (msg_tx, mut msg_rx) = mpsc::channel(1);
+    let mut tc = TestCase::direct_exchange(&exchange_name);
+
+    let mut msg = tc.message(&exchange_name, "Okay");
+    msg.mandatory = true;
+
+    let cmd = tc.command_message(msg, msg_tx);
+
+    tc.exchange_state.handle_command(cmd).await.unwrap();
+
+    let return_frame = match recv_timeout(&mut msg_rx).await {
+        Some(f) => TestCase::first_frame(f),
+        None => panic!("Basic.Return frame is expected"),
+    };
+
+    assert!(matches!(
+        return_frame,
+        frame::AMQPFrame::Method(
+            _,
+            _,
+            frame::MethodFrameArgs::BasicReturn(frame::BasicReturnArgs {
+                reply_code: 312,
+                exchange_name: exchange_name,
+                ..
+            })
+        )
+    ));
+}
+
+#[tokio::test]
+async fn cannot_bind_nonexisting_queue() {
+    let exchange_name = String::from("x-404");
+    let mut tc = TestCase::direct_exchange(&exchange_name);
+
+    let (q_tx, q_rx) = mpsc::channel(1);
+    let (r_tx, r_rx) = oneshot::channel();
+
+    // Simulate the situation when queue had been closed already, but the reference to the sink we
+    // still have.
+    drop(q_rx);
+
+    let cmd = tc.command_bind("non-existing-queue", "", q_tx, r_tx);
+
+    tc.exchange_state
+        .handle_command(ExchangeCommand::QueueBind(cmd))
+        .await
+        .unwrap();
+
+    let result = r_rx.await.unwrap();
+    assert!(result.is_err());
+
+    let err = to_runtime_error(result);
+    assert_eq!(ChannelError::NotFound as u16, err.code);
+}
+
+#[tokio::test]
+async fn cannot_bind_exclusive_queue_with_different_connection() {
+    let exchange_name = String::from("x-input");
+    let queue_name = String::from("exclusive-queue");
+    let mut tc = TestCase::direct_exchange(&exchange_name);
+
+    let mut queue = Queue::default();
+    queue.name = queue_name.clone();
     queue.exclusive = true;
 
     let stx = queue_start("conn-id-1".to_string(), &queue);
 
     let (tx, rx) = oneshot::channel();
-    let cmd = ExchangeCommand::QueueBind {
-        conn_id: "123".to_string(),
-        channel: 1,
-        queue_name: "exclusive-queue".to_string(),
-        routing_key: "routing".to_string(),
-        args: None,
-        sink: stx,
-        result: tx,
-    };
+    let mut cmd = tc.command_bind(&queue_name, "routing", stx, tx);
+    cmd.conn_id = "different-id".to_string();
 
-    let res = es.handle_command(cmd).await;
-    assert!(res.is_ok());
+    tc.exchange_state
+        .handle_command(ExchangeCommand::QueueBind(cmd))
+        .await
+        .unwrap();
 
-    let res2 = rx.await;
-    assert!(res2.is_ok());
-    let res3 = res2.unwrap();
-    assert!(res3.is_err());
+    let res = rx.await.unwrap();
+    assert!(res.is_err());
 
-    let err = res3.unwrap_err().downcast::<RuntimeError>().unwrap();
+    let err = to_runtime_error(res);
     assert_eq!(err.scope, ErrorScope::Channel);
     assert_eq!(err.code, ChannelError::ResourceLocked as u16);
 }
 
 #[tokio::test]
 async fn queue_bind_state_check() {
-    let mut es = exchange_state_direct("x-name");
+    let exchange_name = String::from("normal-exchange");
+    let queue_name = String::from("normal-queue");
+    let connection_id = String::from("conn-id-1");
+    let mut tc = TestCase::direct_exchange(&exchange_name);
+
     let mut queue = Queue::default();
+    queue.name = queue_name.clone();
 
-    queue.name = "normal-queue".to_string();
-
-    let stx = queue_start("conn-id-1".to_string(), &queue);
+    let stx = queue_start(connection_id.clone(), &queue);
 
     let (tx, rx) = oneshot::channel();
-    let cmd = ExchangeCommand::QueueBind {
-        conn_id: "conn-id-1".to_string(),
-        channel: 1,
-        queue_name: "normal-queue".to_string(),
-        routing_key: "routing".to_string(),
-        args: None,
-        sink: stx,
-        result: tx,
-    };
+    let mut cmd = tc.command_bind(&queue_name, "routing", stx, tx);
+    cmd.conn_id = connection_id.clone();
 
-    let res = es.handle_command(cmd).await;
-    assert!(res.is_ok());
+    tc.exchange_state
+        .handle_command(ExchangeCommand::QueueBind(cmd))
+        .await
+        .unwrap();
+
     assert!(rx.await.is_ok());
 
-    let bq = es.bound_queues.get("normal-queue");
+    let bq = tc.exchange_state.bound_queues.get(&queue_name);
     assert!(bq.is_some());
-    assert_eq!(bq.unwrap().queue_name, "normal-queue");
-    assert_eq!(bq.unwrap().declaring_connection, "conn-id-1");
+    assert_eq!(bq.unwrap().queue_name, queue_name);
+    assert_eq!(bq.unwrap().declaring_connection, connection_id);
 
-    if let Bindings::Direct(bs) = es.bindings {
-        assert!(bs.iter().position(|b| b.queue_name == "normal-queue").is_some());
+    if let Bindings::Direct(bs) = tc.exchange_state.bindings {
+        assert!(bs.iter().position(|b| b.queue_name == queue_name).is_some());
     } else {
         panic!();
     }
@@ -120,26 +220,26 @@ async fn queue_bind_state_check() {
 
 #[tokio::test]
 async fn queue_bind_unbind_state_check() {
-    let mut es = exchange_state_direct("x-name");
+    let exchange_name = String::from("normal-exchange");
+    let queue_name = String::from("normal-queue");
+    let connection_id = String::from("conn-id-1");
+
+    let mut tc = TestCase::direct_exchange(&exchange_name);
+    tc.connection_id = connection_id.clone();
+
     let mut queue = Queue::default();
+    queue.name = queue_name.clone();
 
-    queue.name = "normal-queue".to_string();
-
-    let stx = queue_start("conn-id-1".to_string(), &queue);
+    let stx = queue_start(connection_id.clone(), &queue);
 
     let (tx, rx) = oneshot::channel();
-    let cmd = ExchangeCommand::QueueBind {
-        conn_id: "conn-id-1".to_string(),
-        channel: 1,
-        queue_name: "normal-queue".to_string(),
-        routing_key: "routing".to_string(),
-        args: None,
-        sink: stx,
-        result: tx,
-    };
+    let cmd = tc.command_bind(&queue_name, "routing", stx, tx);
 
-    let res = es.handle_command(cmd).await;
-    assert!(res.is_ok());
+    tc.exchange_state
+        .handle_command(ExchangeCommand::QueueBind(cmd))
+        .await
+        .unwrap();
+
     assert!(rx.await.is_ok());
 
     let (tx, rx) = oneshot::channel();
@@ -150,54 +250,41 @@ async fn queue_bind_unbind_state_check() {
         result: tx,
     };
 
-    let res = es.handle_command(cmd).await;
-    assert!(res.is_ok());
+    tc.exchange_state.handle_command(cmd).await.unwrap();
 
     let res2 = rx.await;
     assert!(res2.is_ok());
     assert!(res2.unwrap().unwrap());
 
-    assert!(!es.bound_queues.contains_key("normal-queue"));
+    assert!(!tc.exchange_state.bound_queues.contains_key("normal-queue"));
 }
 
 #[tokio::test]
 async fn queue_deleted_state_check() {
-    let mut es = exchange_state_direct("x-name");
-    let mut queue = Queue::default();
+    let exchange_name = String::from("normal-exchange");
+    let queue_name = String::from("normal-queue");
 
-    queue.name = "bound-queue".to_string();
+    let mut tc = TestCase::direct_exchange(&exchange_name);
+
+    let mut queue = Queue::default();
+    queue.name = queue_name.clone();
 
     let (tx, rx) = oneshot::channel();
     let cmd = ExchangeCommand::QueueDeleted {
-        queue_name: "bound-queue".to_string(),
+        queue_name: queue_name.clone(),
         result: tx,
     };
 
-    es.handle_command(cmd).await.unwrap();
+    tc.exchange_state.handle_command(cmd).await.unwrap();
 
     rx.await.unwrap();
 
-    assert!(!es.bound_queues.contains_key("bound-queue"));
+    assert!(!tc.exchange_state.bound_queues.contains_key(&queue_name));
 
-    if let Bindings::Direct(bs) = es.bindings {
-        assert!(bs.iter().position(|b| b.queue_name == "bound-queue").is_none());
+    if let Bindings::Direct(bs) = tc.exchange_state.bindings {
+        assert!(bs.iter().position(|b| b.queue_name == queue_name).is_none());
     } else {
         panic!();
-    }
-}
-
-/// Create the exchange state holder for a direct exchange.
-fn exchange_state_direct(name: &str) -> ExchangeState {
-    ExchangeState {
-        exchange: Exchange {
-            name: name.to_string(),
-            exchange_type: ExchangeType::Direct,
-            durable: false,
-            auto_delete: false,
-            internal: false,
-        },
-        bindings: Bindings::Direct(vec![]),
-        bound_queues: HashMap::new(),
     }
 }
 
@@ -211,18 +298,4 @@ fn queue_start(conn_id: String, queue: &Queue) -> mpsc::Sender<QueueCommand> {
     });
 
     tx
-}
-
-async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
-    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-    tokio::pin!(sleep);
-
-    tokio::select! {
-        frame = rx.recv() => {
-            frame
-        }
-        _ = &mut sleep => {
-            return None;
-        }
-    }
 }

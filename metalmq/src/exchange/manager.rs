@@ -9,6 +9,8 @@ use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
+use super::handler::QueueBindCmd;
+
 pub struct ExchangeState {
     pub exchange: Exchange,
     pub command_sink: ExchangeCommandSink,
@@ -229,7 +231,7 @@ impl ExchangeManagerState {
             Some(exchange_state) => {
                 let (tx, rx) = oneshot::channel();
 
-                let cmd = ExchangeCommand::QueueBind {
+                let cmd = ExchangeCommand::QueueBind(QueueBindCmd {
                     conn_id: command.conn_id,
                     channel: command.channel,
                     queue_name: command.queue_name.to_string(),
@@ -237,7 +239,7 @@ impl ExchangeManagerState {
                     args: command.args,
                     sink: command.queue_sink,
                     result: tx,
-                };
+                });
 
                 exchange_state.command_sink.send(cmd).await?;
 
