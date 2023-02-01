@@ -18,6 +18,11 @@ impl Connection {
             exchange::validate_exchange_type(&args.exchange_type)
         ));
 
+        logerr!(handle_error!(
+            self,
+            exchange::validate_exchange_name(channel, &args.exchange_name)
+        ));
+
         let cmd = DeclareExchangeCommand {
             channel,
             exchange: args.into(),

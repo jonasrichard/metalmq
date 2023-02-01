@@ -7,9 +7,9 @@ pub mod binding;
 pub mod handler;
 pub mod manager;
 
-use crate::client::{self, ConnectionError};
+use crate::client::{self, ChannelError, ConnectionError};
 use crate::Result;
-use metalmq_codec::frame::{self, ExchangeDeclareArgs, ExchangeDeclareFlags};
+use metalmq_codec::frame::{self, Channel, ExchangeDeclareArgs, ExchangeDeclareFlags};
 use serde_derive::Serialize;
 use std::str::FromStr;
 
@@ -24,11 +24,11 @@ pub enum ExchangeType {
 /// Descriptive information of the exchanges
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Exchange {
-    name: String,
-    exchange_type: ExchangeType,
-    durable: bool,
-    auto_delete: bool,
-    internal: bool,
+    pub name: String,
+    pub exchange_type: ExchangeType,
+    pub durable: bool,
+    pub auto_delete: bool,
+    pub internal: bool,
 }
 
 /// Convert String to ExchangeType
@@ -44,6 +44,19 @@ impl FromStr for ExchangeType {
             _ => Err(()),
         }
     }
+}
+
+pub fn validate_exchange_name(channel: Channel, exchange_name: &str) -> Result<()> {
+    if exchange_name.starts_with("amq.") {
+        return client::channel_error(
+            channel,
+            frame::EXCHANGE_DECLARE,
+            ChannelError::AccessRefused,
+            "ACCESS_REFUSED - Exchange name is reserved",
+        );
+    }
+
+    Ok(())
 }
 
 pub fn validate_exchange_type(exchange_type: &str) -> Result<()> {

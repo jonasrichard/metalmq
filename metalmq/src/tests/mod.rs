@@ -1,3 +1,5 @@
+pub mod sut;
+
 use tokio::sync::mpsc;
 
 /// Receiving with timeout

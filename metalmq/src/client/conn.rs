@@ -1,5 +1,5 @@
 use crate::client;
-use crate::client::state::{self, Connection};
+use crate::client::state::Connection;
 use crate::{Context, Result};
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use futures::SinkExt;
@@ -15,7 +15,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     let (sink, stream) = Framed::new(socket, AMQPCodec {}).split();
     // We use channels with only one item long, so we can block until the frame is sent out.
     let (consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
-    let mut conn = state::new(context, consume_sink);
+    let mut conn = Connection::new(context, consume_sink);
     let heartbeat_duration = conn.get_heartbeat();
 
     tokio::spawn(async move {

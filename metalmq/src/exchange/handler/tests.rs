@@ -1,3 +1,4 @@
+use super::QueueBindCmd;
 use crate::{
     client::{tests::to_runtime_error, ChannelError},
     exchange::{
@@ -16,8 +17,6 @@ use crate::{
 use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
-
-use super::QueueBindCmd;
 
 struct TestCase {
     connection_id: String,

@@ -24,54 +24,54 @@ mod tests;
 
 /// Queues consumed by the connection with Basic.Consume
 #[derive(Debug)]
-struct ActivelyConsumedQueue {
-    queue_name: String,
-    consumer_tag: String,
-    queue_sink: queue_handler::QueueCommandSink,
+pub struct ActivelyConsumedQueue {
+    pub queue_name: String,
+    pub consumer_tag: String,
+    pub queue_sink: queue_handler::QueueCommandSink,
 }
 
 /// Queues consumed by the connection with Basic.Get
 #[derive(Debug)]
-struct PassivelyConsumedQueue {
-    queue_name: String,
-    delivery_tag: u64,
-    queue_sink: queue_handler::QueueCommandSink,
+pub struct PassivelyConsumedQueue {
+    pub queue_name: String,
+    pub delivery_tag: u64,
+    pub queue_sink: queue_handler::QueueCommandSink,
 }
 
 /// Exclusive queue declared by the connection
 #[derive(Debug)]
-struct ExclusiveQueue {
-    queue_name: String,
+pub struct ExclusiveQueue {
+    pub queue_name: String,
 }
 
 /// All the transient data of a connection are stored here.
 pub struct Connection {
     /// Unique ID of the connection.
-    id: String,
-    qm: qm::QueueManagerSink,
-    em: em::ExchangeManagerSink,
+    pub id: String,
+    pub qm: qm::QueueManagerSink,
+    pub em: em::ExchangeManagerSink,
     /// The highest channel number, 0 if there is no limit.
-    channel_max: u16,
+    pub channel_max: u16,
     /// The maximal size of frames the client can accept.
-    frame_max: usize,
+    pub frame_max: usize,
     /// How frequently the server sends heartbeat (at most).
-    heartbeat_interval: Option<std::time::Duration>,
+    pub heartbeat_interval: Option<std::time::Duration>,
     /// Opened channels by this connection.
-    open_channels: HashMap<Channel, ChannelState>,
+    pub open_channels: HashMap<Channel, ChannelState>,
     /// Declared exchanges by this connection.
-    exchanges: HashMap<String, ExchangeCommandSink>,
+    pub exchanges: HashMap<String, ExchangeCommandSink>,
     /// Exchanges which declared by this channel as auto-delete
-    auto_delete_exchanges: Vec<String>,
+    pub auto_delete_exchanges: Vec<String>,
     /// Consumed queues by this connection. One channel can have one queue consumed.
-    consumed_queues: HashMap<Channel, ActivelyConsumedQueue>,
+    pub consumed_queues: HashMap<Channel, ActivelyConsumedQueue>,
     /// Exclusive queues created by the connection.
-    exclusive_queues: Vec<ExclusiveQueue>,
+    pub exclusive_queues: Vec<ExclusiveQueue>,
     /// Passively consumed queues by Basic.Get
-    passively_consumed_queues: HashMap<Channel, PassivelyConsumedQueue>,
+    pub passively_consumed_queues: HashMap<Channel, PassivelyConsumedQueue>,
     /// Incoming messages come in different messages, we need to collect their properties
-    in_flight_contents: HashMap<Channel, PublishedContent>,
+    pub in_flight_contents: HashMap<Channel, PublishedContent>,
     /// Sink for AMQP frames toward the client
-    outgoing: mpsc::Sender<Frame>,
+    pub outgoing: mpsc::Sender<Frame>,
 }
 
 /// Represents a channel
@@ -87,17 +87,17 @@ pub struct ChannelState {
 }
 
 #[derive(Debug, Default)]
-struct PublishedContent {
-    channel: Channel,
-    exchange: String,
-    routing_key: String,
-    mandatory: bool,
-    immediate: bool,
+pub struct PublishedContent {
+    pub channel: Channel,
+    pub exchange: String,
+    pub routing_key: String,
+    pub mandatory: bool,
+    pub immediate: bool,
     /// The method frame class id which initiated the sending of the content.
-    method_frame_class_id: u32,
-    content_header: ContentHeaderFrame,
-    content_bodies: Vec<ContentBodyFrame>,
-    body_size: usize,
+    pub method_frame_class_id: u32,
+    pub content_header: ContentHeaderFrame,
+    pub content_bodies: Vec<ContentBodyFrame>,
+    pub body_size: usize,
 }
 
 #[macro_export]
@@ -112,30 +112,30 @@ macro_rules! handle_error {
     };
 }
 
-pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Connection {
-    let conn_id = Uuid::new_v4().as_hyphenated().to_string();
-
-    info!("Client connected id = {conn_id}");
-
-    Connection {
-        id: conn_id,
-        qm: context.queue_manager,
-        em: context.exchange_manager,
-        channel_max: 2047,
-        frame_max: 131_072,
-        heartbeat_interval: None,
-        open_channels: HashMap::new(),
-        exchanges: HashMap::new(),
-        auto_delete_exchanges: vec![],
-        consumed_queues: HashMap::new(),
-        exclusive_queues: vec![],
-        passively_consumed_queues: HashMap::new(),
-        in_flight_contents: HashMap::new(),
-        outgoing,
-    }
-}
-
 impl Connection {
+    pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Self {
+        let conn_id = Uuid::new_v4().as_hyphenated().to_string();
+
+        info!("Client connected id = {conn_id}");
+
+        Self {
+            id: conn_id,
+            qm: context.queue_manager,
+            em: context.exchange_manager,
+            channel_max: 2047,
+            frame_max: 131_072,
+            heartbeat_interval: None,
+            open_channels: HashMap::new(),
+            exchanges: HashMap::new(),
+            auto_delete_exchanges: vec![],
+            consumed_queues: HashMap::new(),
+            exclusive_queues: vec![],
+            passively_consumed_queues: HashMap::new(),
+            in_flight_contents: HashMap::new(),
+            outgoing,
+        }
+    }
+
     /// Send frame out to client asynchronously.
     pub async fn send_frame(&self, f: Frame) -> Result<()> {
         self.outgoing.send(f).await?;
