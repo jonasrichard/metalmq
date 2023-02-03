@@ -22,6 +22,8 @@ pub mod queue;
 #[cfg(test)]
 mod tests;
 
+// TODO all field of all struct are pub which is not good and it is because of tests
+
 /// Queues consumed by the connection with Basic.Consume
 #[derive(Debug)]
 pub struct ActivelyConsumedQueue {
