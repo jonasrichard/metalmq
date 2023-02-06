@@ -14,7 +14,7 @@
 //! ```
 //! use metalmq_client::Client;
 //!
-//! async fn send_message() -> {
+//! async fn send_message() {
 //!     let mut client = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
 //!
 //!     client.channel_open(1).await.unwrap();
@@ -30,7 +30,7 @@ pub use channel_api::{
 };
 
 mod client_api;
-pub use client_api::Client;
+pub use client_api::{Client, EventSignal};
 
 mod consumer;
 pub use consumer::{ConsumerHandler, ConsumerSignal, Exclusive, NoAck, NoLocal};

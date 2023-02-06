@@ -7,8 +7,9 @@ use tokio::sync::mpsc;
 async fn connect_frame_exchange() {
     env_logger::builder().is_test(true).try_init().unwrap();
 
+    let (conn_tx, conn_rx) = mpsc::unbounded_channel();
     let (frame_out_tx, mut frame_out_rx) = mpsc::channel(16);
-    let cs = self::state::new(frame_out_tx);
+    let cs = self::state::new(frame_out_tx, conn_tx);
 
     let (frame_in_tx, frame_in_rx) = mpsc::channel(16);
     let frames_stream = FrameStream { frames: frame_in_rx };

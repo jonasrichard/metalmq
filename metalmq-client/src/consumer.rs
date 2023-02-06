@@ -32,8 +32,10 @@ pub struct ConsumerHandler {
 /// After consuming started with `ConsumerHandler` one can ack, nack or reject messages.
 ///
 /// ```no_run
+/// use metalmq_client::{Channel, ConsumerSignal, Exclusive, NoAck, NoLocal};
+///
 /// async fn consume(channel: Channel) {
-///     let handler = channel.basic_consume("queue", "consumer-tag-1", NoAck(false),
+///     let mut handler = channel.basic_consume("queue", "consumer-tag-1", NoAck(false),
 ///         Exclusive(false), NoLocal(false)).await.unwrap();
 ///
 ///     while let Some(signal) = handler.signal_stream.recv().await {
@@ -41,7 +43,7 @@ pub struct ConsumerHandler {
 ///             ConsumerSignal::Delivered(m) => {
 ///                 handler.basic_ack(m.delivery_tag).await.unwrap();
 ///             }
-///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClose |
+///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed |
 ///                 ConsumerSignal::ConnectionClosed => {
 ///                 break;
 ///             }

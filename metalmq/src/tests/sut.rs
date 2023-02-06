@@ -10,7 +10,10 @@ use crate::{
 };
 use metalmq_codec::{
     codec::Frame,
-    frame::{self, BasicPublishArgs, ContentBodyFrame, ContentHeaderFrame, ExchangeDeclareArgs},
+    frame::{
+        self, BasicPublishArgs, ContentBodyFrame, ContentHeaderFrame, ExchangeDeclareArgs, QueueBindArgs,
+        QueueDeclareArgs,
+    },
 };
 
 /// TestCase for System Under Test which spawns an exchange manager and a queue manager and can
@@ -120,7 +123,6 @@ async fn basic_publish_mandatory_message() {
         .exchange_name("mandatory")
         .exchange_type("direct");
     client.exchange_declare(1u16, args).await.unwrap();
-
     // ExchangeDeclareOk
     recv_timeout(&mut client_rx).await.unwrap();
 
@@ -139,4 +141,20 @@ async fn basic_publish_mandatory_message() {
         dbg!(return_frames.get(0).unwrap()),
         frame::AMQPFrame::Method(1u16, _, frame::MethodFrameArgs::BasicReturn(_))
     ));
+
+    let args = QueueDeclareArgs::default().name("mandatory-queue");
+    client.queue_declare(2u16, args).await.unwrap();
+    // QueueDeclareOk
+    recv_timeout(&mut client_rx).await.unwrap();
+
+    let args = QueueBindArgs::new("mandatory-queue", "mandatory");
+    client.queue_bind(2u16, args).await.unwrap();
+    // QueueBindOk
+    recv_timeout(&mut client_rx).await.unwrap();
+
+    send_content(&mut client, b"Another message").await;
+
+    // No message is expected as a response
+    let expected_timeout = recv_timeout(&mut client_rx).await;
+    assert!(expected_timeout.is_none());
 }

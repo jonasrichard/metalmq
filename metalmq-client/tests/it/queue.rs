@@ -3,7 +3,7 @@ use anyhow::Result;
 use metalmq_client::{ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, QueueDeclareOpts};
 
 #[tokio::test]
-async fn direct_exchange_queue_bind() -> Result<()> {
+async fn direct_exchange_queue_bind_and_delete() -> Result<()> {
     let mut c = helper::connect().await?;
     let ch = c.channel_open(18).await?;
 

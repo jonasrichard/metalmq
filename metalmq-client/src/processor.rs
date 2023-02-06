@@ -1,5 +1,5 @@
 use crate::{
-    client_api::{self, ConsumerSink},
+    client_api::{ConnectionSink, ConsumerSink},
     client_error, dev, state,
 };
 // TODO use thiserror here not anyhow
@@ -71,10 +71,14 @@ pub(crate) struct OutgoingFrame {
     pub(crate) written: Option<oneshot::Sender<Result<()>>>,
 }
 
-pub(crate) async fn start_loop_and_output(socket: TcpStream, requests: mpsc::Receiver<ClientRequest>) -> Result<()> {
+pub(crate) async fn start_loop_and_output(
+    socket: TcpStream,
+    requests: mpsc::Receiver<ClientRequest>,
+    conn_evt_tx: ConnectionSink,
+) -> Result<()> {
     let (mut sink, stream) = Framed::new(socket, AMQPCodec {}).split();
     let (out_tx, mut out_rx) = mpsc::channel(1);
-    let client = state::new(out_tx);
+    let client = state::new(out_tx, conn_evt_tx);
 
     // I/O output port, handles outgoing frames sent via a channel.
     tokio::spawn(async move {
@@ -295,7 +299,9 @@ async fn handle_in_method_frame(
         ConnectionTune(args) => cs.connection_tune(args).await,
         ConnectionOpenOk => cs.connection_open_ok().await,
         ConnectionClose(args) => cs.handle_connection_close(args).await,
+        ConnectionCloseOk => cs.connection_close_ok().await,
         ChannelOpenOk => cs.channel_open_ok(channel).await,
+        ChannelClose(args) => cs.handle_channel_close(channel, args).await,
         ChannelCloseOk => cs.channel_close_ok(channel).await,
         ExchangeDeclareOk => cs.exchange_declare_ok().await,
         ExchangeDeleteOk => cs.exchange_delete_ok().await,
@@ -303,11 +309,10 @@ async fn handle_in_method_frame(
         QueueBindOk => cs.queue_bind_ok().await,
         QueueUnbindOk => cs.queue_unbind_ok().await,
         QueueDeleteOk(args) => cs.queue_delete_ok(channel, args).await,
-        ConnectionCloseOk => cs.connection_close_ok().await,
         BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
         BasicCancelOk(args) => cs.basic_cancel_ok(channel, args).await,
         BasicDeliver(args) => cs.basic_deliver(channel, args).await,
-        ChannelClose(args) => cs.handle_channel_close(channel, args).await,
+        BasicReturn(args) => cs.basic_return(channel, args).await,
         //    // TODO check if client is consuming messages from that channel + consumer tag
         _ => unimplemented!("{:?}", ma),
     }

@@ -1,9 +1,10 @@
+use anyhow::Result;
+use std::collections::HashMap;
+
 use crate::model::ChannelNumber;
 use crate::processor;
 use crate::processor::{ClientRequest, ClientRequestSink, Param, WaitFor};
-use anyhow::Result;
 use metalmq_codec::frame;
-use std::collections::HashMap;
 
 /// A channel is the main method of communicating with an AMQP server. Channels can be created on
 /// an open connection by calling the [`Client::channel_open`] function.
@@ -185,10 +186,10 @@ impl Channel {
     /// Delete exchange.
     ///
     /// ```no_run
-    /// use metalmq_client::IfUnused;
+    /// use metalmq_client::{Client, IfUnused};
     ///
     /// # async fn foo() {
-    /// let mut c = metalmq_client::connect("localhost:5672", "guest", "guest").await.unwrap();
+    /// let mut c = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
     /// let ch = c.channel_open(1).await.unwrap();
     ///
     /// ch.exchange_delete("price-exchange", IfUnused(false)).await.unwrap();

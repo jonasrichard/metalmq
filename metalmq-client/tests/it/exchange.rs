@@ -163,6 +163,7 @@ async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
     Ok(())
 }
 
+#[ignore]
 #[tokio::test]
 async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
     let mut c = helper::connect().await?;

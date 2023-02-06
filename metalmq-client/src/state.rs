@@ -6,11 +6,13 @@
 //! AMQP frame or `MethodFrame`, content etc. Everything which talks to the client
 //! api it is a typed struct.
 
-use crate::channel_api::Message;
-use crate::consumer::ConsumerSignal;
-use crate::model::ChannelNumber;
-use crate::processor::OutgoingFrame;
-use crate::processor::WaitFor;
+use crate::{
+    channel_api::Message,
+    client_api::ConnectionSink,
+    consumer::ConsumerSignal,
+    model::ChannelNumber,
+    processor::{OutgoingFrame, WaitFor},
+};
 use anyhow::Result;
 use log::{debug, info};
 use metalmq_codec::codec::Frame;
@@ -72,6 +74,7 @@ pub(crate) struct ClientState {
     /// The last delivery tag we sent out per channel.
     ack_sent: HashMap<ChannelNumber, u64>,
     connected: Option<oneshot::Sender<()>>,
+    event_sink: ConnectionSink,
 }
 
 impl fmt::Debug for ClientState {
@@ -84,7 +87,7 @@ impl fmt::Debug for ClientState {
     }
 }
 
-pub(crate) fn new(outgoing: mpsc::Sender<OutgoingFrame>) -> ClientState {
+pub(crate) fn new(outgoing: mpsc::Sender<OutgoingFrame>, conn_evt_tx: ConnectionSink) -> ClientState {
     ClientState {
         state: Phase::Uninitialized,
         username: "".to_owned(),
@@ -95,6 +98,7 @@ pub(crate) fn new(outgoing: mpsc::Sender<OutgoingFrame>) -> ClientState {
         outgoing,
         ack_sent: HashMap::new(),
         connected: None,
+        event_sink: conn_evt_tx,
     }
 }
 
@@ -421,6 +425,16 @@ impl ClientState {
         Ok(())
     }
 
+    pub(crate) async fn basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
+        use crate::client_api::EventSignal;
+
+        self.event_sink
+            .send(EventSignal::BasicReturn { channel, args })
+            .unwrap();
+
+        Ok(())
+    }
+
     pub(crate) async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> Result<()> {
         if let Some(dc) = self.in_delivery.get_mut(&ch.channel) {
             dc.body_size = Some(ch.body_size);
@@ -465,8 +479,9 @@ mod tests {
     #[tokio::test]
     async fn connect_open_sets_virtual_host() {
         let virtual_host = "/".to_owned();
+        let (conn_tx, conn_rx) = mpsc::unbounded_channel();
         let (tx, mut rx) = mpsc::channel(2);
-        let mut cs = new(tx);
+        let mut cs = new(tx, conn_tx);
         let args = frame::ConnectionTuneArgs {
             channel_max: 2047,
             frame_max: 65535,
@@ -494,8 +509,9 @@ mod tests {
 
     #[tokio::test]
     async fn connection_close_sends_consumer_signal() {
+        let (conn_tx, conn_rx) = mpsc::unbounded_channel();
         let (tx, _) = mpsc::channel(1);
-        let mut cs = new(tx);
+        let mut cs = new(tx, conn_tx);
         let (consumer_sink, mut consumer_stream) = mpsc::unbounded_channel();
 
         cs.consumers.insert(2, consumer_sink);
@@ -509,8 +525,9 @@ mod tests {
 
     #[tokio::test]
     async fn channel_close_sends_consumer_signal() {
+        let (conn_tx, conn_rx) = mpsc::unbounded_channel();
         let (tx, _) = mpsc::channel(1);
-        let mut cs = new(tx);
+        let mut cs = new(tx, conn_tx);
         let (consumer_sink, mut consumer_stream) = mpsc::unbounded_channel();
 
         cs.consumers.insert(2, consumer_sink);
@@ -525,8 +542,9 @@ mod tests {
     #[tokio::test]
     async fn basic_consume_sends_signal() {
         let ctag = "ctag1".to_owned();
+        let (conn_tx, conn_rx) = mpsc::unbounded_channel();
         let (tx, _) = mpsc::channel(1);
-        let mut cs = new(tx);
+        let mut cs = new(tx, conn_tx);
         let args = frame::BasicCancelOkArgs { consumer_tag: ctag };
         let (consumer_sink, mut consumer_stream) = mpsc::unbounded_channel();
 

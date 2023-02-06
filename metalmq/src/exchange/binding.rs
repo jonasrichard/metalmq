@@ -404,6 +404,7 @@ pub fn match_header(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc;
 
     #[test]
     fn test_match_routing_key() {
@@ -412,5 +413,25 @@ mod tests {
         assert!(match_routing_key("stocks.nwse.*", "stocks.nwse.goog"));
         assert!(match_routing_key("stocks.*.*", "stocks.nwse.goog"));
         assert!(match_routing_key("stocks.#", "stocks.nwse.goog"));
+    }
+
+    #[tokio::test]
+    async fn test_direct_binding() {
+        let (tx, mut rx) = mpsc::channel(1);
+
+        let mut bindings = Bindings::new(ExchangeType::Direct);
+        bindings.add_direct_binding("extension.png".to_string(), "png-images".to_string(), tx);
+
+        let mut message = Message::default();
+        message.exchange = "images".to_string();
+        message.routing_key = "extension.png".to_string();
+
+        let result = bindings.route_message(message).await.unwrap();
+
+        // The message is not returned but successfully routed.
+        assert!(result.is_none());
+
+        let delivered = rx.recv().await.unwrap();
+        assert!(matches!(delivered, QueueCommand::PublishMessage(_)));
     }
 }

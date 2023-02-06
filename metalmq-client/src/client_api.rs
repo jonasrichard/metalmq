@@ -1,17 +1,26 @@
-use crate::channel_api::{Channel, DeliveredContent};
-use crate::consumer::ConsumerSignal;
-use crate::model::ChannelNumber;
-use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
+use crate::{
+    channel_api::{Channel, DeliveredContent},
+    consumer::ConsumerSignal,
+    model::ChannelNumber,
+    processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
+};
 use anyhow::{anyhow, Result};
-//use rand::prelude::*;
 use log::error;
-use metalmq_codec::frame;
+use metalmq_codec::frame::{self, BasicReturnArgs};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
+pub(crate) type ConnectionSink = mpsc::UnboundedSender<EventSignal>;
 
-// TODO onBasicReturn callback
+#[derive(Debug)]
+pub enum EventSignal {
+    BasicReturn {
+        channel: ChannelNumber,
+        args: BasicReturnArgs,
+    },
+}
+
 // TODO onChannelClose callback
 // TODO onConnectionClose callback
 //   where we should execute them? On a separate tokio thread?
@@ -25,7 +34,7 @@ pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 /// ```no_run
 /// use metalmq_client::Client;
 ///
-/// async fn main() {
+/// async fn connect() {
 ///     let mut client = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
 ///     let mut channel = client.channel_open(1u16).await.unwrap();
 ///     // ...
@@ -35,6 +44,7 @@ pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 /// ```
 pub struct Client {
     pub connection_id: String,
+    pub event_stream: mpsc::UnboundedReceiver<EventSignal>,
     request_sink: mpsc::Sender<ClientRequest>,
     /// Sync calls register here per channel (0 for connection related frames). Once response frame
     /// arrives, the oneshot channel is notified. Channel close and connection close events should
@@ -45,7 +55,7 @@ pub struct Client {
 }
 
 /// Create a connection to an AMQP server and returns a sink to send the requests.
-async fn create_connection(url: &str) -> Result<ClientRequestSink> {
+async fn create_connection(url: &str, conn_sink: ConnectionSink) -> Result<ClientRequestSink> {
     use tokio::net::TcpStream;
 
     match TcpStream::connect(url).await {
@@ -53,7 +63,7 @@ async fn create_connection(url: &str) -> Result<ClientRequestSink> {
             let (sender, receiver) = mpsc::channel(1);
 
             tokio::spawn(async move {
-                if let Err(e) = processor::start_loop_and_output(socket, receiver).await {
+                if let Err(e) = processor::start_loop_and_output(socket, receiver, conn_sink).await {
                     error!("error: {:?}", e);
                 }
             });
@@ -69,8 +79,9 @@ impl Client {
     pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
         //let mut rng = rand::thread_rng();
 
+        let (conn_evt_tx, conn_evt_rx) = mpsc::unbounded_channel();
         let (connected_tx, connected_rx) = oneshot::channel();
-        let client_sink = create_connection(url).await?;
+        let client_sink = create_connection(url, conn_evt_tx).await?;
 
         client_sink
             .send(ClientRequest {
@@ -89,6 +100,7 @@ impl Client {
         Ok(Client {
             connection_id: "01234".to_owned(),
             request_sink: client_sink,
+            event_stream: conn_evt_rx,
             sync_calls: HashMap::new(),
             channels: HashMap::new(),
             in_delivery: HashMap::new(),
