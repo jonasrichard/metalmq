@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::channel_api::{Channel, Message};
 use crate::client_error;
 use crate::model;
@@ -52,6 +54,20 @@ pub struct ConsumerHandler {
 /// }
 /// ```
 impl ConsumerHandler {
+    pub async fn receive(&mut self, timeout: Duration) -> Option<ConsumerSignal> {
+        let sleep = tokio::time::sleep(tokio::time::Duration::from(timeout));
+        tokio::pin!(sleep);
+
+        tokio::select! {
+            signal = self.signal_stream.recv() => {
+                signal
+            }
+            _ = &mut sleep => {
+                return None;
+            }
+        }
+    }
+
     pub async fn basic_ack(&self, delivery_tag: u64) -> Result<()> {
         processor::sync_send(
             &self.client_sink,

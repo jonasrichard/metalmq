@@ -308,11 +308,14 @@ async fn handle_in_method_frame(
         QueueDeclareOk(args) => cs.queue_declare_ok(args).await,
         QueueBindOk => cs.queue_bind_ok().await,
         QueueUnbindOk => cs.queue_unbind_ok().await,
+        QueuePurgeOk(_) => Ok(()),
         QueueDeleteOk(args) => cs.queue_delete_ok(channel, args).await,
+        BasicAck(args) => cs.on_basic_ack(channel, args).await,
         BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
         BasicCancelOk(args) => cs.basic_cancel_ok(channel, args).await,
         BasicDeliver(args) => cs.basic_deliver(channel, args).await,
-        BasicReturn(args) => cs.basic_return(channel, args).await,
+        BasicReturn(args) => cs.on_basic_return(channel, args).await,
+        ConfirmSelectOk => Ok(()),
         //    // TODO check if client is consuming messages from that channel + consumer tag
         _ => unimplemented!("{:?}", ma),
     }
@@ -336,8 +339,10 @@ async fn handle_out_frame(
         QueueDeclare(args) => cs.queue_declare(channel, args).await,
         QueueBind(args) => cs.queue_bind(channel, args).await,
         QueueUnbind(args) => cs.queue_unbind(channel, args).await,
+        QueuePurge(args) => cs.queue_purge(channel, args).await,
         QueueDelete(args) => cs.queue_delete(channel, args).await,
         BasicCancel(args) => cs.basic_cancel(channel, args).await,
+        ConfirmSelect(_) => cs.confirm_select(channel).await,
         _ => unimplemented!("{:?}", ma),
     }
 }
@@ -376,13 +381,13 @@ pub(crate) async fn sync_send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQP
     Ok(())
 }
 
-pub(crate) async fn send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
-    sink.send(ClientRequest {
-        param: Param::Frame(f),
-        response: WaitFor::Nothing,
-    })
-    .await
-    .unwrap();
-
-    Ok(())
-}
+//pub(crate) async fn send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
+//    sink.send(ClientRequest {
+//        param: Param::Frame(f),
+//        response: WaitFor::Nothing,
+//    })
+//    .await
+//    .unwrap();
+//
+//    Ok(())
+//}

@@ -310,6 +310,14 @@ pub fn basic_get_empty(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, super::BASIC_GET_EMPTY, MethodFrameArgs::BasicGetEmpty)
 }
 
+pub fn confirm_select(channel: Channel) -> AMQPFrame {
+    AMQPFrame::Method(
+        channel,
+        super::CONFIRM_SELECT,
+        MethodFrameArgs::ConfirmSelect(ConfirmSelectArgs { no_wait: false }),
+    )
+}
+
 pub fn confirm_select_ok(channel: Channel) -> AMQPFrame {
     AMQPFrame::Method(channel, super::CONFIRM_SELECT_OK, MethodFrameArgs::ConfirmSelectOk)
 }

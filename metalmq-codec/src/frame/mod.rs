@@ -6,9 +6,9 @@ mod queue;
 
 pub use self::{
     basic::{
-        basic_get_empty, confirm_select_ok, BasicAckArgs, BasicCancelArgs, BasicCancelOkArgs, BasicConsumeArgs,
-        BasicConsumeFlags, BasicConsumeOkArgs, BasicDeliverArgs, BasicGetArgs, BasicGetOkArgs, BasicPublishArgs,
-        BasicPublishFlags, BasicRejectArgs, BasicReturnArgs, ConfirmSelectArgs,
+        basic_get_empty, confirm_select, confirm_select_ok, BasicAckArgs, BasicCancelArgs, BasicCancelOkArgs,
+        BasicConsumeArgs, BasicConsumeFlags, BasicConsumeOkArgs, BasicDeliverArgs, BasicGetArgs, BasicGetOkArgs,
+        BasicPublishArgs, BasicPublishFlags, BasicRejectArgs, BasicReturnArgs, ConfirmSelectArgs,
     },
     channel::{channel_close, channel_close_ok, channel_open, channel_open_ok, ChannelCloseArgs},
     connection::{

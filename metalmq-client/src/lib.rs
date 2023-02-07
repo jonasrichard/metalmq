@@ -26,7 +26,8 @@ pub use dev::setup_logger;
 
 mod channel_api;
 pub use channel_api::{
-    Channel, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, Immediate, Mandatory, Message, QueueDeclareOpts,
+    Binding, Channel, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, Immediate, Mandatory, Message,
+    QueueDeclareOpts,
 };
 
 mod client_api;

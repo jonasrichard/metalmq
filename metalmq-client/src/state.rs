@@ -12,6 +12,7 @@ use crate::{
     consumer::ConsumerSignal,
     model::ChannelNumber,
     processor::{OutgoingFrame, WaitFor},
+    EventSignal,
 };
 use anyhow::Result;
 use log::{debug, info};
@@ -29,14 +30,28 @@ enum Phase {
     //    Closing
 }
 
+#[derive(Debug)]
+enum DeliveryMethod {
+    BasicDeliver {
+        consumer_tag: String,
+        delivery_tag: u64,
+        redelivered: bool,
+        exchange: String,
+        routing_key: String,
+    },
+    BasicReturn {
+        reply_code: u16,
+        reply_text: String,
+        exchange: String,
+        routing_key: String,
+    },
+}
+
 /// A content being delivered by content frames, building step by step.
 #[derive(Debug)]
 struct DeliveredContent {
     channel: u16,
-    consumer_tag: String,
-    delivery_tag: u64,
-    exchange_name: String,
-    routing_key: String,
+    method: DeliveryMethod,
     body_size: Option<u64>,
 }
 
@@ -212,6 +227,8 @@ impl ClientState {
     }
 
     pub(crate) async fn handle_connection_close(&mut self, _args: frame::ConnectionCloseArgs) -> Result<()> {
+        self.event_sink.send(EventSignal::ConnectionClose).unwrap();
+
         // TODO close resources, server is about to close connection
         Ok(())
     }
@@ -249,6 +266,8 @@ impl ClientState {
         if let Some(sink) = self.consumers.remove(&channel) {
             drop(sink);
         }
+
+        self.event_sink.send(EventSignal::ChannelClose).unwrap();
 
         Ok(())
     }
@@ -308,6 +327,12 @@ impl ClientState {
     }
 
     pub(crate) async fn queue_unbind_ok(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub(crate) async fn queue_purge(&mut self, channel: ChannelNumber, args: frame::QueuePurgeArgs) -> Result<()> {
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
+
         Ok(())
     }
 
@@ -390,10 +415,13 @@ impl ClientState {
     pub(crate) async fn basic_deliver(&mut self, channel: ChannelNumber, args: frame::BasicDeliverArgs) -> Result<()> {
         let dc = DeliveredContent {
             channel,
-            consumer_tag: args.consumer_tag,
-            delivery_tag: args.delivery_tag,
-            exchange_name: args.exchange_name,
-            routing_key: args.routing_key,
+            method: DeliveryMethod::BasicDeliver {
+                consumer_tag: args.consumer_tag,
+                delivery_tag: args.delivery_tag,
+                redelivered: args.redelivered,
+                exchange: args.exchange_name,
+                routing_key: args.routing_key,
+            },
             body_size: None,
         };
 
@@ -426,10 +454,25 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
-        use crate::client_api::EventSignal;
+        let dc = DeliveredContent {
+            channel,
+            method: DeliveryMethod::BasicReturn {
+                reply_code: args.reply_code,
+                reply_text: args.reply_text,
+                exchange: args.exchange_name,
+                routing_key: args.routing_key,
+            },
+            body_size: None,
+        };
 
-        self.event_sink
-            .send(EventSignal::BasicReturn { channel, args })
+        self.in_delivery.insert(channel, dc);
+
+        Ok(())
+    }
+
+    pub(crate) async fn confirm_select(&mut self, channel: ChannelNumber) -> Result<()> {
+        send_out(&self.outgoing, Frame::Frame(frame::confirm_select(channel)))
+            .await
             .unwrap();
 
         Ok(())
@@ -446,16 +489,42 @@ impl ClientState {
     }
 
     pub(crate) async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> Result<()> {
-        if let Some(dc) = self.in_delivery.get(&cb.channel) {
+        if let Some(dc) = self.in_delivery.remove(&cb.channel) {
             debug!("Delivered content is {:?} so far", dc);
 
             if let Some(sink) = self.consumers.get(&dc.channel) {
-                let msg = Message {
-                    channel: dc.channel,
-                    consumer_tag: dc.consumer_tag.clone(),
-                    delivery_tag: dc.delivery_tag,
-                    length: dc.body_size.unwrap() as usize,
-                    body: cb.body,
+                match dc.method {
+                    DeliveryMethod::BasicDeliver {
+                        consumer_tag,
+                        delivery_tag,
+                        ..
+                    } => {
+                        let msg = Message {
+                            channel: dc.channel,
+                            consumer_tag,
+                            delivery_tag,
+                            length: dc.body_size.unwrap() as usize,
+                            body: cb.body,
+                        };
+                        sink.send(ConsumerSignal::Delivered(msg)).unwrap();
+                    }
+                    DeliveryMethod::BasicReturn {
+                        reply_code,
+                        reply_text,
+                        exchange,
+                        routing_key,
+                    } => self
+                        .event_sink
+                        .send(EventSignal::BasicReturn {
+                            channel: dc.channel,
+                            args: frame::BasicReturnArgs {
+                                reply_code,
+                                reply_text,
+                                exchange_name: exchange,
+                                routing_key,
+                            },
+                        })
+                        .unwrap(),
                 };
 
                 // FIXME here if the channel is full, this call yields. The problem is that the
@@ -463,9 +532,32 @@ impl ClientState {
                 // but since the async call yields here, that select is never reached.
                 // A solution can be to apply backpressure and in ack mode there shouldn't be
                 // more than capacity number of unacked messages.
-                sink.send(ConsumerSignal::Delivered(msg)).unwrap();
             }
         }
+
+        Ok(())
+    }
+
+    pub(crate) async fn on_basic_ack(&mut self, channel: ChannelNumber, args: frame::BasicAckArgs) -> Result<()> {
+        use crate::client_api::EventSignal;
+
+        self.event_sink
+            .send(EventSignal::BasicAck {
+                channel,
+                delivery_tag: args.delivery_tag,
+                multiple: args.multiple,
+            })
+            .unwrap();
+
+        Ok(())
+    }
+
+    pub(crate) async fn on_basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
+        use crate::client_api::EventSignal;
+
+        self.event_sink
+            .send(EventSignal::BasicReturn { channel, args })
+            .unwrap();
 
         Ok(())
     }

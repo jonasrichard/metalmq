@@ -1,6 +1,6 @@
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{ExchangeDeclareOpts, ExchangeType, IfUnused, QueueDeclareOpts};
+use metalmq_client::{Binding, ExchangeDeclareOpts, ExchangeType, IfUnused, QueueDeclareOpts};
 
 #[tokio::test]
 async fn declare_exchange() -> Result<()> {
@@ -115,8 +115,6 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
 
 #[tokio::test]
 async fn delete_not_existing_exchange_error_404() -> Result<()> {
-    env_logger::builder().is_test(true).try_init().unwrap();
-
     let mut c = helper::connect().await?;
     let ch = c.channel_open(9).await?;
 
@@ -147,7 +145,8 @@ async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
     )
     .await?;
     ch.queue_declare("q-used", QueueDeclareOpts::default()).await?;
-    ch.queue_bind("q-used", "x-used", "").await?;
+    ch.queue_bind("q-used", "x-used", Binding::Direct("".to_string()))
+        .await?;
 
     let result = ch.exchange_delete("x-used", IfUnused(true)).await;
     assert!(result.is_err());
@@ -176,7 +175,8 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
     )
     .await?;
     ch.queue_declare("q-autodel", QueueDeclareOpts::default()).await?;
-    ch.queue_bind("q-autodel", "x-autodel", "").await?;
+    ch.queue_bind("q-autodel", "x-autodel", Binding::Direct("".to_string()))
+        .await?;
 
     ch.queue_unbind("q-autodel", "x-autodel", "").await?;
     ch.close().await?;

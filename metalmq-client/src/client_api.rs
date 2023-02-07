@@ -1,5 +1,5 @@
 use crate::{
-    channel_api::{Channel, DeliveredContent},
+    channel_api::Channel,
     consumer::ConsumerSignal,
     model::ChannelNumber,
     processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
@@ -13,21 +13,30 @@ use tokio::sync::{mpsc, oneshot};
 pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 pub(crate) type ConnectionSink = mpsc::UnboundedSender<EventSignal>;
 
+/// Listening notifications sent by the server like channel closed or message publish acknowledged
+/// in confirm mode.
 #[derive(Debug)]
 pub enum EventSignal {
+    /// Message publish acknowledged.
+    BasicAck {
+        channel: ChannelNumber,
+        delivery_tag: u64,
+        multiple: bool,
+    },
+    /// Message cannot be published (no route or no consumer).
     BasicReturn {
         channel: ChannelNumber,
         args: BasicReturnArgs,
     },
+    /// Channel closed
+    ChannelClose,
+    /// Connection closed
+    ConnectionClose,
 }
-
-// TODO onChannelClose callback
-// TODO onConnectionClose callback
-//   where we should execute them? On a separate tokio thread?
 
 /// The AMQP client instance which reprensents an open connection.
 ///
-/// `Client` can be created with [`metalmq_client::Client::connect`].
+/// `Client` can be created with [`Client::connect`].
 ///
 /// # Usage
 ///
@@ -51,7 +60,6 @@ pub struct Client {
     /// unblock the waiting tasks here by notifying them with an error or a unit reply.
     sync_calls: HashMap<u16, oneshot::Sender<Result<()>>>,
     channels: HashMap<u16, Channel>,
-    in_delivery: HashMap<Channel, DeliveredContent>,
 }
 
 /// Create a connection to an AMQP server and returns a sink to send the requests.
@@ -103,7 +111,6 @@ impl Client {
             event_stream: conn_evt_rx,
             sync_calls: HashMap::new(),
             channels: HashMap::new(),
-            in_delivery: HashMap::new(),
         })
     }
 
@@ -121,5 +128,20 @@ impl Client {
         processor::call(&self.request_sink, fr).await?;
 
         Ok(())
+    }
+
+    /// Convenient function for listening `EventSignal` with timeout.
+    pub async fn receive_event(&mut self, timeout: std::time::Duration) -> Option<EventSignal> {
+        let sleep = tokio::time::sleep(tokio::time::Duration::from(timeout));
+        tokio::pin!(sleep);
+
+        tokio::select! {
+            signal = self.event_stream.recv() => {
+                signal
+            }
+            _ = &mut sleep => {
+                return None;
+            }
+        }
     }
 }

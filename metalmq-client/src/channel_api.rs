@@ -7,10 +7,10 @@ use crate::processor::{ClientRequest, ClientRequestSink, Param, WaitFor};
 use metalmq_codec::frame;
 
 /// A channel is the main method of communicating with an AMQP server. Channels can be created on
-/// an open connection by calling the [`Client::channel_open`] function.
+/// an open connection by calling the [`Client.channel_open`] function.
 pub struct Channel {
     /// Channel number identifies the channel in a connection.
-    pub(crate) channel: ChannelNumber,
+    pub channel: ChannelNumber,
     pub(crate) sink: ClientRequestSink,
     /// Active consumers by consumer tag
     consumers: HashMap<String, ClientRequest>,
@@ -36,21 +36,6 @@ pub struct Message {
     // TODO put routing key and properties here and all the things from the message header
     pub length: usize,
     pub body: Vec<u8>,
-}
-
-/// The temporary data structure for collecting message details from different AMQP frames like
-/// Basic.Deliver or Basic.Return and ContentHeader and ContentBody frames. Those frames are sent
-/// consequtively in a channel, so the client should collect them. This is low-level functionality,
-/// this shouldn't be visible to the client.
-#[derive(Debug)]
-pub(crate) struct DeliveredContent {
-    channel: ChannelNumber,
-    consumer_tag: String,
-    delivery_tag: u64,
-    exchange_name: String,
-    routing_key: String,
-    body_size: Option<u64>,
-    body: Option<Vec<u8>>,
 }
 
 /// Represents the exchange binding type during `Queue.Bind`
@@ -155,6 +140,36 @@ impl QueueDeclareOpts {
     }
 }
 
+#[derive(Debug)]
+pub enum HeaderMatch {
+    Any,
+    All,
+    AnyWithX,
+    AllWithX,
+}
+
+impl From<HeaderMatch> for frame::AMQPFieldValue {
+    fn from(value: HeaderMatch) -> Self {
+        match value {
+            HeaderMatch::Any => frame::AMQPFieldValue::LongString(String::from("any")),
+            HeaderMatch::All => frame::AMQPFieldValue::LongString(String::from("all")),
+            HeaderMatch::AnyWithX => frame::AMQPFieldValue::LongString(String::from("any-with-x")),
+            HeaderMatch::AllWithX => frame::AMQPFieldValue::LongString(String::from("all-with-x")),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Binding {
+    Direct(String),
+    Topic(String),
+    Fanout,
+    Headers {
+        headers: HashMap<String, String>,
+        x_match: HeaderMatch,
+    },
+}
+
 impl Channel {
     pub(crate) fn new(channel: ChannelNumber, sink: ClientRequestSink) -> Channel {
         Channel {
@@ -218,12 +233,30 @@ impl Channel {
     }
 
     /// Bind queue to exchange.
-    pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
-        let frame = frame::QueueBindArgs::new(queue_name, exchange_name)
-            .routing_key(routing_key)
-            .frame(self.channel);
+    pub async fn queue_bind(&self, queue_name: &str, exchange_name: &str, binding: Binding) -> Result<()> {
+        use frame::AMQPFieldValue;
 
-        processor::call(&self.sink, frame).await
+        let mut queue_binding = frame::QueueBindArgs::new(queue_name, exchange_name);
+
+        queue_binding = match binding {
+            Binding::Direct(routing_key) => queue_binding.routing_key(&routing_key),
+            Binding::Topic(routing_key) => queue_binding.routing_key(&routing_key),
+            Binding::Fanout => queue_binding,
+            Binding::Headers { headers, x_match } => {
+                let mut args = HashMap::new();
+
+                for (k, v) in headers.into_iter() {
+                    args.insert(k, AMQPFieldValue::LongString(v));
+                }
+
+                args.insert("x-match".to_string(), x_match.into());
+
+                queue_binding.args = Some(args);
+                queue_binding
+            }
+        };
+
+        processor::call(&self.sink, queue_binding.frame(self.channel)).await
     }
 
     pub async fn queue_unbind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) -> Result<()> {
@@ -235,7 +268,13 @@ impl Channel {
     }
 
     pub async fn queue_purge(&self, queue_name: &str) -> Result<()> {
-        Ok(())
+        processor::call(
+            &self.sink,
+            frame::QueuePurgeArgs::default()
+                .queue_name(queue_name)
+                .frame(self.channel),
+        )
+        .await
     }
 
     pub async fn queue_delete(&self, queue_name: &str, if_unused: IfUnused, if_empty: IfEmpty) -> Result<()> {
@@ -270,6 +309,10 @@ impl Channel {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn confirm(&self) -> Result<()> {
+        processor::call(&self.sink, frame::confirm_select(self.channel)).await
     }
 
     /// Closes the channel.
