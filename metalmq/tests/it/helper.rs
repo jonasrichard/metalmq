@@ -1,8 +1,5 @@
 use anyhow::Result;
-use metalmq_client::{
-    Channel, Client, ClientError, ConsumerSignal, ExchangeDeclareOpts, ExchangeType, Exclusive, IfEmpty, IfUnused,
-    Message, NoAck, NoLocal, QueueDeclareOpts,
-};
+use metalmq_client::*;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
@@ -76,7 +73,7 @@ pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: 
         .await?;
     ch.queue_declare(queue, QueueDeclareOpts::default()).await?;
 
-    ch.queue_bind(queue, exchange, "").await?;
+    ch.queue_bind(queue, exchange, Binding::Direct("".to_string())).await?;
 
     Ok(())
 }
@@ -115,7 +112,6 @@ pub(crate) async fn delete_queue(queue: &str) -> Result<()> {
 pub(crate) async fn consume_messages<'a>(
     client_channel: &'a Channel,
     queue: &'a str,
-    ctag: &'a str,
     exclusive: Exclusive,
     n: usize,
 ) -> Result<oneshot::Receiver<Vec<Message>>> {
@@ -123,7 +119,7 @@ pub(crate) async fn consume_messages<'a>(
 
     let (tx, rx) = oneshot::channel();
     let mut handler = client_channel
-        .basic_consume(queue, ctag, NoAck(false), exclusive, NoLocal(false))
+        .basic_consume(queue, NoAck(false), exclusive, NoLocal(false))
         .await?;
 
     tokio::spawn(async move {

@@ -2,7 +2,7 @@
 
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Exclusive, Immediate, Mandatory, QueueDeclareOpts};
+use metalmq_client::*;
 
 #[tokio::test]
 async fn consume_one_message() -> Result<()> {
@@ -17,7 +17,7 @@ async fn consume_one_message() -> Result<()> {
     let ch = c.channel_open(1).await?;
     helper::declare_exchange_queue(&ch, EXCHANGE, QUEUE).await?;
 
-    let result = helper::consume_messages(&ch, QUEUE, "ctag", Exclusive(false), 1).await?;
+    let result = helper::consume_messages(&ch, QUEUE, Exclusive(false), 1).await?;
 
     ch.basic_publish(EXCHANGE, "", "Hello".into(), Mandatory(false), Immediate(false))
         .await?;
@@ -43,7 +43,7 @@ async fn consume_not_existing_queue() -> Result<()> {
     let mut c = helper::default().connect().await?;
     let ch = c.channel_open(2).await?;
 
-    let res = helper::consume_messages(&ch, "not-existing-queue", "ctag", Exclusive(false), 1).await;
+    let res = helper::consume_messages(&ch, "not-existing-queue", Exclusive(false), 1).await;
 
     assert!(res.is_err());
 
@@ -78,9 +78,9 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     //
     ch.queue_declare(QUEUE, QueueDeclareOpts::default()).await?;
 
-    ch.queue_bind(QUEUE, EXCHANGE, "").await?;
+    ch.queue_bind(QUEUE, EXCHANGE, Binding::Direct("".to_string())).await?;
 
-    let res = helper::consume_messages(&ch, QUEUE, "ctag", Exclusive(true), 1).await;
+    let res = helper::consume_messages(&ch, QUEUE, Exclusive(true), 1).await;
 
     assert!(res.is_ok());
 
@@ -88,7 +88,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     let ch2 = c2.channel_open(3).await?;
 
-    let result = helper::consume_messages(&ch2, QUEUE, "ctag", Exclusive(true), 1).await;
+    let result = helper::consume_messages(&ch2, QUEUE, Exclusive(true), 1).await;
 
     println!("{:?}", result);
 

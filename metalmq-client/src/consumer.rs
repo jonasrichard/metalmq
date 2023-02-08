@@ -116,14 +116,15 @@ impl Channel {
     pub async fn basic_consume<'a>(
         &'a self,
         queue_name: &'a str,
-        consumer_tag: &'a str,
         no_ack: NoAck,
         exclusive: Exclusive,
         no_local: NoLocal,
     ) -> Result<ConsumerHandler> {
+        let consumer_tag = format!("metalmq-{}", rand::random::<u128>());
+
         let frame = frame::BasicConsumeArgs::default()
             .queue(queue_name)
-            .consumer_tag(consumer_tag)
+            .consumer_tag(&consumer_tag)
             .no_ack(no_ack.0)
             .exclusive(exclusive.0)
             .no_local(no_local.0)
@@ -135,7 +136,7 @@ impl Channel {
 
         let handler = ConsumerHandler {
             channel: self.channel,
-            consumer_tag: consumer_tag.to_owned(),
+            consumer_tag,
             client_sink: self.sink.clone(),
             signal_stream,
         };

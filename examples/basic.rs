@@ -1,5 +1,5 @@
 use anyhow::Result;
-use metalmq_client::{Client, ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory, QueueDeclareOpts};
+use metalmq_client::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,7 +15,9 @@ async fn main() -> Result<()> {
         .exchange_declare(exchange, ExchangeType::Fanout, ExchangeDeclareOpts::default())
         .await?;
     channel.queue_declare(queue, QueueDeclareOpts::default()).await?;
-    channel.queue_bind(queue, exchange, "").await?;
+    channel
+        .queue_bind(queue, exchange, Binding::Direct("".to_string()))
+        .await?;
 
     channel
         .basic_publish(exchange, "no-key", "Hey man".into(), Mandatory(false), Immediate(false))

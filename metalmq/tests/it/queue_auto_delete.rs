@@ -1,4 +1,4 @@
-use metalmq_client::{Channel, ExchangeDeclareOpts, ExchangeType, Exclusive, NoAck, NoLocal, QueueDeclareOpts};
+use metalmq_client::*;
 
 use crate::helper;
 
@@ -16,7 +16,10 @@ async fn exchange_direct_bind(
 
     channel.queue_declare(queue, queue_opts).await.unwrap();
 
-    channel.queue_bind(queue, exchange, "").await.unwrap();
+    channel
+        .queue_bind(queue, exchange, Binding::Direct("".to_string()))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -40,7 +43,7 @@ async fn delete_queue_when_last_consumer_left() {
     let consumer1_channel = consumer1.channel_open(4u16).await.unwrap();
 
     let handler1 = consumer1_channel
-        .basic_consume(QUEUE, "ctag", NoAck(false), Exclusive(false), NoLocal(false))
+        .basic_consume(QUEUE, NoAck(false), Exclusive(false), NoLocal(false))
         .await
         .unwrap();
 

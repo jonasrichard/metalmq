@@ -268,6 +268,7 @@ impl Channel {
     }
 
     pub async fn queue_purge(&self, queue_name: &str) -> Result<()> {
+        // FIXME give back the number of messages arriving in the QueuePurgeOk frame
         processor::call(
             &self.sink,
             frame::QueuePurgeArgs::default()

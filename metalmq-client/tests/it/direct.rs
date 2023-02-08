@@ -30,13 +30,20 @@ async fn test_routing_logic() {
 
     publish_confirm_mode_sends_ack(&mut client, &channel).await;
 
+    channel.queue_unbind("images", "images", "images").await.unwrap();
+    channel
+        .queue_delete("images", IfUnused(false), IfEmpty(false))
+        .await
+        .unwrap();
+    channel.exchange_delete("images", IfUnused(false)).await.unwrap();
+
     channel.close().await.unwrap();
     client.close().await.unwrap();
 }
 
 async fn basic_publish_mandatory_delivered(channel: &Channel) {
     let mut handler = channel
-        .basic_consume("images", "ctag1", NoAck(false), Exclusive(false), NoLocal(false))
+        .basic_consume("images", NoAck(false), Exclusive(false), NoLocal(false))
         .await
         .unwrap();
 

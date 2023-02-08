@@ -1,7 +1,6 @@
 use anyhow::Result;
 use log::info;
 use metalmq_client::*;
-use rand::prelude::*;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Barrier;
@@ -9,8 +8,6 @@ use tokio::sync::Barrier;
 #[tokio::main]
 async fn main() -> Result<()> {
     //console_subscriber::init();
-
-    let mut rng = rand::thread_rng();
 
     let exchange = "x_pubsub";
     let queue = "q_pubsub";
@@ -25,7 +22,9 @@ async fn main() -> Result<()> {
         .exchange_declare(exchange, ExchangeType::Direct, ExchangeDeclareOpts::default())
         .await?;
     publisher.queue_declare(queue, QueueDeclareOpts::default()).await?;
-    publisher.queue_bind(queue, exchange, "").await?;
+    publisher
+        .queue_bind(queue, exchange, Binding::Direct("".to_string()))
+        .await?;
 
     let consumer = client.channel_open(2).await?;
 
@@ -34,10 +33,8 @@ async fn main() -> Result<()> {
     let barrier = Arc::new(Barrier::new(2));
     let consuming_finished = Arc::clone(&barrier);
 
-    let ctag = format!("ctag-{}", rng.gen::<u32>());
-
     let mut handler = consumer
-        .basic_consume(queue, &ctag, NoAck(false), Exclusive(false), NoLocal(false))
+        .basic_consume(queue, NoAck(false), Exclusive(false), NoLocal(false))
         .await?;
     let mut received_count = 0u32;
 
