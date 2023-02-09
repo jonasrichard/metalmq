@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 pub enum ConsumerSignal {
     Delivered(Message),
     Cancelled,
+    // TODO handle reply code, text, etc
     ChannelClosed,
     ConnectionClosed,
 }

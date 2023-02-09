@@ -85,8 +85,6 @@ async fn create_connection(url: &str, conn_sink: ConnectionSink) -> Result<Clien
 impl Client {
     // TODO expect only one parameter and parse the url
     pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
-        //let mut rng = rand::thread_rng();
-
         let (conn_evt_tx, conn_evt_rx) = mpsc::unbounded_channel();
         let (connected_tx, connected_rx) = oneshot::channel();
         let client_sink = create_connection(url, conn_evt_tx).await?;
@@ -114,6 +112,7 @@ impl Client {
         })
     }
 
+    // TODO open a channel with the next channel number
     /// Open a channel in the current connection.
     pub async fn channel_open(&mut self, channel: ChannelNumber) -> Result<Channel> {
         processor::call(&self.request_sink, frame::channel_open(channel)).await?;

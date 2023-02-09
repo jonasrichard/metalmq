@@ -1,6 +1,8 @@
 use crate::{
     client_api::{ConnectionSink, ConsumerSink},
-    client_error, dev, state,
+    client_error, dev,
+    message::Message,
+    state,
 };
 // TODO use thiserror here not anyhow
 use anyhow::Result;
@@ -32,7 +34,7 @@ pub(crate) enum Param {
     },
     Frame(frame::AMQPFrame),
     Consume(frame::AMQPFrame, ConsumerSink),
-    Publish(frame::AMQPFrame, Vec<u8>),
+    Publish(frame::AMQPFrame, Message),
 }
 
 pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;
@@ -190,8 +192,8 @@ async fn handle_request(
             client.basic_consume(ch, args, msg_sink).await?;
             register_wait_for(feedback, ch, request.response)?;
         }
-        Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), content) => {
-            client.basic_publish(ch, args, content).await?;
+        Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), message) => {
+            client.basic_publish(ch, args, message).await?;
         }
         _ => unreachable!("{:?}", request),
     }

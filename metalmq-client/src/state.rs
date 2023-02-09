@@ -7,9 +7,9 @@
 //! api it is a typed struct.
 
 use crate::{
-    channel_api::Message,
     client_api::ConnectionSink,
     consumer::ConsumerSignal,
+    message::{self, Message},
     model::ChannelNumber,
     processor::{OutgoingFrame, WaitFor},
     EventSignal,
@@ -52,7 +52,7 @@ enum DeliveryMethod {
 struct DeliveredContent {
     channel: u16,
     method: DeliveryMethod,
-    body_size: Option<u64>,
+    message: Message,
 }
 
 /*
@@ -413,6 +413,17 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_deliver(&mut self, channel: ChannelNumber, args: frame::BasicDeliverArgs) -> Result<()> {
+        let message = Message {
+            channel,
+            body: vec![],
+            properties: message::MessageProperties::default(),
+            delivery_info: Some(message::DeliveryInfo {
+                consumer_tag: args.consumer_tag.clone(),
+                delivery_tag: args.delivery_tag.clone(),
+                routing_key: args.routing_key.clone(),
+            }),
+        };
+
         let dc = DeliveredContent {
             channel,
             method: DeliveryMethod::BasicDeliver {
@@ -422,7 +433,7 @@ impl ClientState {
                 exchange: args.exchange_name,
                 routing_key: args.routing_key,
             },
-            body_size: None,
+            message: Message::default(),
         };
 
         self.in_delivery.insert(channel, dc);
@@ -434,19 +445,12 @@ impl ClientState {
         &mut self,
         channel: ChannelNumber,
         args: frame::BasicPublishArgs,
-        content: Vec<u8>,
+        message: Message,
     ) -> Result<()> {
-        let fs = vec![
-            args.frame(channel),
-            frame::ContentHeaderFrame {
-                channel,
-                class_id: (frame::BASIC_PUBLISH >> 16) as u16,
-                body_size: content.len() as u64,
-                ..Default::default()
-            }
-            .frame(),
-            frame::ContentBodyFrame { channel, body: content }.frame(),
-        ];
+        let (mut ch, cb) = message::to_content_frames(message);
+        ch.class_id = (frame::BASIC_PUBLISH >> 16) as u16;
+
+        let fs = vec![args.frame(channel), ch.frame(), cb.frame()];
 
         send_out(&self.outgoing, Frame::Frames(fs)).await.unwrap();
 
@@ -454,6 +458,18 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
+        let message = Message {
+            channel,
+            body: vec![],
+            properties: message::MessageProperties::default(),
+            delivery_info: Some(message::DeliveryInfo {
+                consumer_tag: "".to_string(),
+                delivery_tag: 0u64,
+                routing_key: args.routing_key.clone(),
+                // FIXME exchange??? we need an enum here, too
+            }),
+        };
+
         let dc = DeliveredContent {
             channel,
             method: DeliveryMethod::BasicReturn {
@@ -462,7 +478,7 @@ impl ClientState {
                 exchange: args.exchange_name,
                 routing_key: args.routing_key,
             },
-            body_size: None,
+            message,
         };
 
         self.in_delivery.insert(channel, dc);
@@ -480,7 +496,7 @@ impl ClientState {
 
     pub(crate) async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> Result<()> {
         if let Some(dc) = self.in_delivery.get_mut(&ch.channel) {
-            dc.body_size = Some(ch.body_size);
+            dc.message.properties = ch.into();
         }
 
         // TODO error handling

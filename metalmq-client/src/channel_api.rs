@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
+use crate::message::Message;
 use crate::model::ChannelNumber;
 use crate::processor;
 use crate::processor::{ClientRequest, ClientRequestSink, Param, WaitFor};
@@ -22,20 +23,6 @@ impl std::fmt::Debug for Channel {
             .field("channel", &(self.channel as u16))
             .finish()
     }
-}
-
-/// A message received from the server.
-///
-/// With the `consumer_tag` and `delivery_tag` a client can send back acknowledgements to the
-/// server, saying that the message was successfully arrived.
-#[derive(Debug)]
-pub struct Message {
-    pub channel: ChannelNumber,
-    pub consumer_tag: String,
-    pub delivery_tag: u64,
-    // TODO put routing key and properties here and all the things from the message header
-    pub length: usize,
-    pub body: Vec<u8>,
 }
 
 /// Represents the exchange binding type during `Queue.Bind`
@@ -292,7 +279,7 @@ impl Channel {
         &self,
         exchange_name: &str,
         routing_key: &str,
-        payload: String,
+        message: Message,
         mandatory: Mandatory,
         immediate: Immediate,
     ) -> Result<()> {

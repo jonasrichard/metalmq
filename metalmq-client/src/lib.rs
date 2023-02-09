@@ -26,8 +26,7 @@ pub use dev::setup_logger;
 
 mod channel_api;
 pub use channel_api::{
-    Binding, Channel, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, Immediate, Mandatory, Message,
-    QueueDeclareOpts,
+    Binding, Channel, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, Immediate, Mandatory, QueueDeclareOpts,
 };
 
 mod client_api;
@@ -38,6 +37,8 @@ pub use consumer::{ConsumerHandler, ConsumerSignal, Exclusive, NoAck, NoLocal};
 
 mod error;
 pub use error::ClientError;
+
+mod message;
 
 mod model;
 pub use model::ChannelNumber;
