@@ -1,7 +1,8 @@
 use std::time::Duration;
 
-use crate::channel_api::{Channel, Message};
+use crate::channel_api::Channel;
 use crate::client_error;
+use crate::message::Message;
 use crate::model;
 use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
 use anyhow::Result;

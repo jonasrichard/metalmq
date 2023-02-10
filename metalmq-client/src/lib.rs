@@ -39,6 +39,7 @@ mod error;
 pub use error::ClientError;
 
 mod message;
+pub use message::{DeliveryInfo, Message, MessageProperties};
 
 mod model;
 pub use model::ChannelNumber;

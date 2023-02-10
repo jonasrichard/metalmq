@@ -1,4 +1,4 @@
-use crate::helper;
+use crate::{helper, message_from_string};
 use anyhow::Result;
 use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory};
 
@@ -17,7 +17,7 @@ async fn unrouted_mandatory_messages_gives_basic_return() -> Result<()> {
     ch.basic_publish(
         "x-unrouter",
         "",
-        "unrouted message".to_string(),
+        message_from_string(11, "unrouted message".to_string()),
         Mandatory(false),
         Immediate(false),
     )

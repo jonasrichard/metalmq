@@ -505,7 +505,7 @@ impl ClientState {
     }
 
     pub(crate) async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> Result<()> {
-        if let Some(dc) = self.in_delivery.remove(&cb.channel) {
+        if let Some(mut dc) = self.in_delivery.remove(&cb.channel) {
             debug!("Delivered content is {:?} so far", dc);
 
             if let Some(sink) = self.consumers.get(&dc.channel) {
@@ -513,34 +513,39 @@ impl ClientState {
                     DeliveryMethod::BasicDeliver {
                         consumer_tag,
                         delivery_tag,
+                        routing_key,
                         ..
                     } => {
-                        let msg = Message {
-                            channel: dc.channel,
+                        dc.message.channel = cb.channel;
+                        dc.message.body = cb.body;
+                        dc.message.delivery_info = Some(message::DeliveryInfo {
                             consumer_tag,
                             delivery_tag,
-                            length: dc.body_size.unwrap() as usize,
-                            body: cb.body,
-                        };
-                        sink.send(ConsumerSignal::Delivered(msg)).unwrap();
+                            routing_key,
+                        });
+
+                        sink.send(ConsumerSignal::Delivered(dc.message)).unwrap();
                     }
                     DeliveryMethod::BasicReturn {
                         reply_code,
                         reply_text,
                         exchange,
                         routing_key,
-                    } => self
-                        .event_sink
-                        .send(EventSignal::BasicReturn {
-                            channel: dc.channel,
-                            args: frame::BasicReturnArgs {
-                                reply_code,
-                                reply_text,
-                                exchange_name: exchange,
-                                routing_key,
-                            },
-                        })
-                        .unwrap(),
+                    } => {
+                        self.event_sink
+                            .send(EventSignal::BasicReturn {
+                                channel: dc.channel,
+                                args: frame::BasicReturnArgs {
+                                    reply_code,
+                                    reply_text,
+                                    exchange_name: exchange,
+                                    routing_key,
+                                },
+                            })
+                            .unwrap();
+
+                        // TODO send content frames
+                    }
                 };
 
                 // FIXME here if the channel is full, this call yields. The problem is that the

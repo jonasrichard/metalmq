@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
                 ConsumerSignal::Delivered(m) => {
                     received_count += 1;
 
-                    handler.basic_ack(m.delivery_tag).await.unwrap();
+                    handler.basic_ack(m.delivery_info.unwrap().delivery_tag).await.unwrap();
 
                     if received_count >= message_count {
                         break;
@@ -59,13 +59,19 @@ async fn main() -> Result<()> {
         consuming_finished.wait().await;
     });
 
-    let message = "This will be the test message what we send over multiple times";
-
     let start = Instant::now();
 
     for _ in 0..message_count {
+        let message = Message {
+            channel: publisher.channel,
+            body: "This will be the test message what we send over multiple times"
+                .as_bytes()
+                .to_vec(),
+            ..Default::default()
+        };
+
         publisher
-            .basic_publish(exchange, "", message.to_string(), Mandatory(false), Immediate(false))
+            .basic_publish(exchange, "", message, Mandatory(false), Immediate(false))
             .await?;
     }
 

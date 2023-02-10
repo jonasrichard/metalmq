@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::helper;
+use crate::{helper, message_from_string};
 use metalmq_client::*;
 
 #[tokio::test]
@@ -51,7 +51,7 @@ async fn basic_publish_mandatory_delivered(channel: &Channel) {
         .basic_publish(
             "images",
             "images",
-            "An image".to_string(),
+            message_from_string(channel.channel, "An image".to_string()),
             Mandatory(true),
             Immediate(false),
         )
@@ -61,7 +61,10 @@ async fn basic_publish_mandatory_delivered(channel: &Channel) {
     let signal = handler.receive(Duration::from_secs(1)).await.unwrap();
 
     if let ConsumerSignal::Delivered(message) = signal {
-        handler.basic_ack(message.delivery_tag).await.unwrap();
+        handler
+            .basic_ack(message.delivery_info.unwrap().delivery_tag)
+            .await
+            .unwrap();
     }
 
     handler.basic_cancel().await.unwrap();
@@ -72,7 +75,7 @@ async fn basic_publish_mandatory_unrouted_return(client: &mut Client, channel: &
         .basic_publish(
             "images",
             "extension.txt",
-            "A text file".to_string(),
+            message_from_string(channel.channel, "A text file".to_string()),
             Mandatory(true),
             Immediate(false),
         )
@@ -89,7 +92,7 @@ async fn publish_confirm_mode_sends_ack(client: &mut Client, channel: &Channel) 
         .basic_publish(
             "images",
             "images",
-            "A text file".to_string(),
+            message_from_string(channel.channel, "A text file".to_string()),
             Mandatory(false),
             Immediate(false),
         )

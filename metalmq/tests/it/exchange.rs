@@ -1,3 +1,5 @@
+use crate::message_from_string;
+
 use super::helper;
 use anyhow::Result;
 use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory};
@@ -47,7 +49,7 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     ch1.basic_publish(
         "xcgh-shared",
         "",
-        "Content".to_string(),
+        message_from_string(ch1.channel, "Content".to_string()),
         Mandatory(false),
         Immediate(false),
     )
@@ -55,7 +57,7 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     ch2.basic_publish(
         "xcgh-shared",
         "",
-        "Content".to_string(),
+        message_from_string(ch2.channel, "Content".to_string()),
         Mandatory(false),
         Immediate(false),
     )

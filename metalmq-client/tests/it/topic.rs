@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{helper, unwrap_delivered_message};
+use crate::{helper, message_from_string, unwrap_delivered_message};
 use metalmq_client::*;
 
 #[tokio::test]
@@ -93,7 +93,7 @@ async fn publish_deliver_message_to_proper_queue(client: &mut Client) {
         text.basic_publish(
             "files",
             routing_key,
-            routing_key.to_string(),
+            message_from_string(exec.channel, routing_key.to_string()),
             Mandatory(false),
             Immediate(false),
         )
@@ -103,27 +103,31 @@ async fn publish_deliver_message_to_proper_queue(client: &mut Client) {
 
     let expected_exe = exec_handler.receive(timeout).await.unwrap();
     let exe_msg = unwrap_delivered_message(expected_exe);
-    assert_eq!(exe_msg.consumer_tag, exec_handler.consumer_tag);
+    let exe_di = exe_msg.delivery_info.as_ref().unwrap();
+    assert_eq!(exe_di.consumer_tag, exec_handler.consumer_tag);
     assert_eq!(exe_msg.body, "exe".as_bytes());
-    exec_handler.basic_ack(exe_msg.delivery_tag).await.unwrap();
+    exec_handler.basic_ack(exe_di.delivery_tag).await.unwrap();
 
     let expected_pdf = text_handler.receive(timeout).await.unwrap();
     let pdf_msg = unwrap_delivered_message(expected_pdf);
-    assert_eq!(pdf_msg.consumer_tag, text_handler.consumer_tag);
+    let pdf_di = pdf_msg.delivery_info.as_ref().unwrap();
+    assert_eq!(pdf_di.consumer_tag, text_handler.consumer_tag);
     assert_eq!(pdf_msg.body, "pdf".as_bytes());
-    text_handler.basic_ack(pdf_msg.delivery_tag).await.unwrap();
+    text_handler.basic_ack(pdf_di.delivery_tag).await.unwrap();
 
     let expected_txt = text_handler.receive(timeout).await.unwrap();
     let txt_msg = unwrap_delivered_message(expected_txt);
-    assert_eq!(txt_msg.consumer_tag, text_handler.consumer_tag);
+    let txt_di = txt_msg.delivery_info.as_ref().unwrap();
+    assert_eq!(txt_di.consumer_tag, text_handler.consumer_tag);
     assert_eq!(txt_msg.body, "txt".as_bytes());
-    text_handler.basic_ack(txt_msg.delivery_tag).await.unwrap();
+    text_handler.basic_ack(txt_di.delivery_tag).await.unwrap();
 
     let expected_png = image_handler.receive(timeout).await.unwrap();
     let png_msg = unwrap_delivered_message(expected_png);
-    assert_eq!(png_msg.consumer_tag, image_handler.consumer_tag);
+    let png_di = png_msg.delivery_info.as_ref().unwrap();
+    assert_eq!(png_di.consumer_tag, image_handler.consumer_tag);
     assert_eq!(png_msg.body, "png".as_bytes());
-    image_handler.basic_ack(png_msg.delivery_tag).await.unwrap();
+    image_handler.basic_ack(png_di.delivery_tag).await.unwrap();
 
     text_handler.basic_cancel().await.unwrap();
     image_handler.basic_cancel().await.unwrap();

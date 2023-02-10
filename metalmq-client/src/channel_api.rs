@@ -291,7 +291,7 @@ impl Channel {
 
         self.sink
             .send(ClientRequest {
-                param: Param::Publish(frame, payload.as_bytes().to_vec()),
+                param: Param::Publish(frame, message),
                 response: WaitFor::Nothing,
             })
             .await?;

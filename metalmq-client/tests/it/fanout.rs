@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::helper;
+use crate::{helper, message_from_string};
 use metalmq_client::*;
 
 #[tokio::test]
@@ -60,7 +60,7 @@ async fn publish_deliver_message_to_all_queues(client: &mut Client) {
         .basic_publish(
             "event-hub",
             "dont-care",
-            "Event #1".to_string(),
+            message_from_string(channel1.channel, "Event #1".to_string()),
             Mandatory(false),
             Immediate(false),
         )
@@ -71,14 +71,14 @@ async fn publish_deliver_message_to_all_queues(client: &mut Client) {
     assert!(matches!(signal1, ConsumerSignal::Delivered(_)));
 
     if let ConsumerSignal::Delivered(msg) = signal1 {
-        assert_eq!(msg.consumer_tag, consumer1.consumer_tag);
+        assert_eq!(msg.delivery_info.unwrap().consumer_tag, consumer1.consumer_tag);
     }
 
     let signal2 = consumer2.receive(Duration::from_secs(1)).await.unwrap();
     assert!(matches!(signal2, ConsumerSignal::Delivered(_)));
 
     if let ConsumerSignal::Delivered(msg) = signal2 {
-        assert_eq!(msg.consumer_tag, consumer2.consumer_tag);
+        assert_eq!(msg.delivery_info.unwrap().consumer_tag, consumer2.consumer_tag);
     }
 
     consumer1.basic_cancel().await.unwrap();
