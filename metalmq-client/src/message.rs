@@ -133,11 +133,15 @@ impl PublishedMessage {
         self
     }
 
+    /// Condition for mandatory publishing. Mandatory messages are failed if the exchange doesn't have
+    /// bound queue or if the routing keys are not matched.
     pub fn mandatory(mut self, value: bool) -> Self {
         self.mandatory = value;
         self
     }
 
+    /// Condition for immediate publishing. Immediate messages are received by a server successfully if
+    /// they managed to be sent to a consumer immediately.
     pub fn immediate(mut self, value: bool) -> Self {
         self.immediate = value;
         self

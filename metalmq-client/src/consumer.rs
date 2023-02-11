@@ -46,16 +46,16 @@ pub struct ConsumerHandler {
 /// use metalmq_client::{Channel, ConsumerSignal, Exclusive, NoAck, NoLocal};
 ///
 /// async fn consume(channel: Channel) {
-///     let mut handler = channel.basic_consume("queue", "consumer-tag-1", NoAck(false),
-///         Exclusive(false), NoLocal(false)).await.unwrap();
+///     let mut handler = channel.basic_consume("queue", NoAck(false), Exclusive(false),
+///         NoLocal(false)).await.unwrap();
 ///
 ///     while let Some(signal) = handler.signal_stream.recv().await {
 ///         match signal {
 ///             ConsumerSignal::Delivered(m) => {
 ///                 handler.basic_ack(m.delivery_tag).await.unwrap();
 ///             }
-///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed |
-///                 ConsumerSignal::ConnectionClosed => {
+///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed { .. } |
+///                 ConsumerSignal::ConnectionClosed { .. } => {
 ///                 break;
 ///             }
 ///         }

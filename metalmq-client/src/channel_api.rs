@@ -57,17 +57,13 @@ impl From<ExchangeType> for &'static str {
 pub struct IfEmpty(pub bool);
 /// Condition for deleting an exchange or a queue if they don't have active consumers.
 pub struct IfUnused(pub bool);
-/// Condition for immediate publishing. Immediate messages are received by a server successfully if
-/// they managed to be sent to a consumer immediately.
-pub struct Immediate(pub bool);
-/// Condition for mandatory publishing. Mandatory messages are failed if the exchange doesn't have
-/// bound queue or if the routing keys are not matched.
-pub struct Mandatory(pub bool);
 
 /// Options for declaring exchanges.
 ///
 /// It works in a builder style, one can chain the setter functions to build the option.
 /// ```no_run
+/// use metalmq_client::*;
+///
 /// async fn declare_exchange(channel: Channel) {
 ///     channel.exchange_declare(
 ///         "number-plates",

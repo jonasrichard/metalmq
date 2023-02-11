@@ -5,8 +5,6 @@ use tokio::sync::mpsc;
 
 #[tokio::test]
 async fn connect_frame_exchange() {
-    env_logger::builder().is_test(true).try_init().unwrap();
-
     let (conn_tx, conn_rx) = mpsc::unbounded_channel();
     let (frame_out_tx, mut frame_out_rx) = mpsc::channel(16);
     let cs = self::state::new(frame_out_tx, conn_tx);
@@ -35,7 +33,6 @@ async fn connect_frame_exchange() {
         })
         .await;
 
-    log::info!("Header command send result: {:?}", cmd_result);
     assert!(matches!(cmd_result, Ok(())));
 
     let OutgoingFrame { frame: header, .. } = frame_out_rx.recv().await.unwrap();

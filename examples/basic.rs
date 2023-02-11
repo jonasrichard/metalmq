@@ -6,8 +6,6 @@ async fn main() -> Result<()> {
     let exchange = "test-xchg";
     let queue = "test-queue";
 
-    metalmq_client::setup_logger();
-
     let mut client = Client::connect("localhost:5672", "guest", "guest").await?;
     let channel = client.channel_open(1).await?;
 

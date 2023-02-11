@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::info;
 use metalmq_client::*;
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,8 +10,6 @@ async fn main() -> Result<()> {
 
     let exchange = "x_pubsub";
     let queue = "q_pubsub";
-
-    metalmq_client::setup_logger();
 
     let mut client = Client::connect("localhost:5672", "guest", "guest").await?;
 
@@ -71,7 +68,7 @@ async fn main() -> Result<()> {
 
     barrier.wait().await;
 
-    info!(
+    println!(
         "Send and receive {} messages: {:?}",
         message_count,
         Instant::elapsed(&start)
