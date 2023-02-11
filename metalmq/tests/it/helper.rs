@@ -114,7 +114,7 @@ pub(crate) async fn consume_messages<'a>(
     queue: &'a str,
     exclusive: Exclusive,
     n: usize,
-) -> Result<oneshot::Receiver<Vec<Message>>> {
+) -> Result<oneshot::Receiver<Vec<DeliveredMessage>>> {
     use tokio::time;
 
     let (tx, rx) = oneshot::channel();

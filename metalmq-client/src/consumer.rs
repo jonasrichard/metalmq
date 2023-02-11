@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::channel_api::Channel;
 use crate::client_error;
-use crate::message::Message;
+use crate::message::DeliveredMessage;
 use crate::model;
 use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
 use anyhow::Result;
@@ -12,11 +12,18 @@ use tokio::sync::{mpsc, oneshot};
 /// A signal arriving from the server during consuming a queue.
 #[derive(Debug)]
 pub enum ConsumerSignal {
-    Delivered(Message),
+    Delivered(DeliveredMessage),
     Cancelled,
-    // TODO handle reply code, text, etc
-    ChannelClosed,
-    ConnectionClosed,
+    ChannelClosed {
+        reply_code: u16,
+        reply_text: String,
+        class_method: u32,
+    },
+    ConnectionClosed {
+        reply_code: u16,
+        reply_text: String,
+        class_method: u32,
+    },
 }
 
 /// Consumer API for `Basic.Consume`.
@@ -94,8 +101,11 @@ impl ConsumerHandler {
     }
 }
 
+/// Specify if the consume is exclusive aka no other client can consume the queue.
 pub struct Exclusive(pub bool);
+/// Specify if the client needs to ack messages after delivery.
 pub struct NoAck(pub bool);
+/// Specify if the server sends messages to the same connection which published them.
 pub struct NoLocal(pub bool);
 
 impl Channel {

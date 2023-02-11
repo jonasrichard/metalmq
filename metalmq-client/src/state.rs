@@ -12,14 +12,15 @@ use crate::{
     message::{self, Message},
     model::ChannelNumber,
     processor::{OutgoingFrame, WaitFor},
-    EventSignal,
+    Content, DeliveredMessage, EventSignal, MessageProperties, ReturnedMessage,
 };
 use anyhow::Result;
 use log::{debug, info};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, AMQPFrame};
-use std::collections::HashMap;
-use std::fmt;
+use metalmq_codec::{
+    codec::Frame,
+    frame::{self, AMQPFrame},
+};
+use std::{collections::HashMap, fmt};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -30,28 +31,27 @@ enum Phase {
     //    Closing
 }
 
-#[derive(Debug)]
-enum DeliveryMethod {
-    BasicDeliver {
-        consumer_tag: String,
-        delivery_tag: u64,
-        redelivered: bool,
-        exchange: String,
-        routing_key: String,
-    },
-    BasicReturn {
-        reply_code: u16,
-        reply_text: String,
-        exchange: String,
-        routing_key: String,
-    },
-}
+//#[derive(Debug)]
+//enum DeliveryMethod {
+//    BasicDeliver {
+//        consumer_tag: String,
+//        delivery_tag: u64,
+//        redelivered: bool,
+//        exchange: String,
+//        routing_key: String,
+//    },
+//    BasicReturn {
+//        reply_code: u16,
+//        reply_text: String,
+//        exchange: String,
+//        routing_key: String,
+//    },
+//}
 
 /// A content being delivered by content frames, building step by step.
 #[derive(Debug)]
 struct DeliveredContent {
     channel: u16,
-    method: DeliveryMethod,
     message: Message,
 }
 
@@ -220,7 +220,11 @@ impl ClientState {
 
     pub(crate) async fn connection_close_ok(&mut self) -> Result<()> {
         for consumer in &self.consumers {
-            consumer.1.send(ConsumerSignal::ConnectionClosed)?;
+            consumer.1.send(ConsumerSignal::ConnectionClosed {
+                reply_code: 200,
+                reply_text: "Normal close".to_string(),
+                class_method: frame::CONNECTION_CLOSE,
+            })?;
         }
 
         Ok(())
@@ -251,7 +255,11 @@ impl ClientState {
 
     pub(crate) async fn channel_close_ok(&mut self, channel: ChannelNumber) -> Result<()> {
         if let Some(sink) = self.consumers.remove(&channel) {
-            sink.send(ConsumerSignal::ChannelClosed)?;
+            sink.send(ConsumerSignal::ChannelClosed {
+                reply_code: 200,
+                reply_text: "Normal close".to_string(),
+                class_method: frame::CHANNEL_CLOSE,
+            })?;
             drop(sink);
         }
 
@@ -413,30 +421,20 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_deliver(&mut self, channel: ChannelNumber, args: frame::BasicDeliverArgs) -> Result<()> {
-        let message = Message {
-            channel,
-            body: vec![],
-            properties: message::MessageProperties::default(),
-            delivery_info: Some(message::DeliveryInfo {
-                consumer_tag: args.consumer_tag.clone(),
-                delivery_tag: args.delivery_tag.clone(),
-                routing_key: args.routing_key.clone(),
-            }),
-        };
-
-        let dc = DeliveredContent {
-            channel,
-            method: DeliveryMethod::BasicDeliver {
-                consumer_tag: args.consumer_tag,
-                delivery_tag: args.delivery_tag,
-                redelivered: args.redelivered,
-                exchange: args.exchange_name,
-                routing_key: args.routing_key,
+        let message = Message::Delivered(DeliveredMessage {
+            message: Content {
+                channel,
+                body: vec![],
+                properties: MessageProperties::default(),
             },
-            message: Message::default(),
-        };
+            consumer_tag: args.consumer_tag,
+            delivery_tag: args.delivery_tag,
+            redelivered: args.redelivered,
+            exchange: args.exchange_name,
+            routing_key: args.routing_key,
+        });
 
-        self.in_delivery.insert(channel, dc);
+        self.in_delivery.insert(channel, DeliveredContent { channel, message });
 
         Ok(())
     }
@@ -445,7 +443,7 @@ impl ClientState {
         &mut self,
         channel: ChannelNumber,
         args: frame::BasicPublishArgs,
-        message: Message,
+        message: Content,
     ) -> Result<()> {
         let (mut ch, cb) = message::to_content_frames(message);
         ch.class_id = (frame::BASIC_PUBLISH >> 16) as u16;
@@ -458,30 +456,19 @@ impl ClientState {
     }
 
     pub(crate) async fn basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
-        let message = Message {
-            channel,
-            body: vec![],
-            properties: message::MessageProperties::default(),
-            delivery_info: Some(message::DeliveryInfo {
-                consumer_tag: "".to_string(),
-                delivery_tag: 0u64,
-                routing_key: args.routing_key.clone(),
-                // FIXME exchange??? we need an enum here, too
-            }),
-        };
-
-        let dc = DeliveredContent {
-            channel,
-            method: DeliveryMethod::BasicReturn {
-                reply_code: args.reply_code,
-                reply_text: args.reply_text,
-                exchange: args.exchange_name,
-                routing_key: args.routing_key,
+        let message = Message::Returned(ReturnedMessage {
+            message: Content {
+                channel,
+                body: vec![],
+                properties: MessageProperties::default(),
             },
-            message,
-        };
+            reply_code: args.reply_code,
+            reply_text: args.reply_text,
+            exchange: args.exchange_name,
+            routing_key: args.routing_key,
+        });
 
-        self.in_delivery.insert(channel, dc);
+        self.in_delivery.insert(channel, DeliveredContent { channel, message });
 
         Ok(())
     }
@@ -495,56 +482,45 @@ impl ClientState {
     }
 
     pub(crate) async fn content_header(&mut self, ch: frame::ContentHeaderFrame) -> Result<()> {
-        if let Some(dc) = self.in_delivery.get_mut(&ch.channel) {
-            dc.message.properties = ch.into();
-        }
+        if let Some(dc) = self.in_delivery.remove(&ch.channel) {
+            let channel = ch.channel;
+            let props: MessageProperties = ch.into();
 
-        // TODO error handling
+            let message = match dc.message {
+                Message::Delivered(mut dm) => {
+                    dm.message.properties = props;
+                    Message::Delivered(dm)
+                }
+                Message::Returned(mut rm) => {
+                    rm.message.properties = props;
+                    Message::Returned(rm)
+                }
+            };
+
+            self.in_delivery.insert(channel, DeliveredContent { channel, message });
+        }
 
         Ok(())
     }
 
     pub(crate) async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> Result<()> {
-        if let Some(mut dc) = self.in_delivery.remove(&cb.channel) {
+        if let Some(dc) = self.in_delivery.remove(&cb.channel) {
             debug!("Delivered content is {:?} so far", dc);
 
             if let Some(sink) = self.consumers.get(&dc.channel) {
-                match dc.method {
-                    DeliveryMethod::BasicDeliver {
-                        consumer_tag,
-                        delivery_tag,
-                        routing_key,
-                        ..
-                    } => {
-                        dc.message.channel = cb.channel;
-                        dc.message.body = cb.body;
-                        dc.message.delivery_info = Some(message::DeliveryInfo {
-                            consumer_tag,
-                            delivery_tag,
-                            routing_key,
-                        });
+                match dc.message {
+                    Message::Delivered(mut dm) => {
+                        dm.message.body = cb.body;
 
-                        sink.send(ConsumerSignal::Delivered(dc.message)).unwrap();
+                        sink.send(ConsumerSignal::Delivered(dm)).unwrap();
                     }
-                    DeliveryMethod::BasicReturn {
-                        reply_code,
-                        reply_text,
-                        exchange,
-                        routing_key,
-                    } => {
+                    Message::Returned(rm) => {
                         self.event_sink
                             .send(EventSignal::BasicReturn {
                                 channel: dc.channel,
-                                args: frame::BasicReturnArgs {
-                                    reply_code,
-                                    reply_text,
-                                    exchange_name: exchange,
-                                    routing_key,
-                                },
+                                message: rm,
                             })
                             .unwrap();
-
-                        // TODO send content frames
                     }
                 };
 
@@ -560,8 +536,6 @@ impl ClientState {
     }
 
     pub(crate) async fn on_basic_ack(&mut self, channel: ChannelNumber, args: frame::BasicAckArgs) -> Result<()> {
-        use crate::client_api::EventSignal;
-
         self.event_sink
             .send(EventSignal::BasicAck {
                 channel,
@@ -574,13 +548,12 @@ impl ClientState {
     }
 
     pub(crate) async fn on_basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
-        use crate::client_api::EventSignal;
+        todo!("We need to collect content");
+        //self.event_sink
+        //    .send(EventSignal::BasicReturn { channel, args })
+        //    .unwrap();
 
-        self.event_sink
-            .send(EventSignal::BasicReturn { channel, args })
-            .unwrap();
-
-        Ok(())
+        //Ok(())
     }
 }
 
@@ -633,7 +606,7 @@ mod tests {
 
         let signal = consumer_stream.recv().await.unwrap();
 
-        assert!(matches!(signal, ConsumerSignal::ConnectionClosed));
+        assert!(matches!(signal, ConsumerSignal::ConnectionClosed { .. }));
     }
 
     #[tokio::test]
@@ -649,7 +622,7 @@ mod tests {
 
         let signal = consumer_stream.recv().await.unwrap();
 
-        assert!(matches!(signal, ConsumerSignal::ChannelClosed));
+        assert!(matches!(signal, ConsumerSignal::ChannelClosed { .. }));
     }
 
     #[tokio::test]

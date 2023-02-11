@@ -44,13 +44,15 @@ async fn main() -> Result<()> {
                 ConsumerSignal::Delivered(m) => {
                     received_count += 1;
 
-                    handler.basic_ack(m.delivery_info.unwrap().delivery_tag).await.unwrap();
+                    handler.basic_ack(m.delivery_tag).await.unwrap();
 
                     if received_count >= message_count {
                         break;
                     }
                 }
-                ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed | ConsumerSignal::ConnectionClosed => {}
+                ConsumerSignal::Cancelled
+                | ConsumerSignal::ChannelClosed { .. }
+                | ConsumerSignal::ConnectionClosed { .. } => {}
             }
         }
 
@@ -62,17 +64,9 @@ async fn main() -> Result<()> {
     let start = Instant::now();
 
     for _ in 0..message_count {
-        let message = Message {
-            channel: publisher.channel,
-            body: "This will be the test message what we send over multiple times"
-                .as_bytes()
-                .to_vec(),
-            ..Default::default()
-        };
+        let message = PublishedMessage::default().str("This will be the test message what we send over multiple times");
 
-        publisher
-            .basic_publish(exchange, "", message, Mandatory(false), Immediate(false))
-            .await?;
+        publisher.basic_publish(exchange, "", message).await?;
     }
 
     barrier.wait().await;

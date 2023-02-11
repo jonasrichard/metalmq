@@ -26,7 +26,7 @@ pub use dev::setup_logger;
 
 mod channel_api;
 pub use channel_api::{
-    Binding, Channel, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnused, Immediate, Mandatory, QueueDeclareOpts,
+    Binding, Channel, ExchangeDeclareOpts, ExchangeType, HeaderMatch, IfEmpty, IfUnused, QueueDeclareOpts,
 };
 
 mod client_api;
@@ -39,7 +39,7 @@ mod error;
 pub use error::ClientError;
 
 mod message;
-pub use message::{DeliveryInfo, Message, MessageProperties};
+pub use message::{Content, DeliveredMessage, MessageProperties, PublishedMessage, ReturnedMessage};
 
 mod model;
 pub use model::ChannelNumber;

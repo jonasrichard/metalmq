@@ -1,12 +1,13 @@
 use crate::{
     channel_api::Channel,
     consumer::ConsumerSignal,
+    message::ReturnedMessage,
     model::ChannelNumber,
     processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
 };
 use anyhow::{anyhow, Result};
 use log::error;
-use metalmq_codec::frame::{self, BasicReturnArgs};
+use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -26,7 +27,7 @@ pub enum EventSignal {
     /// Message cannot be published (no route or no consumer).
     BasicReturn {
         channel: ChannelNumber,
-        args: BasicReturnArgs,
+        message: ReturnedMessage,
     },
     /// Channel closed
     ChannelClose,

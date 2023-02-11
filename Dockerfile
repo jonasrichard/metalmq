@@ -2,7 +2,7 @@ FROM rust:1-buster as builder
 
 WORKDIR /src
 
-COPY certs.pem /etc/ssl/certs/
+#COPY certs.pem /etc/ssl/certs/
 
 # Speed up build, download and build deps if Cargo changes
 COPY Cargo.* /src/
@@ -18,7 +18,6 @@ COPY metalmq-client/Cargo.* /src/metalmq-client/
 RUN mkdir -p /src/metalmq-client/src && \
     echo "fn main() {}" > /src/metalmq-client/src/lib.rs
 
-COPY benches /src/benches/
 COPY examples /src/examples/
 
 RUN SSL_CERT_FILE=/etc/ssl/certs/certs.pem cargo fetch

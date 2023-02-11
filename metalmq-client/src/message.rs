@@ -4,16 +4,12 @@ use metalmq_codec::frame::{AMQPFieldValue, ContentBodyFrame, ContentHeaderFrame,
 
 use crate::ChannelNumber;
 
-/// A message received from the server.
-///
-/// With the `consumer_tag` and `delivery_tag` a client can send back acknowledgements to the
-/// server, saying that the message was successfully arrived.
+/// A message sent to the server or received from the server.
 #[derive(Debug, Default)]
-pub struct Message {
+pub struct Content {
     pub channel: ChannelNumber,
     pub body: Vec<u8>,
     pub properties: MessageProperties,
-    pub delivery_info: Option<DeliveryInfo>,
 }
 
 #[derive(Debug, Default)]
@@ -34,14 +30,47 @@ pub struct MessageProperties {
     pub app_id: Option<String>,
 }
 
+/// A delivered message.
+///
+/// With the `consumer_tag` and `delivery_tag` a client can send back acknowledgements to the
+/// server, saying that the message was successfully arrived.
 #[derive(Debug, Default)]
-pub struct DeliveryInfo {
+pub struct DeliveredMessage {
+    pub message: Content,
     pub consumer_tag: String,
     pub delivery_tag: u64,
+    pub redelivered: bool,
+    pub exchange: String,
     pub routing_key: String,
 }
 
-pub(crate) fn to_content_frames(message: Message) -> (ContentHeaderFrame, ContentBodyFrame) {
+/// A message returned to the client.
+#[derive(Debug, Default)]
+pub struct ReturnedMessage {
+    pub message: Content,
+    // TODO use enums here
+    pub reply_code: u16,
+    pub reply_text: String,
+    pub exchange: String,
+    pub routing_key: String,
+}
+
+/// A message published by the client.
+#[derive(Debug, Default)]
+pub struct PublishedMessage {
+    pub message: Content,
+    pub mandatory: bool,
+    pub immediate: bool,
+}
+
+/// Internally it is comfortable to handle delivered or returned message in the same variable.
+#[derive(Debug)]
+pub(crate) enum Message {
+    Delivered(DeliveredMessage),
+    Returned(ReturnedMessage),
+}
+
+pub(crate) fn to_content_frames(message: Content) -> (ContentHeaderFrame, ContentBodyFrame) {
     let mut headers = HashMap::new();
 
     for (k, v) in message.properties.headers {
@@ -82,5 +111,35 @@ pub(crate) fn to_content_frames(message: Message) -> (ContentHeaderFrame, Conten
 impl From<ContentHeaderFrame> for MessageProperties {
     fn from(value: ContentHeaderFrame) -> Self {
         MessageProperties::default()
+    }
+}
+
+impl From<&str> for PublishedMessage {
+    fn from(value: &str) -> Self {
+        Self {
+            message: Content {
+                channel: 0u16,
+                body: value.as_bytes().to_vec(),
+                properties: MessageProperties::default(),
+            },
+            ..Default::default()
+        }
+    }
+}
+
+impl PublishedMessage {
+    pub fn str(mut self, value: &str) -> Self {
+        self.message.body = value.as_bytes().to_vec();
+        self
+    }
+
+    pub fn mandatory(mut self, value: bool) -> Self {
+        self.mandatory = value;
+        self
+    }
+
+    pub fn immediate(mut self, value: bool) -> Self {
+        self.immediate = value;
+        self
     }
 }

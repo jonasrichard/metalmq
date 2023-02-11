@@ -2,7 +2,7 @@ use crate::{
     client_api::{ConnectionSink, ConsumerSink},
     client_error, dev,
     message::Message,
-    state,
+    state, Content,
 };
 // TODO use thiserror here not anyhow
 use anyhow::Result;
@@ -34,7 +34,7 @@ pub(crate) enum Param {
     },
     Frame(frame::AMQPFrame),
     Consume(frame::AMQPFrame, ConsumerSink),
-    Publish(frame::AMQPFrame, Message),
+    Publish(frame::AMQPFrame, Content),
 }
 
 pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;

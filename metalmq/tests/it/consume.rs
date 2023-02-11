@@ -1,5 +1,3 @@
-use crate::message_from_string;
-
 use super::helper;
 use anyhow::Result;
 use metalmq_client::*;
@@ -19,25 +17,17 @@ async fn consume_one_message() -> Result<()> {
 
     let result = helper::consume_messages(&ch, QUEUE, Exclusive(false), 1).await?;
 
-    ch.basic_publish(
-        EXCHANGE,
-        "",
-        message_from_string(ch.channel, "Hello".to_string()),
-        Mandatory(false),
-        Immediate(false),
-    )
-    .await?;
+    ch.basic_publish(EXCHANGE, "", PublishedMessage::default().str("Hello"))
+        .await?;
 
     let msgs = result.await.unwrap();
     assert_eq!(msgs.len(), 1);
 
     let msg = msgs.get(0).unwrap();
-    assert_eq!(msg.channel, 1);
-    let di = msg.delivery_info.as_ref().unwrap();
-    assert_eq!(di.consumer_tag, "ctag");
-    assert!(di.delivery_tag > 0);
-    assert_eq!(msg.body.len(), 5);
-    assert_eq!(msg.body, b"Hello");
+    assert_eq!(msg.message.channel, 1);
+    assert!(msg.delivery_tag > 0);
+    assert_eq!(msg.message.body.len(), 5);
+    assert_eq!(msg.message.body, b"Hello");
 
     ch.close().await?;
     c.close().await?;

@@ -1,8 +1,6 @@
-use crate::message_from_string;
-
 use super::helper;
 use anyhow::Result;
-use metalmq_client::{ExchangeDeclareOpts, ExchangeType, Immediate, Mandatory};
+use metalmq_client::*;
 
 #[tokio::test]
 async fn passive_exchange_existing_exchange() -> Result<()> {
@@ -46,22 +44,10 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     )
     .await?;
 
-    ch1.basic_publish(
-        "xcgh-shared",
-        "",
-        message_from_string(ch1.channel, "Content".to_string()),
-        Mandatory(false),
-        Immediate(false),
-    )
-    .await?;
-    ch2.basic_publish(
-        "xcgh-shared",
-        "",
-        message_from_string(ch2.channel, "Content".to_string()),
-        Mandatory(false),
-        Immediate(false),
-    )
-    .await?;
+    ch1.basic_publish("xchg-shared", "", PublishedMessage::default().str("Content"))
+        .await?;
+    ch2.basic_publish("xchg-shared", "", PublishedMessage::default().str("Content"))
+        .await?;
 
     ch1.close().await?;
     ch2.close().await?;

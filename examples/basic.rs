@@ -19,15 +19,9 @@ async fn main() -> Result<()> {
         .queue_bind(queue, exchange, Binding::Direct("".to_string()))
         .await?;
 
-    let message = Message {
-        channel: channel.channel,
-        body: "Hey man".as_bytes().to_vec(),
-        ..Default::default()
-    };
+    let message = PublishedMessage::default().str("Hey man");
 
-    channel
-        .basic_publish(exchange, "no-key", message, Mandatory(false), Immediate(false))
-        .await?;
+    channel.basic_publish(exchange, "no-key", message).await?;
 
     channel.close().await?;
     client.close().await?;
