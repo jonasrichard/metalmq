@@ -1,11 +1,14 @@
 use anyhow::Result;
-use clap::{Arg, Command};
+use clap::Parser;
 use serde_derive::Deserialize;
 
 pub const MAX_FRAME_SIZE: usize = 131_072;
 pub const MAX_CHANNELS_PER_CONNECTION: u16 = 2047;
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
 pub(crate) struct CliConfig {
+    #[arg(short, long, default_value_t = String::from("metalmq.toml"))]
     pub(crate) config_file_path: String,
 }
 
@@ -26,20 +29,5 @@ pub(crate) fn parse_config(path: &str) -> Result<Config> {
 }
 
 pub(crate) fn cli() -> CliConfig {
-    let matches = Command::new("MetalMQ server")
-        .version("0.2.1")
-        .author("Richard Jonas <richard.jonas.76@gmail.com>")
-        .about("AMQP compatible messaging queue server")
-        .arg(
-            Arg::new("config")
-                .short('c')
-                .value_name("FILE")
-                .help("Path to the config file")
-                .takes_value(true),
-        )
-        .get_matches();
-
-    CliConfig {
-        config_file_path: matches.value_of("config").unwrap_or("metalmq.toml").to_string(),
-    }
+    CliConfig::parse()
 }

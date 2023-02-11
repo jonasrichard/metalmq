@@ -22,7 +22,6 @@
 //! }
 //! ```
 mod dev;
-pub use dev::setup_logger;
 
 mod channel_api;
 pub use channel_api::{

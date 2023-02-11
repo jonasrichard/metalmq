@@ -15,7 +15,6 @@ use crate::{
     Content, DeliveredMessage, EventSignal, MessageProperties, ReturnedMessage,
 };
 use anyhow::Result;
-use log::{debug, info};
 use metalmq_codec::{
     codec::Frame,
     frame::{self, AMQPFrame},
@@ -147,8 +146,6 @@ impl ClientState {
     }
 
     pub(crate) async fn connection_start(&mut self, args: frame::ConnectionStartArgs) -> Result<()> {
-        info!("Server supported mechanisms: {}", args.mechanisms);
-
         //caps.insert("basic.nack".to_string(), AMQPFieldValue::Bool(true));
         //caps.insert("connection.blocked".to_string(), AMQPFieldValue::Bool(true));
         //caps.insert("consumer_cancel_notify".to_string(), AMQPFieldValue::Bool(true));
@@ -505,8 +502,6 @@ impl ClientState {
 
     pub(crate) async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> Result<()> {
         if let Some(dc) = self.in_delivery.remove(&cb.channel) {
-            debug!("Delivered content is {:?} so far", dc);
-
             if let Some(sink) = self.consumers.get(&dc.channel) {
                 match dc.message {
                     Message::Delivered(mut dm) => {

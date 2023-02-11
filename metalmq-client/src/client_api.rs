@@ -6,7 +6,6 @@ use crate::{
     processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
 };
 use anyhow::{anyhow, Result};
-use log::error;
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -73,7 +72,7 @@ async fn create_connection(url: &str, conn_sink: ConnectionSink) -> Result<Clien
 
             tokio::spawn(async move {
                 if let Err(e) = processor::start_loop_and_output(socket, receiver, conn_sink).await {
-                    error!("error: {:?}", e);
+                    eprintln!("error: {:?}", e);
                 }
             });
 

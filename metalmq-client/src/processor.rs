@@ -1,8 +1,6 @@
 use crate::{
     client_api::{ConnectionSink, ConsumerSink},
-    client_error, dev,
-    message::Message,
-    state, Content,
+    client_error, dev, state, Content,
 };
 // TODO use thiserror here not anyhow
 use anyhow::Result;
@@ -10,7 +8,6 @@ use futures::{
     stream::{SplitSink, Stream, StreamExt},
     SinkExt,
 };
-use log::{debug, error, trace};
 use metalmq_codec::codec::{AMQPCodec, Frame};
 use metalmq_codec::frame;
 use std::collections::HashMap;
@@ -85,7 +82,7 @@ pub(crate) async fn start_loop_and_output(
     // I/O output port, handles outgoing frames sent via a channel.
     tokio::spawn(async move {
         if let Err(e) = handle_outgoing(&mut sink, &mut out_rx).await {
-            error!("Error {:?}", e);
+            eprintln!("Error {:?}", e);
         }
     });
 
@@ -104,21 +101,17 @@ pub(crate) async fn socket_loop(
             // Receiving incoming frames. Here we can handle any IO error and the
             // closing of the input stream (server closes the stream).
             incoming = frame_stream.next() => {
-                trace!("Incoming frame {:?}", incoming);
-
                 match incoming {
                     Some(Ok(Frame::Frame(frame))) => {
-                        debug!("Incoming frame {:?}", frame);
-
                         notify_waiter(&frame, &feedback).unwrap();
 
                         if let Err(e) = handle_in_frame(frame, &mut client_state).await {
-                            error!("Error {:?}", e);
+                            eprintln!("Error {:?}", e);
                         }
                     }
                     Some(Ok(Frame::Frames(_))) => unimplemented!(),
                     Some(Err(e)) => {
-                        error!("Error {:?}", e);
+                        eprintln!("Error {:?}", e);
                     },
                     None => {
                         break;
@@ -128,10 +121,8 @@ pub(crate) async fn socket_loop(
             req = command_stream.recv() => {
                 match req {
                     Some(request) => {
-                        trace!("Client request {:?}", request);
-
                         if let Err(e) = handle_request(request, &mut client_state, &feedback).await {
-                            error!("Error {:?}", e);
+                            eprintln!("Error {:?}", e);
                         }
                     },
                     None => {
@@ -151,8 +142,6 @@ async fn handle_outgoing(
     outgoing: &mut mpsc::Receiver<OutgoingFrame>,
 ) -> Result<()> {
     while let Some(f) = outgoing.recv().await {
-        trace!("Sending out: {:?}", f);
-
         let OutgoingFrame { frame, written } = f;
 
         sink.send(frame).await.unwrap();
@@ -229,8 +218,6 @@ fn register_wait_for(feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>, channel
 /// and sends back the error to a random waiter. (Sorry, if I have a better idea, I fix this.)
 fn notify_waiter(frame: &frame::AMQPFrame, feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>) -> Result<()> {
     use frame::AMQPFrame;
-
-    trace!("Notify waiter by {:?}", frame);
 
     match frame {
         AMQPFrame::Method(_, frame::CONNECTION_CLOSE, frame::MethodFrameArgs::ConnectionClose(args)) => {
@@ -330,8 +317,6 @@ async fn handle_out_frame(
 ) -> Result<()> {
     use frame::MethodFrameArgs::*;
 
-    debug!("Outgoing frame {:?}", ma);
-
     match ma {
         ConnectionClose(args) => cs.connection_close(args).await,
         ChannelOpen => cs.channel_open(channel).await,
@@ -350,8 +335,6 @@ async fn handle_out_frame(
 }
 pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
-
-    log::trace!("Sending out a sync frame {:?}", f);
 
     dev::send_timeout(
         sink,

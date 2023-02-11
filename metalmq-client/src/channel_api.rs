@@ -1,10 +1,10 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
-use crate::message::{Message, PublishedMessage};
+use crate::message::PublishedMessage;
 use crate::model::ChannelNumber;
+use crate::processor;
 use crate::processor::{ClientRequest, ClientRequestSink, Param, WaitFor};
-use crate::{processor, Content};
 use metalmq_codec::frame;
 
 /// A channel is the main method of communicating with an AMQP server. Channels can be created on
