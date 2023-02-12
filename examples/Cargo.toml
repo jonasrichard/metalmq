@@ -9,7 +9,7 @@ anyhow = "1.0"
 #console-subscriber = { version = "0", path="../../../rust/console/console-subscriber" }
 env_logger = "0.10"
 log = "0.4"
-metalmq-client = { version = "0.2", path = "../metalmq-client" }
+metalmq-client = { version = "0.3", path = "../metalmq-client" }
 rand = "0"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 

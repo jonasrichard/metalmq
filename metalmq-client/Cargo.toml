@@ -1,12 +1,12 @@
 [package]
 name = "metalmq-client"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
 edition = "2021"
 license = "Apache-2.0"
 keywords = ["amqp", "messaging"]
 repository = "https://github.com/jonasrichard/metalmq"
-description = "IromMQ client library (AMQP 0.9)"
+description = "MetalMQ client library (AMQP 0.9)"
 
 [features]
 default = []
@@ -15,12 +15,9 @@ integration-tests = []
 [dependencies]
 anyhow = "1.0"
 bytes = "1"
-#env_logger = "0.10"
 futures = "0.3"
-metalmq-codec = { version = "0.2", path = "../metalmq-codec" }
-#log = "0.4"
+metalmq-codec = { version = "0.3", path = "../metalmq-codec" }
 rand = "0"
-#termcolor = "1.1"
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["codec"] }
