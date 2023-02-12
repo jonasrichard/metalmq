@@ -3,7 +3,6 @@ use tokio::sync::mpsc;
 use crate::{
     client::{state::Connection, tests::to_runtime_error, ConnectionError},
     exchange::manager::ExchangeManagerSink,
-    message::Message,
     queue::manager::QueueManagerSink,
     tests::recv_timeout,
     Context,

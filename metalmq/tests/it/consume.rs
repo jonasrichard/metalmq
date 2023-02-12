@@ -7,8 +7,9 @@ async fn consume_one_message() -> Result<()> {
     const EXCHANGE: &str = "xchg-consume";
     const QUEUE: &str = "q-consume";
 
-    helper::delete_queue(QUEUE).await?;
-    helper::delete_exchange(EXCHANGE).await?;
+    // Client should not attempt to delete non-existing exchanges and queues -> 404
+    //helper::delete_queue(QUEUE).await?;
+    //helper::delete_exchange(EXCHANGE).await?;
 
     let mut c = helper::default().connect().await?;
 
