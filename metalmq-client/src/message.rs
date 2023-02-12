@@ -44,6 +44,17 @@ pub struct DeliveredMessage {
     pub routing_key: String,
 }
 
+/// A message get by `Basic.Get`.
+#[derive(Debug, Default)]
+pub struct GetMessage {
+    pub message: Content,
+    pub delivery_tag: u64,
+    pub redelivered: bool,
+    pub exchange: String,
+    pub routing_key: String,
+    pub message_count: u32,
+}
+
 /// A message returned to the client.
 #[derive(Debug, Default)]
 pub struct ReturnedMessage {
@@ -67,6 +78,7 @@ pub struct PublishedMessage {
 #[derive(Debug)]
 pub(crate) enum Message {
     Delivered(DeliveredMessage),
+    Get(GetMessage),
     Returned(ReturnedMessage),
 }
 

@@ -9,7 +9,7 @@
 use crate::{
     client_api::{ConnectionSink, ConsumerSink, GetSink},
     consumer::{ConsumerSignal, GetSignal},
-    message::{self, Message},
+    message::{self, GetMessage, Message},
     model::ChannelNumber,
     processor::{OutgoingFrame, WaitFor},
     Content, DeliveredMessage, EventSignal, MessageProperties, ReturnedMessage,
@@ -358,6 +358,7 @@ impl ClientState {
         Ok(())
     }
 
+    /// Sent by the client
     pub(crate) async fn basic_ack(
         &mut self,
         channel: ChannelNumber,
@@ -382,6 +383,19 @@ impl ClientState {
         Ok(())
     }
 
+    /// Sent by the server
+    pub(crate) async fn on_basic_ack(&mut self, channel: ChannelNumber, args: frame::BasicAckArgs) -> Result<()> {
+        self.event_sink
+            .send(EventSignal::BasicAck {
+                channel,
+                delivery_tag: args.delivery_tag,
+                multiple: args.multiple,
+            })
+            .unwrap();
+
+        Ok(())
+    }
+
     pub(crate) async fn basic_consume(
         &mut self,
         channel: ChannelNumber,
@@ -397,10 +411,29 @@ impl ClientState {
         Ok(())
     }
 
+    /// Sent by the server
+    pub(crate) async fn on_basic_cancel(&mut self, channel: ChannelNumber, args: frame::BasicCancelArgs) -> Result<()> {
+        if let Some(consumer) = self.consumers.remove(&channel) {
+            consumer.send(ConsumerSignal::Cancelled).unwrap();
+
+            // FIXME not clear how the Channel will be unregistered from the Client
+        }
+
+        send_out(
+            &self.outgoing,
+            Frame::Frame(frame::BasicCancelOkArgs::new(&args.consumer_tag).frame(channel)),
+        )
+        .await
+        .unwrap();
+
+        Ok(())
+    }
+
     pub(crate) async fn basic_consume_ok(&mut self, _args: frame::BasicConsumeOkArgs) -> Result<()> {
         Ok(())
     }
 
+    /// Sent by the client (the server callback is `on_basic_cancel`).
     pub(crate) async fn basic_cancel(&mut self, channel: ChannelNumber, args: frame::BasicCancelArgs) -> Result<()> {
         send_out(&self.outgoing, Frame::Frame(args.frame(channel))).await?;
 
@@ -453,27 +486,26 @@ impl ClientState {
         Ok(())
     }
 
-    pub(crate) async fn on_basic_get_ok(&mut self, channel: ChannelNumber, args: frame::BasicGetOkArgs) -> Result<()> {
-        // FIXME or not. Question: if client gets the GetOk but it doesn't Ack it, server may send
-        // another GetOk but since we remove the passive consumer, we will swallow that other GetOk
-        // which is probably not good.
-        // How long we need to keep a passive consumer here?
-        if let Some(pc_sink) = self.passive_consumers.remove(&channel) {
-            pc_sink
-                .send(GetSignal::GetOk {
-                    delivery_tag: args.delivery_tag,
-                    redelivered: args.redelivered,
-                    exchange_name: args.exchange_name,
-                    routing_key: args.routing_key,
-                    message_count: args.message_count,
-                })
-                .unwrap();
-        }
+    pub(crate) async fn basic_get_ok(&mut self, channel: ChannelNumber, args: frame::BasicGetOkArgs) -> Result<()> {
+        let message = Message::Get(GetMessage {
+            message: Content {
+                channel,
+                body: vec![],
+                properties: MessageProperties::default(),
+            },
+            delivery_tag: args.delivery_tag,
+            redelivered: args.redelivered,
+            exchange: args.exchange_name.clone(),
+            routing_key: args.routing_key.clone(),
+            message_count: args.message_count,
+        });
+
+        self.in_delivery.insert(channel, DeliveredContent { channel, message });
 
         Ok(())
     }
 
-    pub(crate) async fn on_basic_get_empty(&mut self, channel: ChannelNumber) -> Result<()> {
+    pub(crate) async fn basic_get_empty(&mut self, channel: ChannelNumber) -> Result<()> {
         if let Some(pc_sink) = self.passive_consumers.remove(&channel) {
             pc_sink.send(GetSignal::GetEmpty).unwrap();
         }
@@ -517,7 +549,6 @@ impl ClientState {
 
         Ok(())
     }
-
     pub(crate) async fn confirm_select(&mut self, channel: ChannelNumber) -> Result<()> {
         send_out(&self.outgoing, Frame::Frame(frame::confirm_select(channel)))
             .await
@@ -536,6 +567,10 @@ impl ClientState {
                     dm.message.properties = props;
                     Message::Delivered(dm)
                 }
+                Message::Get(mut gm) => {
+                    gm.message.properties = props;
+                    Message::Get(gm)
+                }
                 Message::Returned(mut rm) => {
                     rm.message.properties = props;
                     Message::Returned(rm)
@@ -550,53 +585,40 @@ impl ClientState {
 
     pub(crate) async fn content_body(&mut self, cb: frame::ContentBodyFrame) -> Result<()> {
         if let Some(dc) = self.in_delivery.remove(&cb.channel) {
-            if let Some(sink) = self.consumers.get(&dc.channel) {
-                match dc.message {
-                    Message::Delivered(mut dm) => {
-                        dm.message.body = cb.body;
+            match dc.message {
+                Message::Delivered(mut dm) => {
+                    dm.message.body = cb.body;
 
+                    if let Some(sink) = self.consumers.get(&dc.channel) {
                         sink.send(ConsumerSignal::Delivered(dm)).unwrap();
                     }
-                    Message::Returned(rm) => {
-                        self.event_sink
-                            .send(EventSignal::BasicReturn {
-                                channel: dc.channel,
-                                message: rm,
-                            })
-                            .unwrap();
-                    }
-                };
+                }
+                Message::Returned(mut rm) => {
+                    rm.message.body = cb.body;
 
-                // FIXME here if the channel is full, this call yields. The problem is that the
-                // consumer is sending back an ack which should be processed by the processor
-                // but since the async call yields here, that select is never reached.
-                // A solution can be to apply backpressure and in ack mode there shouldn't be
-                // more than capacity number of unacked messages.
+                    self.event_sink
+                        .send(EventSignal::BasicReturn {
+                            channel: dc.channel,
+                            message: rm,
+                        })
+                        .unwrap();
+                }
+                Message::Get(mut gm) => {
+                    gm.message.body = cb.body;
+
+                    if let Some(pc_sink) = self.passive_consumers.remove(&cb.channel) {
+                        pc_sink.send(GetSignal::GetOk(gm)).unwrap();
+                    }
+                }
             }
+
+            // FIXME or not. Question: if client gets the GetOk but it doesn't Ack it, server may send
+            // another GetOk but since we remove the passive consumer, we will swallow that other GetOk
+            // which is probably not good.
+            // How long we need to keep a passive consumer here?
         }
 
         Ok(())
-    }
-
-    pub(crate) async fn on_basic_ack(&mut self, channel: ChannelNumber, args: frame::BasicAckArgs) -> Result<()> {
-        self.event_sink
-            .send(EventSignal::BasicAck {
-                channel,
-                delivery_tag: args.delivery_tag,
-                multiple: args.multiple,
-            })
-            .unwrap();
-
-        Ok(())
-    }
-
-    pub(crate) async fn on_basic_return(&mut self, channel: ChannelNumber, args: frame::BasicReturnArgs) -> Result<()> {
-        todo!("We need to collect content");
-        //self.event_sink
-        //    .send(EventSignal::BasicReturn { channel, args })
-        //    .unwrap();
-
-        //Ok(())
     }
 }
 

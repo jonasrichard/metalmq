@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::channel_api::Channel;
 use crate::client_error;
-use crate::message::DeliveredMessage;
+use crate::message::{DeliveredMessage, GetMessage};
 use crate::model;
 use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
 use anyhow::Result;
@@ -29,13 +29,7 @@ pub enum ConsumerSignal {
 /// A signal for handling result of a `Basic.Get` from the server.
 #[derive(Debug)]
 pub enum GetSignal {
-    GetOk {
-        delivery_tag: u64,
-        redelivered: bool,
-        exchange_name: String,
-        routing_key: String,
-        message_count: u32,
-    },
+    GetOk(GetMessage),
     GetEmpty,
     ChannelClosed {
         reply_code: u16,
@@ -65,7 +59,10 @@ pub struct ConsumerHandler {
 
 /// Handler for getting the result of a `Basic.Get`, a passive consume.
 pub struct GetHandler {
+    /// The channel on which the client doing the get operation.
     pub channel: model::ChannelNumber,
+    /// The client should listen the signal stream for the results of the `Basic.Get`. It may get
+    /// `GetOk` with the message itself or `GetEmpty` if there is no message in the queue.
     pub signal_stream: mpsc::UnboundedReceiver<GetSignal>,
     client_sink: ClientRequestSink,
 }

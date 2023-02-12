@@ -43,26 +43,18 @@ async fn get_with_ack(client: &mut Client, channel: &mut Channel) {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
     let mut handler = get_channel.basic_get("q-get", NoAck(false)).await.unwrap();
 
     let get_signal = dbg!(handler.receive(Duration::from_secs(1)).await.unwrap());
     assert!(matches!(get_signal, GetSignal::GetOk { .. }));
 
-    if let GetSignal::GetOk {
-        delivery_tag,
-        redelivered,
-        exchange_name,
-        routing_key,
-        ..
-    } = get_signal
-    {
-        assert!(!redelivered);
-        assert_eq!(exchange_name, "x-get");
-        assert_eq!(routing_key, "key");
+    if let GetSignal::GetOk(gm) = get_signal {
+        assert!(!gm.redelivered);
+        assert_eq!(gm.exchange, "x-get");
+        assert_eq!(gm.routing_key, "key");
+        assert_eq!(gm.message.body, "Get #1".as_bytes().to_vec());
 
-        handler.basic_ack(delivery_tag).await.unwrap();
+        handler.basic_ack(gm.delivery_tag).await.unwrap();
     }
 
     handler.close().await.unwrap();
