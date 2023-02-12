@@ -1,21 +1,59 @@
-use crate::client::state::{ActivelyConsumedQueue, Connection, PublishedContent};
-use crate::client::{channel_error, ChannelError, ConnectionError};
-use crate::exchange::handler::ExchangeCommand;
-use crate::queue::handler as queue_handler;
-use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
-use crate::{client, message};
-use crate::{handle_error, logerr, Result};
-use log::{error, warn};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, Channel};
-use std::sync::Arc;
-use tokio::sync::oneshot;
-use tokio::time;
+//use crate::{
+//    client::{channel_error, ChannelError, ConnectionError, state::{ActivelyConsumedQueue, Connection, PublishedContent}}};
+//use crate::exchange::{manager as em, handler::ExchangeCommand};
+//use crate::queue::handler as queue_handler;
+//use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
+//use crate::{client, message};
+//use crate::{handle_error, logerr, Result};
 
-use super::PassivelyConsumedQueue;
+//use log::{error, warn};
+//use metalmq_codec::{codec::Frame, frame::{self, Channel}};
+//use std::sync::Arc;
+//use tokio::sync::oneshot;
+//use tokio::time;
+
+//use super::PassivelyConsumedQueue;
+
+use std::{sync::Arc, time::Duration};
+
+use log::{error, warn};
+use metalmq_codec::{
+    codec::Frame,
+    frame::{self, Channel},
+};
+use tokio::sync::oneshot;
+
+use crate::{
+    client::{self, channel_error, state::Connection, ChannelError, ConnectionError},
+    exchange::{handler::ExchangeCommand, manager as em},
+    handle_error, logerr, message,
+    queue::{
+        handler as queue_handler,
+        manager::{self as qm, QueueCancelConsume, QueueConsumeCommand},
+    },
+    Result,
+};
+
+use super::{ActivelyConsumedQueue, PassivelyConsumedQueue, PublishedContent};
 
 impl Connection {
     pub async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> Result<()> {
+        if !self.exchanges.contains_key(&args.exchange_name) {
+            match em::get_exchange_sink(
+                &self.em,
+                em::GetExchangeSinkQuery {
+                    exchange_name: args.exchange_name.clone(),
+                },
+            )
+            .await
+            {
+                Some(sink) => {
+                    self.exchanges.insert(args.exchange_name.clone(), sink);
+                }
+                None => warn!("Publishing to non-existing exchange {args:?}"),
+            };
+        }
+
         // TODO check if there is in flight content in the channel -> error
         self.in_flight_contents.insert(
             channel,
@@ -109,7 +147,7 @@ impl Connection {
                             consumer_tag: cq.consumer_tag.clone(),
                             delivery_tag: args.delivery_tag,
                         },
-                        time::Duration::from_secs(1),
+                        Duration::from_secs(1),
                     )
                     .await?;
             }
@@ -352,7 +390,7 @@ impl Connection {
                             outgoing: self.outgoing.clone(),
                         };
                         // TODO is this the correct way of returning Err(_)
-                        logerr!(ch.send_timeout(cmd, time::Duration::from_secs(1)).await);
+                        logerr!(ch.send_timeout(cmd, Duration::from_secs(1)).await);
                     }
                     None => {
                         if msg.mandatory {

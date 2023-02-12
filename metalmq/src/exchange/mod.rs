@@ -31,6 +31,18 @@ pub struct Exchange {
     pub internal: bool,
 }
 
+impl Exchange {
+    pub fn name(mut self, value: &str) -> Self {
+        self.name = value.to_string();
+        self
+    }
+
+    pub fn exchange_type(mut self, value: ExchangeType) -> Self {
+        self.exchange_type = value;
+        self
+    }
+}
+
 /// Convert String to ExchangeType
 impl FromStr for ExchangeType {
     type Err = ();

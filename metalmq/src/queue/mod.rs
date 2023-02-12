@@ -18,6 +18,13 @@ pub struct Queue {
     pub auto_delete: bool,
 }
 
+impl Queue {
+    pub fn name(mut self, value: &str) -> Self {
+        self.name = value.to_string();
+        self
+    }
+}
+
 impl Default for Queue {
     fn default() -> Queue {
         Queue {

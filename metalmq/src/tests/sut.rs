@@ -2,8 +2,14 @@ use tokio::sync::mpsc;
 
 use crate::{
     client::{state::Connection, tests::to_runtime_error, ConnectionError},
-    exchange::manager::ExchangeManagerSink,
-    queue::manager::QueueManagerSink,
+    exchange::{
+        manager::{self as em, ExchangeManagerSink},
+        Exchange, ExchangeType,
+    },
+    queue::{
+        manager::{self as qm, QueueManagerSink},
+        Queue,
+    },
     tests::recv_timeout,
     Context,
 };
@@ -20,14 +26,94 @@ use metalmq_codec::{
 pub struct TestCase {
     em: ExchangeManagerSink,
     qm: QueueManagerSink,
+    setup_tx: mpsc::Sender<Frame>,
+    setup_rx: mpsc::Receiver<Frame>,
 }
 
 impl TestCase {
-    fn new() -> Self {
+    async fn new() -> Self {
         let em = crate::exchange::manager::start();
         let qm = crate::queue::manager::start(em.clone());
+        let (setup_tx, setup_rx) = mpsc::channel(128);
 
-        Self { em, qm }
+        Self {
+            em,
+            qm,
+            setup_tx,
+            setup_rx,
+        }
+        .setup()
+        .await
+    }
+
+    async fn setup(mut self) -> Self {
+        self.exchange_declare("x-direct", ExchangeType::Direct).await;
+        self.exchange_declare("x-fanout", ExchangeType::Fanout).await;
+        self.exchange_declare("x-topic", ExchangeType::Topic).await;
+        self.exchange_declare("x-headers", ExchangeType::Headers).await;
+
+        self.queue_declare("q-direct").await;
+
+        self.queue_bind("q-direct", "x-direct", "magic-key").await;
+
+        while let Ok(_) = self.setup_rx.try_recv() {}
+
+        self
+    }
+
+    async fn exchange_declare(&self, name: &str, exchange_type: ExchangeType) {
+        em::declare_exchange(
+            &self.em,
+            em::DeclareExchangeCommand {
+                channel: 1,
+                exchange: Exchange::default().name(name).exchange_type(exchange_type),
+                passive: false,
+                outgoing: self.setup_tx.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn queue_declare(&self, name: &str) {
+        qm::declare_queue(
+            &self.qm,
+            qm::QueueDeclareCommand {
+                queue: Queue::default().name(name),
+                conn_id: "does-not-matter".to_string(),
+                channel: 1,
+                passive: false,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) {
+        let sink = qm::get_command_sink(
+            &self.qm,
+            qm::GetQueueSinkQuery {
+                channel: 1,
+                queue_name: queue_name.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        em::bind_queue(
+            &self.em,
+            em::BindQueueCommand {
+                conn_id: "does-not-matter".to_string(),
+                channel: 1,
+                exchange_name: exchange_name.to_string(),
+                queue_name: queue_name.to_string(),
+                routing_key: routing_key.to_string(),
+                args: None,
+                queue_sink: sink,
+            },
+        )
+        .await
+        .unwrap();
     }
 
     fn new_client(&self) -> (Connection, mpsc::Receiver<Frame>) {
@@ -74,7 +160,7 @@ pub fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
 
 #[tokio::test]
 async fn bind_queue_with_validation() {
-    let tc = TestCase::new();
+    let tc = TestCase::new().await;
     let (mut client, mut client_rx) = tc.new_client();
 
     // Normal exchange declaration sends back ExchangeDeclareOk
@@ -115,45 +201,40 @@ async fn bind_queue_with_validation() {
 
 #[tokio::test]
 async fn basic_publish_mandatory_message() {
-    let tc = TestCase::new();
+    let tc = TestCase::new().await;
     let (mut client, mut client_rx) = tc.new_client();
 
-    let args = ExchangeDeclareArgs::default()
-        .exchange_name("mandatory")
-        .exchange_type("direct");
-    client.exchange_declare(1u16, args).await.unwrap();
-    // ExchangeDeclareOk
-    recv_timeout(&mut client_rx).await.unwrap();
-
     // Publish message to an exchange which doesn't route to queues -> channel error
-    let publish = BasicPublishArgs::new("mandatory").mandatory(true);
+    let publish = BasicPublishArgs::new("x-direct")
+        .routing_key("invalid-key")
+        .mandatory(true);
 
     client.basic_publish(1u16, publish).await.unwrap();
 
     send_content(&mut client, b"A simple message").await;
 
-    // Since there is no queue bound and message is mandatory, server sends back the message with a
-    // Basic.Return frame
+    // Since the routing key is not matching and message is mandatory, server sends back the message
+    // with a Basic.Return frame
     let return_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
 
     assert!(matches!(
-        dbg!(return_frames.get(0).unwrap()),
+        dbg!(return_frames).get(0).unwrap(),
         frame::AMQPFrame::Method(1u16, _, frame::MethodFrameArgs::BasicReturn(_))
     ));
 
-    let args = QueueDeclareArgs::default().name("mandatory-queue");
-    client.queue_declare(2u16, args).await.unwrap();
-    // QueueDeclareOk
-    recv_timeout(&mut client_rx).await.unwrap();
-
-    let args = QueueBindArgs::new("mandatory-queue", "mandatory");
-    client.queue_bind(2u16, args).await.unwrap();
-    // QueueBindOk
-    recv_timeout(&mut client_rx).await.unwrap();
+    client
+        .basic_publish(
+            1u16,
+            BasicPublishArgs::new("x-direct")
+                .routing_key("magic-key")
+                .mandatory(true),
+        )
+        .await
+        .unwrap();
 
     send_content(&mut client, b"Another message").await;
 
     // No message is expected as a response
-    let expected_timeout = recv_timeout(&mut client_rx).await;
+    let expected_timeout = dbg!(recv_timeout(&mut client_rx).await);
     assert!(expected_timeout.is_none());
 }

@@ -52,6 +52,11 @@ pub struct DeleteExchangeCommand {
 }
 
 #[derive(Debug)]
+pub struct GetExchangeSinkQuery {
+    pub exchange_name: String,
+}
+
+#[derive(Debug)]
 pub struct QueueDeletedEvent {
     pub queue_name: String,
 }
@@ -62,6 +67,7 @@ pub enum ExchangeManagerCommand {
     BindQueue(BindQueueCommand, oneshot::Sender<Result<()>>),
     UnbindQueue(UnbindQueueCommand, oneshot::Sender<Result<()>>),
     DeleteExchange(DeleteExchangeCommand, oneshot::Sender<Result<()>>),
+    GetExchangeSink(GetExchangeSinkQuery, oneshot::Sender<Option<ExchangeCommandSink>>),
     GetExchanges(oneshot::Sender<Vec<Exchange>>),
     QueueDeleted(QueueDeletedEvent, oneshot::Sender<Result<()>>),
 }
@@ -119,6 +125,14 @@ pub async fn delete_exchange(mgr: &ExchangeManagerSink, cmd: DeleteExchangeComma
     rx.await?
 }
 
+pub async fn get_exchange_sink(mgr: &ExchangeManagerSink, query: GetExchangeSinkQuery) -> Option<ExchangeCommandSink> {
+    let (tx, rx) = oneshot::channel();
+
+    mgr.send(ExchangeManagerCommand::GetExchangeSink(query, tx)).await.ok();
+
+    rx.await.unwrap()
+}
+
 pub async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
     let (tx, rx) = oneshot::channel();
 
@@ -169,6 +183,9 @@ impl ExchangeManagerState {
             }
             DeleteExchange(command, tx) => {
                 logerr!(tx.send(self.handle_delete_exchange(command).await));
+            }
+            GetExchangeSink(query, tx) => {
+                logerr!(tx.send(self.handle_get_exchange_sink(query)));
             }
             GetExchanges(tx) => {
                 logerr!(tx.send(self.handle_exchange_list()));
@@ -308,6 +325,12 @@ impl ExchangeManagerState {
                 "Exchange not found",
             )
         }
+    }
+
+    fn handle_get_exchange_sink(&self, query: GetExchangeSinkQuery) -> Option<ExchangeCommandSink> {
+        self.exchanges
+            .get(&query.exchange_name)
+            .map(|exchange| exchange.command_sink.clone())
     }
 
     fn handle_exchange_list(&self) -> Vec<Exchange> {
