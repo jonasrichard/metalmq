@@ -7,8 +7,8 @@
 //! api it is a typed struct.
 
 use crate::{
-    client_api::ConnectionSink,
-    consumer::ConsumerSignal,
+    client_api::{ConnectionSink, ConsumerSink, GetSink},
+    consumer::{ConsumerSignal, GetSignal},
     message::{self, Message},
     model::ChannelNumber,
     processor::{OutgoingFrame, WaitFor},
@@ -82,7 +82,8 @@ pub(crate) struct ClientState {
     username: String,
     password: String,
     virtual_host: String,
-    pub(crate) consumers: HashMap<ChannelNumber, mpsc::UnboundedSender<ConsumerSignal>>,
+    pub(crate) consumers: HashMap<ChannelNumber, ConsumerSink>,
+    pub(crate) passive_consumers: HashMap<ChannelNumber, GetSink>,
     pub(self) in_delivery: HashMap<ChannelNumber, DeliveredContent>,
     outgoing: mpsc::Sender<OutgoingFrame>,
     /// The last delivery tag we sent out per channel.
@@ -108,6 +109,7 @@ pub(crate) fn new(outgoing: mpsc::Sender<OutgoingFrame>, conn_evt_tx: Connection
         password: "".to_owned(),
         virtual_host: "/".to_owned(),
         consumers: HashMap::new(),
+        passive_consumers: HashMap::new(),
         in_delivery: HashMap::new(),
         outgoing,
         ack_sent: HashMap::new(),
@@ -436,14 +438,60 @@ impl ClientState {
         Ok(())
     }
 
+    pub(crate) async fn basic_get(
+        &mut self,
+        channel: ChannelNumber,
+        args: frame::BasicGetArgs,
+        sink: GetSink,
+    ) -> Result<()> {
+        self.passive_consumers.insert(channel, sink);
+
+        send_out(&self.outgoing, Frame::Frame(args.frame(channel)))
+            .await
+            .unwrap();
+
+        Ok(())
+    }
+
+    pub(crate) async fn on_basic_get_ok(&mut self, channel: ChannelNumber, args: frame::BasicGetOkArgs) -> Result<()> {
+        // FIXME or not. Question: if client gets the GetOk but it doesn't Ack it, server may send
+        // another GetOk but since we remove the passive consumer, we will swallow that other GetOk
+        // which is probably not good.
+        // How long we need to keep a passive consumer here?
+        if let Some(pc_sink) = self.passive_consumers.remove(&channel) {
+            pc_sink
+                .send(GetSignal::GetOk {
+                    delivery_tag: args.delivery_tag,
+                    redelivered: args.redelivered,
+                    exchange_name: args.exchange_name,
+                    routing_key: args.routing_key,
+                    message_count: args.message_count,
+                })
+                .unwrap();
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn on_basic_get_empty(&mut self, channel: ChannelNumber) -> Result<()> {
+        if let Some(pc_sink) = self.passive_consumers.remove(&channel) {
+            pc_sink.send(GetSignal::GetEmpty).unwrap();
+        }
+
+        Ok(())
+    }
+
     pub(crate) async fn basic_publish(
         &mut self,
         channel: ChannelNumber,
         args: frame::BasicPublishArgs,
         message: Content,
     ) -> Result<()> {
-        let (mut ch, cb) = message::to_content_frames(message);
+        let (mut ch, mut cb) = message::to_content_frames(message);
+        ch.channel = channel;
         ch.class_id = (frame::BASIC_PUBLISH >> 16) as u16;
+
+        cb.channel = channel;
 
         let fs = vec![args.frame(channel), ch.frame(), cb.frame()];
 

@@ -1,6 +1,6 @@
 use crate::{
     channel_api::Channel,
-    consumer::ConsumerSignal,
+    consumer::{ConsumerSignal, GetSignal},
     message::ReturnedMessage,
     model::ChannelNumber,
     processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
+pub(crate) type GetSink = mpsc::UnboundedSender<GetSignal>;
 pub(crate) type ConnectionSink = mpsc::UnboundedSender<EventSignal>;
 
 /// Listening notifications sent by the server like channel closed or message publish acknowledged

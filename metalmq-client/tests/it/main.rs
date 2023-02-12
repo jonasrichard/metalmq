@@ -1,6 +1,7 @@
 mod direct;
 mod exchange;
 mod fanout;
+mod get;
 mod helper;
 mod queue;
 mod topic;

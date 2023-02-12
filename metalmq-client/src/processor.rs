@@ -1,5 +1,5 @@
 use crate::{
-    client_api::{ConnectionSink, ConsumerSink},
+    client_api::{ConnectionSink, ConsumerSink, GetSink},
     client_error, dev, state, Content,
 };
 // TODO use thiserror here not anyhow
@@ -31,6 +31,7 @@ pub(crate) enum Param {
     },
     Frame(frame::AMQPFrame),
     Consume(frame::AMQPFrame, ConsumerSink),
+    Get(frame::AMQPFrame, GetSink),
     Publish(frame::AMQPFrame, Content),
 }
 
@@ -57,6 +58,7 @@ impl std::fmt::Debug for ClientRequest {
             } => write!(f, "Request{{Connect={:?},{:?}}}", username, virtual_host),
             Param::Frame(frame) => write!(f, "Request{{Frame={:?}}}", frame),
             Param::Consume(frame, _) => write!(f, "Request{{Consume={:?}}}", frame),
+            Param::Get(frame, _) => write!(f, "Request{{Get={:?}}}", frame),
             Param::Publish(frame, _) => write!(f, "Request{{Publish={:?}}}", frame),
         }
     }
@@ -181,6 +183,10 @@ async fn handle_request(
             client.basic_consume(ch, args, msg_sink).await?;
             register_wait_for(feedback, ch, request.response)?;
         }
+        Param::Get(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicGet(args)), get_sink) => {
+            client.basic_get(ch, args, get_sink).await?;
+            register_wait_for(feedback, ch, request.response)?;
+        }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), message) => {
             client.basic_publish(ch, args, message).await?;
         }
@@ -303,6 +309,8 @@ async fn handle_in_method_frame(
         BasicConsumeOk(args) => cs.basic_consume_ok(args).await,
         BasicCancelOk(args) => cs.basic_cancel_ok(channel, args).await,
         BasicDeliver(args) => cs.basic_deliver(channel, args).await,
+        BasicGetEmpty => cs.on_basic_get_empty(channel).await,
+        BasicGetOk(args) => cs.on_basic_get_ok(channel, args).await,
         BasicReturn(args) => cs.on_basic_return(channel, args).await,
         ConfirmSelectOk => Ok(()),
         //    // TODO check if client is consuming messages from that channel + consumer tag
@@ -333,6 +341,7 @@ async fn handle_out_frame(
         _ => unimplemented!("{:?}", ma),
     }
 }
+
 pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 
@@ -345,12 +354,14 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
     )
     .await
     .unwrap();
+    // TODO ^^^ here we need to apply ? operator to bubble up the send error, not to panic
 
     rx.await.unwrap()?;
 
     Ok(())
 }
 
+/// Sending out a frame and wait for it is being sent out, not just put in the outgoing buffer.
 pub(crate) async fn sync_send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame) -> Result<()> {
     let (tx, rx) = oneshot::channel();
 

@@ -26,6 +26,29 @@ pub enum ConsumerSignal {
     },
 }
 
+/// A signal for handling result of a `Basic.Get` from the server.
+#[derive(Debug)]
+pub enum GetSignal {
+    GetOk {
+        delivery_tag: u64,
+        redelivered: bool,
+        exchange_name: String,
+        routing_key: String,
+        message_count: u32,
+    },
+    GetEmpty,
+    ChannelClosed {
+        reply_code: u16,
+        reply_text: String,
+        class_method: u32,
+    },
+    ConnectionClosed {
+        reply_code: u16,
+        reply_text: String,
+        class_method: u32,
+    },
+}
+
 /// Consumer API for `Basic.Consume`.
 ///
 /// `ConsumerHandler` can be get by invoking [`Channel::basic_consume`].
@@ -38,6 +61,13 @@ pub struct ConsumerHandler {
     /// From this signal stream the consumer gets the messages as [`ConsumerSignal`] values and can
     /// handle them by acking messages or handling channel or connection close events.
     pub signal_stream: mpsc::UnboundedReceiver<ConsumerSignal>,
+}
+
+/// Handler for getting the result of a `Basic.Get`, a passive consume.
+pub struct GetHandler {
+    pub channel: model::ChannelNumber,
+    pub signal_stream: mpsc::UnboundedReceiver<GetSignal>,
+    client_sink: ClientRequestSink,
 }
 
 /// After consuming started with `ConsumerHandler` one can ack, nack or reject messages.
@@ -101,6 +131,42 @@ impl ConsumerHandler {
     }
 }
 
+impl GetHandler {
+    pub async fn receive(&mut self, timeout: Duration) -> Option<GetSignal> {
+        let sleep = tokio::time::sleep(tokio::time::Duration::from(timeout));
+        tokio::pin!(sleep);
+
+        tokio::select! {
+            signal = self.signal_stream.recv() => {
+                signal
+            }
+            _ = &mut sleep => {
+                return None;
+            }
+        }
+    }
+
+    pub async fn close(self) -> Result<()> {
+        // FIXME we need to tell the state that passive consume is over
+        // also to the Client?
+        Ok(())
+    }
+
+    pub async fn basic_ack(&self, delivery_tag: u64) -> Result<()> {
+        processor::sync_send(
+            &self.client_sink,
+            frame::BasicAckArgs::default()
+                .delivery_tag(delivery_tag)
+                .multiple(false)
+                .frame(self.channel),
+        )
+        .await
+    }
+
+    async fn basic_nack() {}
+    async fn basic_reject() {}
+}
+
 /// Specify if the consume is exclusive aka no other client can consume the queue.
 pub struct Exclusive(pub bool);
 /// Specify if the client needs to ack messages after delivery.
@@ -109,21 +175,6 @@ pub struct NoAck(pub bool);
 pub struct NoLocal(pub bool);
 
 impl Channel {
-    // TODO consume should spawn a thread and on that thread the client can
-    // execute its callback. From that thread we can ack or reject the message,
-    // so the consumer channel won't be affected. Also in the consumer channel,
-    // the client.rs module can buffer the messages, so if the server support
-    // some kind of qos, it won't send more messages while the client has a
-    // lot of unacked messages.
-    //
-    // Because of the lifetimes it would be nice if we consume on a channel, we
-    // give up the ownership and move the channel inside the tokio thread. Why?
-    // Because inside the thread on the channel we need to send back acks or
-    // nacks and so on, so the thread uses the channel. But since we don't want
-    // to run into multithreading issue, we need to move the channel to the
-    // thread and forget that channel in the main code which consumes.
-
-    // TODO ConsumerTag should be an enum with a value or we can ask client to generate a ctag
     /// See [`ConsumerHandler`]
     pub async fn basic_consume<'a>(
         &'a self,
@@ -168,6 +219,34 @@ impl Channel {
                 Err(e) => Err(e),
             },
             Err(_) => client_error!(None, 501, "Channel recv error", 0),
+        }
+    }
+
+    pub async fn basic_get(&self, queue_name: &str, no_ack: NoAck) -> Result<GetHandler> {
+        let (signal_sink, signal_stream) = mpsc::unbounded_channel();
+
+        let handler = GetHandler {
+            channel: self.channel,
+            signal_stream,
+            client_sink: self.sink.clone(),
+        };
+
+        let frame = frame::BasicGetArgs::new(queue_name)
+            .no_ack(no_ack.0)
+            .frame(self.channel);
+
+        let (tx, rx) = oneshot::channel();
+
+        self.sink
+            .send(ClientRequest {
+                param: Param::Get(frame, signal_sink),
+                response: WaitFor::FrameResponse(tx),
+            })
+            .await?;
+
+        match rx.await {
+            Ok(Ok(())) => Ok(handler),
+            Ok(_) | Err(_) => client_error!(None, 501, "Channel recv error", 0),
         }
     }
 }
