@@ -6,7 +6,7 @@ use metalmq_client::*;
 #[tokio::test]
 async fn test_routing_logic() {
     let mut client = helper::connect().await.unwrap();
-    let channel = client.channel_open(1u16).await.unwrap();
+    let mut channel = client.channel_open(1u16).await.unwrap();
 
     channel
         .exchange_declare("images", ExchangeType::Direct, ExchangeDeclareOpts::default())

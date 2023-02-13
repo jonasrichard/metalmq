@@ -82,7 +82,7 @@ pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: 
 #[allow(dead_code)]
 pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
     let mut c = default().connect().await?;
-    let ch = c.channel_open(1).await?;
+    let mut ch = c.channel_open(1).await?;
 
     ch.exchange_delete(exchange, IfUnused(false)).await?;
 
@@ -96,7 +96,7 @@ pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
 #[allow(dead_code)]
 pub(crate) async fn delete_queue(queue: &str) -> Result<()> {
     let mut c = default().connect().await?;
-    let ch = c.channel_open(1).await?;
+    let mut ch = c.channel_open(1).await?;
 
     ch.queue_delete(queue, IfUnused(false), IfEmpty(false)).await?;
 

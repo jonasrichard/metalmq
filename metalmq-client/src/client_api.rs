@@ -1,9 +1,9 @@
 use crate::{
-    channel_api::Channel,
+    channel_api::{Channel, ChannelState},
     consumer::{ConsumerSignal, GetSignal},
     message::ReturnedMessage,
     model::ChannelNumber,
-    processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
+    processor::{self, ClientRequest, ClientRequestSink, Param},
 };
 use anyhow::{anyhow, Result};
 use metalmq_codec::frame;
@@ -59,7 +59,6 @@ pub struct Client {
     /// Sync calls register here per channel (0 for connection related frames). Once response frame
     /// arrives, the oneshot channel is notified. Channel close and connection close events should
     /// unblock the waiting tasks here by notifying them with an error or a unit reply.
-    sync_calls: HashMap<u16, oneshot::Sender<Result<()>>>,
     channels: HashMap<u16, Channel>,
 }
 
@@ -98,7 +97,7 @@ impl Client {
                     virtual_host: "/".to_owned(),
                     connected: connected_tx,
                 },
-                response: WaitFor::Nothing,
+                response: None,
             })
             .await?;
 
@@ -108,7 +107,6 @@ impl Client {
             connection_id: "01234".to_owned(),
             request_sink: client_sink,
             event_stream: conn_evt_rx,
-            sync_calls: HashMap::new(),
             channels: HashMap::new(),
         })
     }
@@ -123,8 +121,13 @@ impl Client {
 
     /// Closes the channel normally.
     pub async fn close(&mut self) -> Result<()> {
-        let fr = frame::connection_close(200, "Normal close", 0);
+        for (_, mut channel) in self.channels.drain() {
+            if let ChannelState::Open = channel.state {
+                channel.close().await?;
+            }
+        }
 
+        let fr = frame::connection_close(200, "Normal close", 0);
         processor::call(&self.request_sink, fr).await?;
 
         Ok(())

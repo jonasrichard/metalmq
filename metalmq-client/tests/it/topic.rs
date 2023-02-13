@@ -6,7 +6,7 @@ use metalmq_client::*;
 #[tokio::test]
 async fn test_routing_logic() {
     let mut client = helper::connect().await.unwrap();
-    let channel = client.channel_open(10u16).await.unwrap();
+    let mut channel = client.channel_open(10u16).await.unwrap();
 
     channel
         .exchange_declare("files", ExchangeType::Topic, ExchangeDeclareOpts::default())
@@ -63,25 +63,28 @@ async fn test_routing_logic() {
         .await
         .unwrap();
     channel.exchange_delete("files", IfUnused(false)).await.unwrap();
+
+    channel.close().await.unwrap();
+    client.close().await.unwrap();
 }
 
 async fn publish_deliver_message_to_proper_queue(client: &mut Client) {
     let timeout = Duration::from_secs(1);
-    let text = client.channel_open(11u16).await.unwrap();
+    let mut text = client.channel_open(11u16).await.unwrap();
 
     let mut text_handler = text
         .basic_consume("text-files", NoAck(false), Exclusive(false), NoLocal(false))
         .await
         .unwrap();
 
-    let image = client.channel_open(12u16).await.unwrap();
+    let mut image = client.channel_open(12u16).await.unwrap();
 
     let mut image_handler = image
         .basic_consume("image-files", NoAck(false), Exclusive(false), NoLocal(false))
         .await
         .unwrap();
 
-    let exec = client.channel_open(13u16).await.unwrap();
+    let mut exec = client.channel_open(13u16).await.unwrap();
 
     let mut exec_handler = exec
         .basic_consume("executable-files", NoAck(false), Exclusive(false), NoLocal(false))

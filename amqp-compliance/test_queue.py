@@ -69,7 +69,7 @@ def test_exclusive_queue_cannot_consume_by_other_connection():
     """
     An exclusive queue cannot be consumer by another connection.
     """
-    def on_message(ch, method, properties, body):
+    def on_message(_ch, _method, _properties, _body):
         pass
 
     with helper.channel(1) as declaring_channel:
@@ -101,7 +101,11 @@ def test_queue_declare_should_give_back_message_count_if_queue_exists():
         declaring_channel.queue_bind("q-msg-count", "x-msg-count", "q-msg-count")
 
         for i in range(0, 5):
-            declaring_channel.basic_publish("x-msg-count", "q-msg-count", f"Body {i}", mandatory=True)
+            declaring_channel.basic_publish(
+                    "x-msg-count",
+                    "q-msg-count",
+                    f"Body {i}",
+                    mandatory=True)
 
         time.sleep(0.5)
 

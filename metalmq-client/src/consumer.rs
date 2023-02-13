@@ -206,7 +206,7 @@ impl Channel {
         self.sink
             .send(ClientRequest {
                 param: Param::Consume(frame, signal_sink),
-                response: WaitFor::FrameResponse(tx),
+                response: Some(WaitFor::FrameResponse(tx)),
             })
             .await?;
 
@@ -237,7 +237,7 @@ impl Channel {
         self.sink
             .send(ClientRequest {
                 param: Param::Get(frame, signal_sink),
-                response: WaitFor::FrameResponse(tx),
+                response: Some(WaitFor::FrameResponse(tx)),
             })
             .await?;
 

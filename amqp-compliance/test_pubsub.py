@@ -9,50 +9,50 @@ import helper
 LOG = logging.getLogger()
 NUM = 10
 
-def consumer_thread(channel, end):
-    counter = 0
-
-    for method, props, body in channel.consume("speed1"):
-        channel.basic_ack(method.delivery_tag)
-
-        counter += 1
-        if counter == NUM:
-            break
-
-    channel.cancel()
-    with end:
-        end.notify()
-    channel.close()
-
 def test_one_publisher_one_consumer(caplog):
-    publisher = helper.connect()
-    pchan = publisher.channel(channel_number=9)
+    def consumer_thread(channel: pika.channel.Channel, end: threading.Condition):
+        #for (_index, (method, _, _)) in zip(range(NUM), channel.consume("speed1")):
+        #    channel.basic_ack(method.method.delivery_tag)
+        counter = 0
 
-    pchan.exchange_declare(exchange="speed1")
-    pchan.queue_declare("speed1")
-    pchan.queue_bind("speed1", "speed1")
+        for method, _, _ in channel.consume("speed1"):
+            channel.basic_ack(method.delivery_tag)
 
-    consumer = helper.connect()
-    channel = consumer.channel(channel_number=9)
+            counter += 1
+            if counter == NUM:
+                break
 
-    end = threading.Condition()
-    threading.Thread(target=consumer_thread, args=(channel, end)).start()
+        channel.cancel()
+        with end:
+            end.notify()
 
-    for i in range(0, NUM):
-        pchan.basic_publish(
-                "speed1",
-                "speed1",
-                "Message body {}".format(i),
-                pika.BasicProperties(
-                    content_type='text/plain',
-                    delivery_mode=1,
-                    content_encoding='utf-8',
-                    message_id='id1'))
+        channel.close()
 
-    LOG.info("End of publish")
+    with helper.channel(9) as publisher:
+        publisher.exchange_declare(exchange="speed1")
+        publisher.queue_declare("speed1")
+        publisher.queue_bind("speed1", "speed1")
 
-    with end:
-        end.wait()
+        with helper.channel(9) as consumer:
+            end = threading.Condition()
+            threading.Thread(target=consumer_thread, args=(consumer, end)).start()
+
+            for i in range(NUM):
+                publisher.basic_publish(
+                        "speed1",
+                        "speed1",
+                        f"Message body {i}",
+                        pika.BasicProperties(
+                            content_type='text/plain',
+                            delivery_mode=1,
+                            content_encoding='utf-8',
+                            message_id='id1'))
+
+            LOG.info("End of publish")
+
+            with end:
+                end.wait()
+
     LOG.info("End")
 
 def test_unrouted_mandatory_message():

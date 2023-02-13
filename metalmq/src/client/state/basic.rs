@@ -1,19 +1,3 @@
-//use crate::{
-//    client::{channel_error, ChannelError, ConnectionError, state::{ActivelyConsumedQueue, Connection, PublishedContent}}};
-//use crate::exchange::{manager as em, handler::ExchangeCommand};
-//use crate::queue::handler as queue_handler;
-//use crate::queue::manager::{self as qm, QueueCancelConsume, QueueConsumeCommand};
-//use crate::{client, message};
-//use crate::{handle_error, logerr, Result};
-
-//use log::{error, warn};
-//use metalmq_codec::{codec::Frame, frame::{self, Channel}};
-//use std::sync::Arc;
-//use tokio::sync::oneshot;
-//use tokio::time;
-
-//use super::PassivelyConsumedQueue;
-
 use std::{sync::Arc, time::Duration};
 
 use log::{error, warn};

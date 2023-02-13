@@ -1,6 +1,8 @@
 use crate::{
     client_api::{ConnectionSink, ConsumerSink, GetSink},
-    client_error, dev, state, Content,
+    client_error, dev,
+    model::ClassMethod,
+    state, Content,
 };
 // TODO use thiserror here not anyhow
 use anyhow::Result;
@@ -37,17 +39,21 @@ pub(crate) enum Param {
 
 pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;
 
+/// When the low level client sends out a frame, one can specify what the client loop needs to do.
+///
+/// Just enough if the frame has been sent out (in case of non-RPC frames), or it needs to wait for
+/// a specific frame on the channel.
 pub(crate) enum WaitFor {
-    // TODO this suggests an Option<WaitFor>
-    Nothing,
+    /// Wait for the frame to be sent out.
     SentOut(oneshot::Sender<Result<()>>),
+    /// Wait for a specific response identified by class-method id.
     FrameResponse(FrameResponse),
 }
 
 /// Represents a client request, typically send a frame and wait for the answer of the server.
 pub(crate) struct ClientRequest {
     pub(crate) param: Param,
-    pub(crate) response: WaitFor,
+    pub(crate) response: Option<WaitFor>,
 }
 
 impl std::fmt::Debug for ClientRequest {
@@ -173,19 +179,19 @@ async fn handle_request(
             client.start(username, password, virtual_host, connected).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicAck(args))) => {
-            client.basic_ack(ch, args, request.response).await?;
+            client.basic_ack(ch, args, request.response.unwrap()).await?;
         }
         Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
             handle_out_frame(ch, ma, client).await?;
-            register_wait_for(feedback, ch, request.response)?;
+            register_wait_for(feedback, ch, request.response.unwrap())?;
         }
         Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
             client.basic_consume(ch, args, msg_sink).await?;
-            register_wait_for(feedback, ch, request.response)?;
+            register_wait_for(feedback, ch, request.response.unwrap())?;
         }
         Param::Get(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicGet(args)), get_sink) => {
             client.basic_get(ch, args, get_sink).await?;
-            register_wait_for(feedback, ch, request.response)?;
+            register_wait_for(feedback, ch, request.response.unwrap())?;
         }
         Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), message) => {
             client.basic_publish(ch, args, message).await?;
@@ -198,8 +204,7 @@ async fn handle_request(
 
 fn register_wait_for(feedback: &Arc<Mutex<HashMap<u16, FrameResponse>>>, channel: u16, wf: WaitFor) -> Result<()> {
     match wf {
-        WaitFor::Nothing => (),
-        WaitFor::SentOut(tx) => {
+        WaitFor::SentOut(_) => {
             // Since the previous block has run, we sent out the frame.
             // TODO we need to send back send errors which we swallowed with ? operator
             // DOUBT can we send back here to the thread which basically sent a clientrequest
@@ -350,7 +355,7 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
         sink,
         ClientRequest {
             param: Param::Frame(f),
-            response: WaitFor::FrameResponse(tx),
+            response: Some(WaitFor::FrameResponse(tx)),
         },
     )
     .await
@@ -368,7 +373,7 @@ pub(crate) async fn sync_send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQP
 
     sink.send(ClientRequest {
         param: Param::Frame(f),
-        response: WaitFor::SentOut(tx),
+        response: Some(WaitFor::SentOut(tx)),
     })
     .await
     .unwrap();

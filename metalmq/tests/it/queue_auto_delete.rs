@@ -28,7 +28,7 @@ async fn delete_queue_when_last_consumer_left() {
     const QUEUE: &str = "q-auto-delete";
 
     let mut declare = helper::default().connect().await.unwrap();
-    let declare_channel = declare.channel_open(3u16).await.unwrap();
+    let mut declare_channel = declare.channel_open(3u16).await.unwrap();
 
     exchange_direct_bind(
         &declare_channel,

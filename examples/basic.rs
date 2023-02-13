@@ -7,7 +7,7 @@ async fn main() -> Result<()> {
     let queue = "test-queue";
 
     let mut client = Client::connect("localhost:5672", "guest", "guest").await?;
-    let channel = client.channel_open(1).await?;
+    let mut channel = client.channel_open(1).await?;
 
     channel
         .exchange_declare(exchange, ExchangeType::Fanout, ExchangeDeclareOpts::default())

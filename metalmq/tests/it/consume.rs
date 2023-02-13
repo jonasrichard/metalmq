@@ -13,7 +13,7 @@ async fn consume_one_message() -> Result<()> {
 
     let mut c = helper::default().connect().await?;
 
-    let ch = c.channel_open(1).await?;
+    let mut ch = c.channel_open(1).await?;
     helper::declare_exchange_queue(&ch, EXCHANGE, QUEUE).await?;
 
     let result = helper::consume_messages(&ch, QUEUE, Exclusive(false), 1).await?;

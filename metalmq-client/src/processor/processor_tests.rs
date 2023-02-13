@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 #[tokio::test]
 async fn connect_frame_exchange() {
-    let (conn_tx, conn_rx) = mpsc::unbounded_channel();
+    let (conn_tx, _) = mpsc::unbounded_channel();
     let (frame_out_tx, mut frame_out_rx) = mpsc::channel(16);
     let cs = self::state::new(frame_out_tx, conn_tx);
 
@@ -29,7 +29,7 @@ async fn connect_frame_exchange() {
                 virtual_host: "/".to_owned(),
                 connected: connected_tx,
             },
-            response: WaitFor::Nothing,
+            response: None,
         })
         .await;
 

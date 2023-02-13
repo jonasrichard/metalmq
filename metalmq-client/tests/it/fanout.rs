@@ -6,7 +6,7 @@ use metalmq_client::*;
 #[tokio::test]
 async fn test_routing_logic() {
     let mut client = helper::connect().await.unwrap();
-    let channel = client.channel_open(2u16).await.unwrap();
+    let mut channel = client.channel_open(2u16).await.unwrap();
 
     channel
         .exchange_declare("event-hub", ExchangeType::Fanout, ExchangeDeclareOpts::default())
@@ -42,15 +42,18 @@ async fn test_routing_logic() {
     channel.queue_unbind("consumer-view-1", "event-hub", "").await.unwrap();
     channel.queue_unbind("consumer-view-2", "event-hub", "").await.unwrap();
     channel.exchange_delete("event-hub", IfUnused(false)).await.unwrap();
+
+    channel.close().await.unwrap();
+    client.close().await.unwrap();
 }
 
 async fn publish_deliver_message_to_all_queues(client: &mut Client) {
-    let channel1 = client.channel_open(3u16).await.unwrap();
+    let mut channel1 = client.channel_open(3u16).await.unwrap();
     let mut consumer1 = channel1
         .basic_consume("consumer-view-1", NoAck(false), Exclusive(false), NoLocal(false))
         .await
         .unwrap();
-    let channel2 = client.channel_open(4u16).await.unwrap();
+    let mut channel2 = client.channel_open(4u16).await.unwrap();
     let mut consumer2 = channel2
         .basic_consume("consumer-view-2", NoAck(false), Exclusive(false), NoLocal(false))
         .await

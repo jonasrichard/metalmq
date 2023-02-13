@@ -36,7 +36,7 @@ async fn test_get_logic() {
 }
 
 async fn get_with_ack(client: &mut Client, channel: &mut Channel) {
-    let get_channel = client.channel_open(2).await.unwrap();
+    let mut get_channel = client.channel_open(2).await.unwrap();
 
     channel
         .basic_publish("x-get", "key", PublishedMessage::default().str("Get #1"))

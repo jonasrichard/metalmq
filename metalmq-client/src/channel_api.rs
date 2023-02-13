@@ -4,17 +4,23 @@ use std::collections::HashMap;
 use crate::message::PublishedMessage;
 use crate::model::ChannelNumber;
 use crate::processor;
-use crate::processor::{ClientRequest, ClientRequestSink, Param, WaitFor};
+use crate::processor::{ClientRequest, ClientRequestSink, Param};
 use metalmq_codec::frame;
+
+pub enum ChannelState {
+    Open,
+    Closing,
+    Closed,
+}
 
 /// A channel is the main method of communicating with an AMQP server. Channels can be created on
 /// an open connection by calling the [`Client.channel_open`] function.
 pub struct Channel {
     /// Channel number identifies the channel in a connection.
     pub channel: ChannelNumber,
+    /// The status of the channel.
+    pub state: ChannelState,
     pub(crate) sink: ClientRequestSink,
-    /// Active consumers by consumer tag
-    consumers: HashMap<String, ClientRequest>,
 }
 
 impl std::fmt::Debug for Channel {
@@ -202,8 +208,8 @@ impl Channel {
     pub(crate) fn new(channel: ChannelNumber, sink: ClientRequestSink) -> Channel {
         Channel {
             channel,
+            state: ChannelState::Open,
             sink,
-            consumers: HashMap::new(),
         }
     }
 
@@ -326,7 +332,7 @@ impl Channel {
         self.sink
             .send(ClientRequest {
                 param: Param::Publish(frame, message.message),
-                response: WaitFor::Nothing,
+                response: None,
             })
             .await?;
 
@@ -338,11 +344,18 @@ impl Channel {
     }
 
     /// Closes the channel.
-    pub async fn close(&self) -> Result<()> {
+    pub async fn close(&mut self) -> Result<()> {
+        self.state = ChannelState::Closing;
+
+        // TODO notify the Client struct and let it remove the channel from its hashmap
         processor::call(
             &self.sink,
             frame::channel_close(self.channel, 200, "Normal close", frame::CHANNEL_CLOSE),
         )
-        .await
+        .await?;
+
+        self.state = ChannelState::Closed;
+
+        Ok(())
     }
 }

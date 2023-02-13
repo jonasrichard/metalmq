@@ -5,7 +5,7 @@ use metalmq_client::{Binding, ExchangeDeclareOpts, ExchangeType, IfEmpty, IfUnus
 #[tokio::test]
 async fn direct_exchange_queue_bind_and_delete() -> Result<()> {
     let mut c = helper::connect().await?;
-    let ch = c.channel_open(18).await?;
+    let mut ch = c.channel_open(18).await?;
 
     ch.exchange_declare(
         "prices",

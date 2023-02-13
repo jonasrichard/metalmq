@@ -1,3 +1,4 @@
+import itertools
 import logging
 import threading
 
@@ -10,6 +11,7 @@ def test_basic_deliver_redelivered():
     log = logging.getLogger()
 
     def consume_without_ack(channel, condition):
+        # use for i in range(0, 2): and store the iterator
         counter = 0
 
         for method, properties, body in channel.consume("q-redelivered"):
