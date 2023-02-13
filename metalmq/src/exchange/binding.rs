@@ -217,8 +217,6 @@ impl Bindings {
         let mut sent = false;
         let shared_message = Arc::new(message);
 
-        dbg!(self);
-
         match self {
             Bindings::Direct(bs) => {
                 for binding in bs {

@@ -73,13 +73,6 @@ pub fn channel_error<T>(channel: Channel, cm: u32, code: ChannelError, text: &st
     }))
 }
 
-/// Convert ChannelError to channel close frame.
-pub fn channel_error_frame(channel: Channel, cm: u32, code: ChannelError, text: &str) -> Frame {
-    let (class_id, method_id) = frame::split_class_method(cm);
-
-    Frame::Frame(frame::channel_close(channel, code as u16, text, cm))
-}
-
 pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
     let amqp_frame = match rte.scope {
         ErrorScope::Connection => frame::connection_close(rte.code, &rte.text, rte.class_method),

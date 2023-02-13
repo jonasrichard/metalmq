@@ -50,7 +50,14 @@ impl Connection {
                 Some(sink) => {
                     self.exchanges.insert(args.exchange_name.clone(), sink);
                 }
-                None => warn!("Publishing to non-existing exchange {args:?}"),
+                None => {
+                    return channel_error(
+                        channel,
+                        frame::BASIC_PUBLISH,
+                        ChannelError::NotFound,
+                        &format!("Exchange {} not found", args.exchange_name),
+                    );
+                }
             };
         }
 

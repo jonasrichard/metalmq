@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tokio::sync::mpsc;
 
 use crate::{
@@ -53,8 +55,12 @@ impl TestCase {
         self.exchange_declare("x-headers", ExchangeType::Headers).await;
 
         self.queue_declare("q-direct").await;
+        self.queue_declare("q-fanout").await;
+        self.queue_declare("q-topic").await;
+        self.queue_declare("q-headers").await;
 
         self.queue_bind("q-direct", "x-direct", "magic-key").await;
+        self.queue_bind("q-fanout", "x-fanout", "").await;
 
         while let Ok(_) = self.setup_rx.try_recv() {}
 
@@ -237,4 +243,43 @@ async fn basic_publish_mandatory_message() {
     // No message is expected as a response
     let expected_timeout = dbg!(recv_timeout(&mut client_rx).await);
     assert!(expected_timeout.is_none());
+}
+
+#[tokio::test]
+async fn basic_get_empty_and_ok() {
+    let tc = TestCase::new().await;
+    let (mut client, mut client_rx) = tc.new_client();
+
+    client
+        .basic_get(2, frame::BasicGetArgs::new("q-fanout").no_ack(false))
+        .await
+        .unwrap();
+
+    let get_empty_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+
+    assert!(matches!(
+        dbg!(get_empty_frames).get(0).unwrap(),
+        frame::AMQPFrame::Method(2, _, frame::MethodFrameArgs::BasicGetEmpty)
+    ));
+
+    client
+        .basic_publish(1, frame::BasicPublishArgs::new("x-fanout"))
+        .await
+        .unwrap();
+    send_content(&mut client, b"A fanout message").await;
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    client.basic_get(2, frame::BasicGetArgs::new("q-fanout")).await.unwrap();
+
+    let get_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+
+    assert!(matches!(
+        dbg!(get_frames).get(0).unwrap(),
+        frame::AMQPFrame::Method(
+            2,
+            _,
+            frame::MethodFrameArgs::BasicGetOk(frame::BasicGetOkArgs { redelivered: false, .. })
+        )
+    ));
 }
