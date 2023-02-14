@@ -30,23 +30,6 @@ enum Phase {
     //    Closing
 }
 
-//#[derive(Debug)]
-//enum DeliveryMethod {
-//    BasicDeliver {
-//        consumer_tag: String,
-//        delivery_tag: u64,
-//        redelivered: bool,
-//        exchange: String,
-//        routing_key: String,
-//    },
-//    BasicReturn {
-//        reply_code: u16,
-//        reply_text: String,
-//        exchange: String,
-//        routing_key: String,
-//    },
-//}
-
 /// A content being delivered by content frames, building step by step.
 #[derive(Debug)]
 struct DeliveredContent {
@@ -82,13 +65,24 @@ pub(crate) struct ClientState {
     username: String,
     password: String,
     virtual_host: String,
+    /// Active consumers per channel (`Basic.Consume`)
     pub(crate) consumers: HashMap<ChannelNumber, ConsumerSink>,
+    /// Passive consumers per channel (`Basic.Get`)
     pub(crate) passive_consumers: HashMap<ChannelNumber, GetSink>,
+    /// Content frames arrive in the channel in the form of a method frame like `Basic.Deliver` or
+    /// `Basic.Return` or `Basic.GetOk` and then a content header and a content body frames follow.
+    /// The client state collects those information and by the time the content body arrives, all
+    /// the information is available to the code which needs to forward this message (like delivery
+    /// tags).
     pub(self) in_delivery: HashMap<ChannelNumber, DeliveredContent>,
+    /// Channel for sending out frames to the client.
     outgoing: mpsc::Sender<OutgoingFrame>,
     /// The last delivery tag we sent out per channel.
     ack_sent: HashMap<ChannelNumber, u64>,
+    /// The channel which is notified when the connection opening processes finishes with success.
     connected: Option<oneshot::Sender<()>>,
+    /// Channel for notifing the connection about async events (delivery is rejected or channel is
+    /// closed or consuming is cancelled).
     event_sink: ConnectionSink,
 }
 
@@ -590,7 +584,7 @@ impl ClientState {
                     dm.message.body = cb.body;
 
                     if let Some(sink) = self.consumers.get(&dc.channel) {
-                        sink.send(ConsumerSignal::Delivered(dm)).unwrap();
+                        sink.send(ConsumerSignal::Delivered(Box::new(dm))).unwrap();
                     }
                 }
                 Message::Returned(mut rm) => {
@@ -599,7 +593,7 @@ impl ClientState {
                     self.event_sink
                         .send(EventSignal::BasicReturn {
                             channel: dc.channel,
-                            message: rm,
+                            message: Box::new(rm),
                         })
                         .unwrap();
                 }
@@ -607,7 +601,7 @@ impl ClientState {
                     gm.message.body = cb.body;
 
                     if let Some(pc_sink) = self.passive_consumers.remove(&cb.channel) {
-                        pc_sink.send(GetSignal::GetOk(gm)).unwrap();
+                        pc_sink.send(GetSignal::GetOk(Box::new(gm))).unwrap();
                     }
                 }
             }

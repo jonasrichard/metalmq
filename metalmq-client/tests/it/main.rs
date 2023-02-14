@@ -10,7 +10,7 @@ use metalmq_client::*;
 
 pub fn unwrap_delivered_message(signal: ConsumerSignal) -> DeliveredMessage {
     match signal {
-        ConsumerSignal::Delivered(msg) => msg,
+        ConsumerSignal::Delivered(msg) => *msg,
         other => panic!("{other:?} is not a Deliver signal"),
     }
 }

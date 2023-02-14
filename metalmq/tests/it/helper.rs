@@ -129,7 +129,7 @@ pub(crate) async fn consume_messages<'a>(
         loop {
             match time::timeout(time::Duration::from_secs(5), handler.signal_stream.recv()).await {
                 Ok(Some(ConsumerSignal::Delivered(message))) => {
-                    messages.push(message);
+                    messages.push(*message);
 
                     if messages.len() >= n {
                         break;

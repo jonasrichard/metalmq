@@ -1,10 +1,12 @@
 use std::time::Duration;
 
-use crate::channel_api::Channel;
-use crate::client_error;
-use crate::message::{DeliveredMessage, GetMessage};
-use crate::model;
-use crate::processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor};
+use crate::{
+    channel_api::Channel,
+    client_error,
+    message::{DeliveredMessage, GetMessage},
+    model,
+    processor::{self, ClientRequest, ClientRequestSink, Param, WaitFor},
+};
 use anyhow::Result;
 use metalmq_codec::frame;
 use tokio::sync::{mpsc, oneshot};
@@ -12,7 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 /// A signal arriving from the server during consuming a queue.
 #[derive(Debug)]
 pub enum ConsumerSignal {
-    Delivered(DeliveredMessage),
+    Delivered(Box<DeliveredMessage>),
     Cancelled,
     ChannelClosed {
         reply_code: u16,
@@ -29,7 +31,7 @@ pub enum ConsumerSignal {
 /// A signal for handling result of a `Basic.Get` from the server.
 #[derive(Debug)]
 pub enum GetSignal {
-    GetOk(GetMessage),
+    GetOk(Box<GetMessage>),
     GetEmpty,
     ChannelClosed {
         reply_code: u16,
@@ -91,7 +93,7 @@ pub struct GetHandler {
 /// ```
 impl ConsumerHandler {
     pub async fn receive(&mut self, timeout: Duration) -> Option<ConsumerSignal> {
-        let sleep = tokio::time::sleep(tokio::time::Duration::from(timeout));
+        let sleep = tokio::time::sleep(timeout);
         tokio::pin!(sleep);
 
         tokio::select! {
@@ -99,7 +101,7 @@ impl ConsumerHandler {
                 signal
             }
             _ = &mut sleep => {
-                return None;
+                None
             }
         }
     }
@@ -130,7 +132,7 @@ impl ConsumerHandler {
 
 impl GetHandler {
     pub async fn receive(&mut self, timeout: Duration) -> Option<GetSignal> {
-        let sleep = tokio::time::sleep(tokio::time::Duration::from(timeout));
+        let sleep = tokio::time::sleep(timeout);
         tokio::pin!(sleep);
 
         tokio::select! {
@@ -138,7 +140,7 @@ impl GetHandler {
                 signal
             }
             _ = &mut sleep => {
-                return None;
+                None
             }
         }
     }
@@ -205,7 +207,7 @@ impl Channel {
 
         self.sink
             .send(ClientRequest {
-                param: Param::Consume(frame, signal_sink),
+                param: Param::Consume(Box::new(frame), signal_sink),
                 response: Some(WaitFor::FrameResponse(tx)),
             })
             .await?;
@@ -236,7 +238,7 @@ impl Channel {
 
         self.sink
             .send(ClientRequest {
-                param: Param::Get(frame, signal_sink),
+                param: Param::Get(Box::new(frame), signal_sink),
                 response: Some(WaitFor::FrameResponse(tx)),
             })
             .await?;

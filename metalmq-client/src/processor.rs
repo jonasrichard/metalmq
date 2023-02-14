@@ -1,8 +1,6 @@
 use crate::{
     client_api::{ConnectionSink, ConsumerSink, GetSink},
-    client_error, dev,
-    model::ClassMethod,
-    state, Content,
+    client_error, dev, state, Content,
 };
 // TODO use thiserror here not anyhow
 use anyhow::Result;
@@ -31,10 +29,10 @@ pub(crate) enum Param {
         virtual_host: String,
         connected: oneshot::Sender<()>,
     },
-    Frame(frame::AMQPFrame),
-    Consume(frame::AMQPFrame, ConsumerSink),
-    Get(frame::AMQPFrame, GetSink),
-    Publish(frame::AMQPFrame, Content),
+    Frame(Box<frame::AMQPFrame>),
+    Consume(Box<frame::AMQPFrame>, ConsumerSink),
+    Get(Box<frame::AMQPFrame>, GetSink),
+    Publish(Box<frame::AMQPFrame>, Box<Content>),
 }
 
 pub(crate) type FrameResponse = oneshot::Sender<Result<()>>;
@@ -178,25 +176,36 @@ async fn handle_request(
         } => {
             client.start(username, password, virtual_host, connected).await?;
         }
-        Param::Frame(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicAck(args))) => {
-            client.basic_ack(ch, args, request.response.unwrap()).await?;
-        }
-        Param::Frame(AMQPFrame::Method(ch, _, ma)) => {
-            handle_out_frame(ch, ma, client).await?;
-            register_wait_for(feedback, ch, request.response.unwrap())?;
-        }
-        Param::Consume(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)), msg_sink) => {
-            client.basic_consume(ch, args, msg_sink).await?;
-            register_wait_for(feedback, ch, request.response.unwrap())?;
-        }
-        Param::Get(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicGet(args)), get_sink) => {
-            client.basic_get(ch, args, get_sink).await?;
-            register_wait_for(feedback, ch, request.response.unwrap())?;
-        }
-        Param::Publish(AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)), message) => {
-            client.basic_publish(ch, args, message).await?;
-        }
-        _ => unreachable!("{:?}", request),
+        Param::Frame(frame) => match *frame {
+            AMQPFrame::Method(ch, _, MethodFrameArgs::BasicAck(args)) => {
+                client.basic_ack(ch, args, request.response.unwrap()).await?;
+            }
+            AMQPFrame::Method(ch, _, ma) => {
+                handle_out_frame(ch, ma, client).await?;
+                register_wait_for(feedback, ch, request.response.unwrap())?;
+            }
+            _ => unreachable!("{frame:?}"),
+        },
+        Param::Consume(frame, msg_sink) => match *frame {
+            AMQPFrame::Method(ch, _, MethodFrameArgs::BasicConsume(args)) => {
+                client.basic_consume(ch, args, msg_sink).await?;
+                register_wait_for(feedback, ch, request.response.unwrap())?;
+            }
+            _ => unreachable!("{frame:?}"),
+        },
+        Param::Get(frame, get_sink) => match *frame {
+            AMQPFrame::Method(ch, _, MethodFrameArgs::BasicGet(args)) => {
+                client.basic_get(ch, args, get_sink).await?;
+                register_wait_for(feedback, ch, request.response.unwrap())?;
+            }
+            _ => unreachable!("{frame:?}"),
+        },
+        Param::Publish(frame, message) => match *frame {
+            AMQPFrame::Method(ch, _, MethodFrameArgs::BasicPublish(args)) => {
+                client.basic_publish(ch, args, *message).await?;
+            }
+            _ => unreachable!("{frame:?}"),
+        },
     }
 
     Ok(())
@@ -354,7 +363,7 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
     dev::send_timeout(
         sink,
         ClientRequest {
-            param: Param::Frame(f),
+            param: Param::Frame(Box::new(f)),
             response: Some(WaitFor::FrameResponse(tx)),
         },
     )
@@ -372,7 +381,7 @@ pub(crate) async fn sync_send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQP
     let (tx, rx) = oneshot::channel();
 
     sink.send(ClientRequest {
-        param: Param::Frame(f),
+        param: Param::Frame(Box::new(f)),
         response: Some(WaitFor::SentOut(tx)),
     })
     .await

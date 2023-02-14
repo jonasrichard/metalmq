@@ -27,7 +27,7 @@ pub enum EventSignal {
     /// Message cannot be published (no route or no consumer).
     BasicReturn {
         channel: ChannelNumber,
-        message: ReturnedMessage,
+        message: Box<ReturnedMessage>,
     },
     /// Channel closed
     ChannelClose,
@@ -60,6 +60,7 @@ pub struct Client {
     /// arrives, the oneshot channel is notified. Channel close and connection close events should
     /// unblock the waiting tasks here by notifying them with an error or a unit reply.
     channels: HashMap<u16, Channel>,
+    next_channel: u16,
 }
 
 /// Create a connection to an AMQP server and returns a sink to send the requests.
@@ -108,15 +109,24 @@ impl Client {
             request_sink: client_sink,
             event_stream: conn_evt_rx,
             channels: HashMap::new(),
+            next_channel: 1u16,
         })
     }
 
-    // TODO open a channel with the next channel number
     /// Open a channel in the current connection.
     pub async fn channel_open(&mut self, channel: ChannelNumber) -> Result<Channel> {
         processor::call(&self.request_sink, frame::channel_open(channel)).await?;
 
         Ok(Channel::new(channel, self.request_sink.clone()))
+    }
+
+    /// Open a channel with the next available channel number.
+    pub async fn channel_open_next(&mut self) -> Result<Channel> {
+        let channel_number = self.next_channel;
+
+        self.next_channel += 1;
+
+        self.channel_open(channel_number).await
     }
 
     /// Closes the channel normally.
@@ -135,7 +145,7 @@ impl Client {
 
     /// Convenient function for listening `EventSignal` with timeout.
     pub async fn receive_event(&mut self, timeout: std::time::Duration) -> Option<EventSignal> {
-        let sleep = tokio::time::sleep(tokio::time::Duration::from(timeout));
+        let sleep = tokio::time::sleep(timeout);
         tokio::pin!(sleep);
 
         tokio::select! {
@@ -143,7 +153,7 @@ impl Client {
                 signal
             }
             _ = &mut sleep => {
-                return None;
+                None
             }
         }
     }

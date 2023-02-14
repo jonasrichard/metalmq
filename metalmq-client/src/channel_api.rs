@@ -25,9 +25,7 @@ pub struct Channel {
 
 impl std::fmt::Debug for Channel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Channel")
-            .field("channel", &(self.channel as u16))
-            .finish()
+        f.debug_struct("Channel").field("channel", &self.channel).finish()
     }
 }
 
@@ -331,7 +329,7 @@ impl Channel {
 
         self.sink
             .send(ClientRequest {
-                param: Param::Publish(frame, message.message),
+                param: Param::Publish(Box::new(frame), Box::new(message.message)),
                 response: None,
             })
             .await?;
