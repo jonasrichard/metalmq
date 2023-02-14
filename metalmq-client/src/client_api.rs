@@ -42,18 +42,33 @@ pub enum EventSignal {
 /// # Usage
 ///
 /// ```no_run
-/// use metalmq_client::Client;
+/// use metalmq_client::*;
 ///
 /// async fn connect() {
 ///     let mut client = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
 ///     let mut channel = client.channel_open(1u16).await.unwrap();
+///
+///     // Start a new thread to handle events
+///     //tokio::spawn(async move {
+///     //    use EventSignal::*;
+///
+///     //    while let Some(evt) = client.event_stream.recv().await {
+///     //        match evt {
+///     //            ChannelClose => panic!("Handle it better"),
+///     //            _ => (),
+///     //        }
+///     //    }
+///     //});
 ///     // ...
 ///     channel.close().await.unwrap();
 ///     client.close().await.unwrap();
 /// }
 /// ```
 pub struct Client {
+    /// The id of the connection.
     pub connection_id: String,
+    /// The stream of connection events which can happen any time like cancellation of a consumer
+    /// or closing of a connection.
     pub event_stream: mpsc::UnboundedReceiver<EventSignal>,
     request_sink: mpsc::Sender<ClientRequest>,
     /// Sync calls register here per channel (0 for connection related frames). Once response frame
@@ -85,6 +100,7 @@ async fn create_connection(url: &str, conn_sink: ConnectionSink) -> Result<Clien
 
 impl Client {
     // TODO expect only one parameter and parse the url
+    /// The main entry point of the API, it connects to an AMQP compatible server.
     pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
         let (conn_evt_tx, conn_evt_rx) = mpsc::unbounded_channel();
         let (connected_tx, connected_rx) = oneshot::channel();

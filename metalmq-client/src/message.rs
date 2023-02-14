@@ -12,6 +12,7 @@ pub struct Content {
     pub properties: MessageProperties,
 }
 
+/// Standard set of message properties
 #[derive(Debug, Default)]
 pub struct MessageProperties {
     pub content_type: Option<String>,
