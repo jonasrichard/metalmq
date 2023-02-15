@@ -137,6 +137,10 @@ impl QueuePurgeOkArgs {
         self.message_count = message_count;
         self
     }
+
+    pub fn frame(self, channel: Channel) -> AMQPFrame {
+        AMQPFrame::Method(channel, super::QUEUE_PURGE_OK, MethodFrameArgs::QueuePurgeOk(self))
+    }
 }
 
 bitflags! {

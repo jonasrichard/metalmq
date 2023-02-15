@@ -26,6 +26,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 
 [dev-dependencies]
 bencher = "0.1"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
 
 #[[bench]]
 #name = "delivery"

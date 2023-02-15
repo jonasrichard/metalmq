@@ -137,7 +137,14 @@ impl Connection {
 
         match qm::get_command_sink(&self.qm, cmd).await {
             Ok(queue_sink) => {
-                handler::purge(self.id.clone(), channel, &queue_sink).await.unwrap();
+                let message_count = handler::purge(self.id.clone(), channel, &queue_sink).await?;
+
+                self.send_frame(Frame::Frame(
+                    frame::QueuePurgeOkArgs::default()
+                        .message_count(message_count)
+                        .frame(channel),
+                ))
+                .await?;
             }
             err => {
                 handle_error!(self, err).unwrap();

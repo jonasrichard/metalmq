@@ -15,11 +15,14 @@ pub struct Content {
 /// Standard set of message properties
 #[derive(Debug, Default)]
 pub struct MessageProperties {
+    /// Mime content type
     pub content_type: Option<String>,
+    /// Mime content encoding
     pub content_encoding: Option<String>,
     pub headers: HashMap<String, String>,
     /// 1 - non-persistent, 2 - persistent
     pub delivery_mode: Option<u8>,
+    /// Priority between 0..9
     pub priority: Option<u8>,
     pub correlation_id: Option<String>,
     pub reply_to: Option<String>,

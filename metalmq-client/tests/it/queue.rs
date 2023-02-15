@@ -18,6 +18,7 @@ async fn direct_exchange_queue_bind_and_delete() -> Result<()> {
     ch.queue_bind("price-queue", "prices", Binding::Direct("".to_string()))
         .await?;
 
+    ch.queue_unbind("price-queue", "prices", "").await?;
     ch.exchange_delete("prices", IfUnused(false)).await?;
     ch.queue_delete("price-queue", IfUnused(false), IfEmpty(false)).await?;
 

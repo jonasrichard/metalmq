@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::helper;
+use crate::{helper, message_from_string};
 use metalmq_client::*;
 
 #[tokio::test]
@@ -24,11 +24,11 @@ async fn test_routing_logic() {
     channel.queue_purge("images").await.unwrap();
 
     basic_publish_mandatory_delivered(&channel).await;
-    basic_publish_mandatory_unrouted_return(&mut client, &mut handler, &channel).await;
+    basic_publish_mandatory_unrouted_return(&mut handler, &channel).await;
 
     channel.confirm().await.unwrap();
 
-    publish_confirm_mode_sends_ack(&mut client, &mut handler, &channel).await;
+    publish_confirm_mode_sends_ack(&mut handler, &channel).await;
 
     channel.queue_unbind("images", "images", "images").await.unwrap();
     channel
@@ -51,7 +51,7 @@ async fn basic_publish_mandatory_delivered(channel: &Channel) {
         .basic_publish(
             "images",
             "images",
-            PublishedMessage::default().str("An image").mandatory(true),
+            message_from_string(channel.channel, "An image").mandatory(true),
         )
         .await
         .unwrap();
@@ -65,12 +65,12 @@ async fn basic_publish_mandatory_delivered(channel: &Channel) {
     handler.basic_cancel().await.unwrap();
 }
 
-async fn basic_publish_mandatory_unrouted_return(client: &mut Client, handler: &mut EventHandler, channel: &Channel) {
+async fn basic_publish_mandatory_unrouted_return(handler: &mut EventHandler, channel: &Channel) {
     channel
         .basic_publish(
             "images",
             "extension.txt",
-            PublishedMessage::default().str("A text file").mandatory(true),
+            message_from_string(channel.channel, "A text file").mandatory(true),
         )
         .await
         .unwrap();
@@ -80,9 +80,9 @@ async fn basic_publish_mandatory_unrouted_return(client: &mut Client, handler: &
     assert!(matches!(evt, EventSignal::BasicReturn { .. }));
 }
 
-async fn publish_confirm_mode_sends_ack(client: &mut Client, handler: &mut EventHandler, channel: &Channel) {
+async fn publish_confirm_mode_sends_ack(handler: &mut EventHandler, channel: &Channel) {
     channel
-        .basic_publish("images", "images", PublishedMessage::default().str("A text file"))
+        .basic_publish("images", "images", message_from_string(channel.channel, "A text file"))
         .await
         .unwrap();
 

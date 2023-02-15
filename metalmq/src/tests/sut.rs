@@ -1,168 +1,10 @@
 use std::time::Duration;
 
-use tokio::sync::mpsc;
-
 use crate::{
-    client::{state::Connection, tests::to_runtime_error, ConnectionError},
-    exchange::{
-        manager::{self as em, ExchangeManagerSink},
-        Exchange, ExchangeType,
-    },
-    queue::{
-        manager::{self as qm, QueueManagerSink},
-        Queue,
-    },
-    tests::recv_timeout,
-    Context,
+    client::{tests::to_runtime_error, ConnectionError},
+    tests::{recv_timeout, send_content, unpack_frames, unpack_single_frame, TestCase},
 };
-use metalmq_codec::{
-    codec::Frame,
-    frame::{
-        self, BasicPublishArgs, ContentBodyFrame, ContentHeaderFrame, ExchangeDeclareArgs, QueueBindArgs,
-        QueueDeclareArgs,
-    },
-};
-
-/// TestCase for System Under Test which spawns an exchange manager and a queue manager and can
-/// test more integrated features like forwarding messages from exchanges to queues.
-pub struct TestCase {
-    em: ExchangeManagerSink,
-    qm: QueueManagerSink,
-    setup_tx: mpsc::Sender<Frame>,
-    setup_rx: mpsc::Receiver<Frame>,
-}
-
-impl TestCase {
-    async fn new() -> Self {
-        let em = crate::exchange::manager::start();
-        let qm = crate::queue::manager::start(em.clone());
-        let (setup_tx, setup_rx) = mpsc::channel(128);
-
-        Self {
-            em,
-            qm,
-            setup_tx,
-            setup_rx,
-        }
-        .setup()
-        .await
-    }
-
-    async fn setup(mut self) -> Self {
-        self.exchange_declare("x-direct", ExchangeType::Direct).await;
-        self.exchange_declare("x-fanout", ExchangeType::Fanout).await;
-        self.exchange_declare("x-topic", ExchangeType::Topic).await;
-        self.exchange_declare("x-headers", ExchangeType::Headers).await;
-
-        self.queue_declare("q-direct").await;
-        self.queue_declare("q-fanout").await;
-        self.queue_declare("q-topic").await;
-        self.queue_declare("q-headers").await;
-
-        self.queue_bind("q-direct", "x-direct", "magic-key").await;
-        self.queue_bind("q-fanout", "x-fanout", "").await;
-
-        while let Ok(_) = self.setup_rx.try_recv() {}
-
-        self
-    }
-
-    async fn exchange_declare(&self, name: &str, exchange_type: ExchangeType) {
-        em::declare_exchange(
-            &self.em,
-            em::DeclareExchangeCommand {
-                channel: 1,
-                exchange: Exchange::default().name(name).exchange_type(exchange_type),
-                passive: false,
-                outgoing: self.setup_tx.clone(),
-            },
-        )
-        .await
-        .unwrap();
-    }
-
-    async fn queue_declare(&self, name: &str) {
-        qm::declare_queue(
-            &self.qm,
-            qm::QueueDeclareCommand {
-                queue: Queue::default().name(name),
-                conn_id: "does-not-matter".to_string(),
-                channel: 1,
-                passive: false,
-            },
-        )
-        .await
-        .unwrap();
-    }
-
-    async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) {
-        let sink = qm::get_command_sink(
-            &self.qm,
-            qm::GetQueueSinkQuery {
-                channel: 1,
-                queue_name: queue_name.to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        em::bind_queue(
-            &self.em,
-            em::BindQueueCommand {
-                conn_id: "does-not-matter".to_string(),
-                channel: 1,
-                exchange_name: exchange_name.to_string(),
-                queue_name: queue_name.to_string(),
-                routing_key: routing_key.to_string(),
-                args: None,
-                queue_sink: sink,
-            },
-        )
-        .await
-        .unwrap();
-    }
-
-    fn new_client(&self) -> (Connection, mpsc::Receiver<Frame>) {
-        let ctx = Context {
-            exchange_manager: self.em.clone(),
-            queue_manager: self.qm.clone(),
-        };
-        let (client_tx, client_rx) = mpsc::channel(1);
-
-        (Connection::new(ctx, client_tx), client_rx)
-    }
-}
-
-pub async fn send_content(client: &mut Connection, message: &[u8]) {
-    let mut header = ContentHeaderFrame::default();
-    header.channel = 1u16;
-    header.class_id = (frame::BASIC_PUBLISH >> 16) as u16;
-    header.body_size = message.len() as u64;
-
-    client.receive_content_header(header).await.unwrap();
-
-    let body = ContentBodyFrame {
-        channel: 1u16,
-        body: message.to_vec(),
-    };
-
-    client.receive_content_body(body).await.unwrap();
-}
-
-pub fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
-    if let Frame::Frame(single_frame) = f {
-        single_frame
-    } else {
-        panic!("Frame {f:?} is not a single frame");
-    }
-}
-
-pub fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
-    match f {
-        Frame::Frame(sf) => vec![sf],
-        Frame::Frames(mf) => mf,
-    }
-}
+use metalmq_codec::frame::{self, ExchangeDeclareArgs};
 
 #[tokio::test]
 async fn bind_queue_with_validation() {
@@ -206,46 +48,6 @@ async fn bind_queue_with_validation() {
 }
 
 #[tokio::test]
-async fn basic_publish_mandatory_message() {
-    let tc = TestCase::new().await;
-    let (mut client, mut client_rx) = tc.new_client();
-
-    // Publish message to an exchange which doesn't route to queues -> channel error
-    let publish = BasicPublishArgs::new("x-direct")
-        .routing_key("invalid-key")
-        .mandatory(true);
-
-    client.basic_publish(1u16, publish).await.unwrap();
-
-    send_content(&mut client, b"A simple message").await;
-
-    // Since the routing key is not matching and message is mandatory, server sends back the message
-    // with a Basic.Return frame
-    let return_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
-
-    assert!(matches!(
-        dbg!(return_frames).get(0).unwrap(),
-        frame::AMQPFrame::Method(1u16, _, frame::MethodFrameArgs::BasicReturn(_))
-    ));
-
-    client
-        .basic_publish(
-            1u16,
-            BasicPublishArgs::new("x-direct")
-                .routing_key("magic-key")
-                .mandatory(true),
-        )
-        .await
-        .unwrap();
-
-    send_content(&mut client, b"Another message").await;
-
-    // No message is expected as a response
-    let expected_timeout = dbg!(recv_timeout(&mut client_rx).await);
-    assert!(expected_timeout.is_none());
-}
-
-#[tokio::test]
 async fn basic_get_empty_and_ok() {
     let tc = TestCase::new().await;
     let (mut client, mut client_rx) = tc.new_client();
@@ -280,6 +82,35 @@ async fn basic_get_empty_and_ok() {
             2,
             _,
             frame::MethodFrameArgs::BasicGetOk(frame::BasicGetOkArgs { redelivered: false, .. })
+        )
+    ));
+}
+
+#[tokio::test]
+async fn queue_purge_clean_the_queue() {
+    let tc = TestCase::new().await;
+    let (mut client, mut client_rx) = tc.new_client();
+
+    for i in 0..16 {
+        client
+            .basic_publish(1, frame::BasicPublishArgs::new("x-fanout"))
+            .await
+            .unwrap();
+        send_content(&mut client, &format!("Message #{i}").as_bytes()).await;
+    }
+
+    client
+        .queue_purge(2, frame::QueuePurgeArgs::default().queue_name("q-fanout"))
+        .await
+        .unwrap();
+
+    let purge_ok = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    assert!(matches!(
+        dbg!(purge_ok).get(0).unwrap(),
+        frame::AMQPFrame::Method(
+            _,
+            _,
+            frame::MethodFrameArgs::QueuePurgeOk(frame::QueuePurgeOkArgs { message_count: 16 })
         )
     ));
 }
