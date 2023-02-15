@@ -4,7 +4,7 @@ use metalmq_client::*;
 
 #[tokio::test]
 async fn passive_exchange_existing_exchange() -> Result<()> {
-    let mut c = helper::default().connect().await?;
+    let (mut c, _) = helper::default().connect().await?;
     let ch = c.channel_open(11).await?;
 
     ch.exchange_declare(
@@ -29,8 +29,8 @@ async fn passive_exchange_existing_exchange() -> Result<()> {
 
 #[tokio::test]
 async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
-    let mut c1 = helper::default().connect().await?;
-    let mut c2 = helper::default().connect().await?;
+    let (mut c1, _) = helper::default().connect().await?;
+    let (mut c2, _) = helper::default().connect().await?;
     let mut ch1 = c1.channel_open(32).await?;
     let mut ch2 = c2.channel_open(31).await?;
 

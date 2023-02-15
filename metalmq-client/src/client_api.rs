@@ -45,20 +45,21 @@ pub enum EventSignal {
 /// use metalmq_client::*;
 ///
 /// async fn connect() {
-///     let mut client = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
+///     let (mut client, mut client_handler) =
+///         Client::connect("localhost:5672", "guest", "guest").await.unwrap();
 ///     let mut channel = client.channel_open(1u16).await.unwrap();
 ///
 ///     // Start a new thread to handle events
-///     //tokio::spawn(async move {
-///     //    use EventSignal::*;
+///     tokio::spawn(async move {
+///         use EventSignal::*;
 ///
-///     //    while let Some(evt) = client.event_stream.recv().await {
-///     //        match evt {
-///     //            ChannelClose => panic!("Handle it better"),
-///     //            _ => (),
-///     //        }
-///     //    }
-///     //});
+///         while let Some(evt) = client_handler.event_stream.recv().await {
+///             match evt {
+///                 ChannelClose => panic!("Handle it better"),
+///                 _ => (),
+///             }
+///         }
+///     });
 ///     // ...
 ///     channel.close().await.unwrap();
 ///     client.close().await.unwrap();
@@ -67,15 +68,25 @@ pub enum EventSignal {
 pub struct Client {
     /// The id of the connection.
     pub connection_id: String,
-    /// The stream of connection events which can happen any time like cancellation of a consumer
-    /// or closing of a connection.
-    pub event_stream: mpsc::UnboundedReceiver<EventSignal>,
     request_sink: mpsc::Sender<ClientRequest>,
     /// Sync calls register here per channel (0 for connection related frames). Once response frame
     /// arrives, the oneshot channel is notified. Channel close and connection close events should
     /// unblock the waiting tasks here by notifying them with an error or a unit reply.
     channels: HashMap<u16, Channel>,
     next_channel: u16,
+}
+
+/// Event handler is the event stream of the client with which one can get notification of client
+/// events.
+///
+/// It is separated from the client because most of the time the event stream is moved to another
+/// thread in order that the client can react on the event parallely to the client normal flow.
+///
+/// See [`Client`]
+pub struct EventHandler {
+    /// The stream of connection events which can happen any time like cancellation of a consumer
+    /// or closing of a connection.
+    pub event_stream: mpsc::UnboundedReceiver<EventSignal>,
 }
 
 /// Create a connection to an AMQP server and returns a sink to send the requests.
@@ -101,7 +112,7 @@ async fn create_connection(url: &str, conn_sink: ConnectionSink) -> Result<Clien
 impl Client {
     // TODO expect only one parameter and parse the url
     /// The main entry point of the API, it connects to an AMQP compatible server.
-    pub async fn connect(url: &str, username: &str, password: &str) -> Result<Client> {
+    pub async fn connect(url: &str, username: &str, password: &str) -> Result<(Client, EventHandler)> {
         let (conn_evt_tx, conn_evt_rx) = mpsc::unbounded_channel();
         let (connected_tx, connected_rx) = oneshot::channel();
         let client_sink = create_connection(url, conn_evt_tx).await?;
@@ -120,13 +131,17 @@ impl Client {
 
         connected_rx.await?;
 
-        Ok(Client {
-            connection_id: "01234".to_owned(),
-            request_sink: client_sink,
-            event_stream: conn_evt_rx,
-            channels: HashMap::new(),
-            next_channel: 1u16,
-        })
+        Ok((
+            Client {
+                connection_id: "01234".to_owned(),
+                request_sink: client_sink,
+                channels: HashMap::new(),
+                next_channel: 1u16,
+            },
+            EventHandler {
+                event_stream: conn_evt_rx,
+            },
+        ))
     }
 
     /// Open a channel in the current connection.
@@ -158,7 +173,9 @@ impl Client {
 
         Ok(())
     }
+}
 
+impl EventHandler {
     /// Convenient function for listening `EventSignal` with timeout.
     pub async fn receive_event(&mut self, timeout: std::time::Duration) -> Option<EventSignal> {
         let sleep = tokio::time::sleep(timeout);

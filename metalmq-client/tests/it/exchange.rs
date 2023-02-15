@@ -4,7 +4,7 @@ use metalmq_client::{Binding, ExchangeDeclareOpts, ExchangeType, IfUnused, Queue
 
 #[tokio::test]
 async fn declare_exchange() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
     let mut ch = c.channel_open(7).await?;
 
     ch.exchange_declare(
@@ -23,7 +23,7 @@ async fn declare_exchange() -> Result<()> {
 
 #[tokio::test]
 async fn passive_declare_existing_exchange() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
 
     let mut ch = c.channel_open(7).await?;
     ch.exchange_declare(
@@ -52,7 +52,7 @@ async fn passive_declare_existing_exchange() -> Result<()> {
 
 #[tokio::test]
 async fn create_exchange_after_delete_the_old() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
 
     let mut ch = c.channel_open(7).await?;
     ch.exchange_declare(
@@ -79,7 +79,7 @@ async fn create_exchange_after_delete_the_old() -> Result<()> {
 
 #[tokio::test]
 async fn declare_exchange_with_different_type_error_406() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
 
     let ch = c.channel_open(9).await?;
     //ch.exchange_delete("x-conflict", false).await?;
@@ -115,7 +115,7 @@ async fn declare_exchange_with_different_type_error_406() -> Result<()> {
 
 #[tokio::test]
 async fn delete_not_existing_exchange_error_404() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
     let mut ch = c.channel_open(9).await?;
 
     let result = ch.exchange_delete("x-not-existing", IfUnused(false)).await;
@@ -134,7 +134,7 @@ async fn delete_not_existing_exchange_error_404() -> Result<()> {
 
 #[tokio::test]
 async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
     let mut ch = c.channel_open(14).await?;
     //ch.exchange_delete("x-used", false).await?;
 
@@ -165,7 +165,7 @@ async fn delete_used_exchange_if_unused_error_406() -> Result<()> {
 #[ignore]
 #[tokio::test]
 async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
     let mut ch = c.channel_open(99).await?;
 
     ch.exchange_declare(
@@ -184,7 +184,7 @@ async fn auto_delete_exchange_deletes_when_queues_unbound() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut c = helper::connect().await?;
+    let (mut c, _) = helper::connect().await?;
     let mut ch = c.channel_open(11).await?;
 
     let result = ch

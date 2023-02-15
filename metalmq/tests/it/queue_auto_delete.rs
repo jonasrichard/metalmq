@@ -27,7 +27,7 @@ async fn delete_queue_when_last_consumer_left() {
     const EXCHANGE: &str = "x-auto-delete";
     const QUEUE: &str = "q-auto-delete";
 
-    let mut declare = helper::default().connect().await.unwrap();
+    let (mut declare, _) = helper::default().connect().await.unwrap();
     let mut declare_channel = declare.channel_open(3u16).await.unwrap();
 
     exchange_direct_bind(
@@ -39,7 +39,7 @@ async fn delete_queue_when_last_consumer_left() {
     )
     .await;
 
-    let mut consumer1 = helper::default().connect().await.unwrap();
+    let (mut consumer1, _) = helper::default().connect().await.unwrap();
     let consumer1_channel = consumer1.channel_open(4u16).await.unwrap();
 
     let handler1 = consumer1_channel
@@ -54,7 +54,7 @@ async fn delete_queue_when_last_consumer_left() {
     declare.close().await.unwrap();
 
     // Check if queue is still there with a passive declare
-    let mut checker = helper::default().connect().await.unwrap();
+    let (mut checker, _) = helper::default().connect().await.unwrap();
     let checker_channel = checker.channel_open(7u16).await.unwrap();
 
     checker_channel

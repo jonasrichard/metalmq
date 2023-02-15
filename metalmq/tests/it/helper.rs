@@ -49,14 +49,12 @@ impl<'c, 'a: 'c> ConnData<'c> {
 
     /// Acutally connect to the server with the parameters we have set.
     #[allow(dead_code)]
-    pub(crate) async fn connect(self) -> Result<Client> {
+    pub(crate) async fn connect(self) -> Result<(Client, EventHandler)> {
         let username = self.params.get("username").unwrap();
         let password = self.params.get("password").unwrap();
         let virtual_host = self.params.get("virtual_host").unwrap();
 
-        let client = Client::connect("localhost:5672", username, password).await?;
-
-        Ok(client)
+        Client::connect("localhost:5672", username, password).await
     }
 }
 
@@ -81,7 +79,7 @@ pub(crate) async fn declare_exchange_queue(ch: &Channel, exchange: &str, queue: 
 /// Make a new connection and on the 1st channel it deletes the exchange.
 #[allow(dead_code)]
 pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
-    let mut c = default().connect().await?;
+    let (mut c, _) = default().connect().await?;
     let mut ch = c.channel_open(1).await?;
 
     ch.exchange_delete(exchange, IfUnused(false)).await?;
@@ -95,7 +93,7 @@ pub(crate) async fn delete_exchange(exchange: &str) -> Result<()> {
 /// Make a new connection and on the 1st channel it deletes the exchange.
 #[allow(dead_code)]
 pub(crate) async fn delete_queue(queue: &str) -> Result<()> {
-    let mut c = default().connect().await?;
+    let (mut c, _) = default().connect().await?;
     let mut ch = c.channel_open(1).await?;
 
     ch.queue_delete(queue, IfUnused(false), IfEmpty(false)).await?;

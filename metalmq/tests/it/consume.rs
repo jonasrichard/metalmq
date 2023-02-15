@@ -11,7 +11,7 @@ async fn consume_one_message() -> Result<()> {
     //helper::delete_queue(QUEUE).await?;
     //helper::delete_exchange(EXCHANGE).await?;
 
-    let mut c = helper::default().connect().await?;
+    let (mut c, _) = helper::default().connect().await?;
 
     let mut ch = c.channel_open(1).await?;
     helper::declare_exchange_queue(&ch, EXCHANGE, QUEUE).await?;
@@ -38,7 +38,7 @@ async fn consume_one_message() -> Result<()> {
 
 #[tokio::test]
 async fn consume_not_existing_queue() -> Result<()> {
-    let mut c = helper::default().connect().await?;
+    let (mut c, _) = helper::default().connect().await?;
     let ch = c.channel_open(2).await?;
 
     let res = helper::consume_messages(&ch, "not-existing-queue", Exclusive(false), 1).await;
@@ -61,7 +61,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
     helper::delete_queue(QUEUE).await?;
     helper::delete_exchange(EXCHANGE).await?;
 
-    let mut c = helper::default().connect().await?;
+    let (mut c, _) = helper::default().connect().await?;
 
     let ch = c.channel_open(4).await?;
 
@@ -82,7 +82,7 @@ async fn two_consumers_exclusive_queue_error() -> Result<()> {
 
     assert!(res.is_ok());
 
-    let mut c2 = helper::default().connect().await?;
+    let (mut c2, _) = helper::default().connect().await?;
 
     let ch2 = c2.channel_open(3).await?;
 

@@ -9,7 +9,7 @@ async fn connect() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn open_already_opened_channel() -> anyhow::Result<()> {
-    let mut c = helper::default().connect().await?;
+    let (mut c, _) = helper::default().connect().await?;
 
     let _ = c.channel_open(1).await?;
 

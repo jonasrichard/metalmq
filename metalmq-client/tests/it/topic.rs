@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use crate::{helper, message_from_string, unwrap_delivered_message};
+use crate::{helper, unwrap_delivered_message};
 use metalmq_client::*;
 
 #[tokio::test]
 async fn test_routing_logic() {
-    let mut client = helper::connect().await.unwrap();
+    let (mut client, _) = helper::connect().await.unwrap();
     let mut channel = client.channel_open(10u16).await.unwrap();
 
     channel

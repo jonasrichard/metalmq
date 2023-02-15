@@ -6,7 +6,7 @@ async fn main() -> Result<()> {
     let exchange = "test-xchg";
     let queue = "test-queue";
 
-    let mut client = Client::connect("localhost:5672", "guest", "guest").await?;
+    let (mut client, _) = Client::connect("localhost:5672", "guest", "guest").await?;
     let mut channel = client.channel_open_next().await?;
 
     channel

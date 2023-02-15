@@ -1,4 +1,3 @@
-import itertools
 import logging
 import threading
 
@@ -48,14 +47,16 @@ def test_basic_deliver_redelivered():
 
             with helper.channel(2) as consumer:
                 consuming_without_acking = threading.Condition()
-                threading.Thread(target=consume_without_ack, args=(consumer, consuming_without_acking)).start()
+                threading.Thread(target=consume_without_ack,
+                                 args=(consumer, consuming_without_acking)).start()
 
                 with consuming_without_acking:
                     consuming_without_acking.wait()
 
             with helper.channel(4) as acker:
                 consuming_with_acking = threading.Condition()
-                threading.Thread(target=consume_with_ack, args=(acker, consuming_with_acking)).start()
+                threading.Thread(target=consume_with_ack,
+                                 args=(acker, consuming_with_acking)).start()
 
                 with consuming_with_acking:
                     consuming_with_acking.wait()

@@ -236,7 +236,7 @@ impl Channel {
     /// use metalmq_client::{Client, IfUnused};
     ///
     /// # async fn foo() {
-    /// let mut c = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
+    /// let (mut c, _) = Client::connect("localhost:5672", "guest", "guest").await.unwrap();
     /// let ch = c.channel_open(1).await.unwrap();
     ///
     /// ch.exchange_delete("price-exchange", IfUnused(false)).await.unwrap();

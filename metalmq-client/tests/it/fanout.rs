@@ -5,7 +5,7 @@ use metalmq_client::*;
 
 #[tokio::test]
 async fn test_routing_logic() {
-    let mut client = helper::connect().await.unwrap();
+    let (mut client, _) = helper::connect().await.unwrap();
     let mut channel = client.channel_open(2u16).await.unwrap();
 
     channel

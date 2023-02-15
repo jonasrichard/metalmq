@@ -1,11 +1,9 @@
 use anyhow::Result;
-use metalmq_client::{Client, ClientError};
+use metalmq_client::{Client, ClientError, EventHandler};
 
 #[allow(dead_code)]
-pub async fn connect() -> Result<Client> {
-    let c = Client::connect("localhost:5672", "guest", "guest").await?;
-
-    Ok(c)
+pub async fn connect() -> Result<(Client, EventHandler)> {
+    Client::connect("localhost:5672", "guest", "guest").await
 }
 
 #[allow(dead_code)]

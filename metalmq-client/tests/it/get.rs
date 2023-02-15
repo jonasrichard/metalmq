@@ -6,7 +6,7 @@ use crate::helper;
 
 #[tokio::test]
 async fn test_get_logic() {
-    let mut client = helper::connect().await.unwrap();
+    let (mut client, mut handler) = helper::connect().await.unwrap();
     let mut channel = client.channel_open(1).await.unwrap();
 
     channel
