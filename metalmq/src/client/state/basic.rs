@@ -112,16 +112,12 @@ impl Connection {
                 consumer_tag: cq.consumer_tag.clone(),
             };
             qm::cancel_consume(&self.qm, cmd).await?;
-
-            self.send_frame(Frame::Frame(
-                frame::BasicCancelOkArgs::new(&args.consumer_tag).frame(channel),
-            ))
-            .await?;
-        } else {
-            // TODO error: canceling consuming which didn't exist
         }
 
-        Ok(())
+        self.send_frame(Frame::Frame(
+            frame::BasicCancelOkArgs::new(&args.consumer_tag).frame(channel),
+        ))
+        .await
     }
 
     /// Handles Ack coming from client.
@@ -141,6 +137,9 @@ impl Connection {
                         Duration::from_secs(1),
                     )
                     .await?;
+                // FIXME this queue command should have a oneshot channel in which the queue can
+                // say, hey this message what you are acking has not been delivered yet, so channel
+                // exception
             }
             None => match self.passively_consumed_queues.get(&channel) {
                 Some(pq) => {
