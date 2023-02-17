@@ -8,10 +8,6 @@ mod restapi;
 #[cfg(test)]
 pub mod tests;
 
-//#[cfg(nightly)]
-//#![feature(test)]
-//extern crate test;
-
 use env_logger::Builder;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
