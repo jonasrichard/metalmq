@@ -132,11 +132,24 @@ impl QueueStateTester {
         QueueCommand::PublishMessage(Arc::new(self.default_message(body)))
     }
 
-    fn command_basic_ack(&self, consumer_tag: &str, delivery_tag: u64) -> QueueCommand {
-        QueueCommand::AckMessage {
-            consumer_tag: consumer_tag.to_string(),
-            delivery_tag,
-        }
+    fn command_basic_ack(
+        &self,
+        channel: u16,
+        consumer_tag: &str,
+        delivery_tag: u64,
+    ) -> (QueueCommand, oneshot::Receiver<Result<()>>) {
+        let (tx, rx) = oneshot::channel();
+
+        (
+            QueueCommand::AckMessage(AckCmd {
+                channel,
+                consumer_tag: consumer_tag.to_string(),
+                delivery_tag,
+                multiple: false,
+                result: tx,
+            }),
+            rx,
+        )
     }
 
     fn command_passive_cancel(&self) -> QueueCommand {
@@ -443,12 +456,15 @@ async fn basic_get_then_basic_ack_deletes_the_message_from_the_queue() {
     assert_eq!(msg.redelivered, false);
 
     let consumer_tag = format!("{}-{}", tester.connection_id, tester.used_channel);
+    let (cmd, rx) = tester.command_basic_ack(1, &consumer_tag, msg.delivery_tag);
 
-    tester
-        .state
-        .handle_command(tester.command_basic_ack(&consumer_tag, msg.delivery_tag))
-        .await
-        .unwrap();
+    dbg!(&cmd);
+
+    tester.state.handle_command(cmd).await.unwrap();
+
+    dbg!(&tester.state.outbox);
+
+    rx.await.unwrap().unwrap();
 
     assert!(tester.state.messages.is_empty());
     assert!(tester.state.outbox.outgoing_messages.is_empty());

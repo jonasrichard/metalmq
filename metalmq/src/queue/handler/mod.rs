@@ -28,6 +28,15 @@ pub struct Tag {
 }
 
 #[derive(Debug)]
+pub struct AckCmd {
+    pub channel: u16,
+    pub consumer_tag: String,
+    pub delivery_tag: u64,
+    pub multiple: bool,
+    pub result: oneshot::Sender<Result<()>>,
+}
+
+#[derive(Debug)]
 pub struct PassiveConsumeCmd {
     pub conn_id: String,
     pub channel: u16,
@@ -55,10 +64,7 @@ pub struct PassiveCancelConsumeCmd {
 pub enum QueueCommand {
     PublishMessage(Arc<Message>),
     /// Client acks a message.
-    AckMessage {
-        consumer_tag: String,
-        delivery_tag: u64,
-    },
+    AckMessage(AckCmd),
     /// In case of re-declaration or passive declaration of the queue, the Declare.GetOk message
     /// should contain the number of messages and current consumers count.
     GetDeclareOk {
@@ -166,6 +172,7 @@ struct QueueState {
 // have only mpsc receiver-based client message processing, in
 // case of a message buffer, we can make independent the receive
 // of messages on client side, and to call the callback.
+#[derive(Debug)]
 struct Consumer {
     /// The channel the consumer uses
     channel: u16,
@@ -300,12 +307,9 @@ impl QueueState {
 
                 Ok(true)
             }
-            QueueCommand::AckMessage {
-                consumer_tag,
-                delivery_tag,
-            } => {
-                // TODO the message must not be acknowledged more than once (channel exception)
-                self.outbox.on_ack_arrive(consumer_tag, delivery_tag);
+            QueueCommand::AckMessage(ack_cmd) => {
+                self.handle_ack(ack_cmd).await.unwrap();
+
                 Ok(true)
             }
             QueueCommand::GetDeclareOk { result } => {
@@ -715,6 +719,55 @@ impl QueueState {
         Ok(())
     }
 
+    async fn handle_ack(&mut self, cmd: AckCmd) -> Result<()> {
+        // TODO optimize consumer lookup
+        if self
+            .consumers
+            .iter()
+            .find(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
+            .is_none()
+        {
+            if self
+                .passive_consumers
+                .iter()
+                .find(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
+                .is_none()
+            {
+                cmd.result
+                    .send(channel_error(
+                        cmd.channel,
+                        frame::BASIC_ACK,
+                        ChannelError::PreconditionFailed,
+                        &format!(
+                            "Client acked a non-delivered message with delivery tag {}",
+                            cmd.delivery_tag
+                        ),
+                    ))
+                    .unwrap();
+
+                return Ok(());
+            }
+        }
+
+        if self
+            .outbox
+            .on_ack_arrive(cmd.consumer_tag, cmd.delivery_tag, cmd.multiple)
+        {
+            cmd.result.send(Ok(())).unwrap();
+        } else {
+            cmd.result
+                .send(channel_error(
+                    cmd.channel,
+                    frame::BASIC_ACK,
+                    ChannelError::PreconditionFailed,
+                    &format!("Message is already acked with delivery tag {}", cmd.delivery_tag),
+                ))
+                .unwrap();
+        }
+
+        Ok(())
+    }
+
     async fn send_out_message(&mut self, message: DeliveredMessage) -> Result<()> {
         let res = match self.consumers.get(self.next_consumer) {
             None => {
@@ -806,20 +859,56 @@ fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option
     commands.poll_recv(&mut cx)
 }
 
+#[derive(Debug)]
 struct OutgoingMessage {
     message: DeliveredMessage,
     tag: Tag,
     sent_at: Instant,
 }
 
+#[derive(Debug)]
 struct Outbox {
     outgoing_messages: Vec<OutgoingMessage>,
 }
 
 impl Outbox {
-    fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64) {
-        self.outgoing_messages
-            .retain(|om| om.tag.delivery_tag != delivery_tag || om.tag.consumer_tag != consumer_tag);
+    /// Acking messages by remove them based on the parameters. Return false if a message is double
+    /// acked.
+    fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64, multiple: bool) -> bool {
+        match (multiple, delivery_tag) {
+            (true, 0) => {
+                // If multiple is true and delivery tag is 0, we ack all sent messages with that
+                // consumer tag.
+                self.outgoing_messages.retain(|om| om.tag.consumer_tag != consumer_tag);
+
+                true
+            }
+            (true, _) => {
+                // If multiple is true and delivery tag is non-zero, we ack all sent messages with
+                // delivery tag less than equal with that consumer tag.
+                self.outgoing_messages.retain(|om| {
+                    (om.tag.consumer_tag == consumer_tag && om.tag.delivery_tag > delivery_tag)
+                        || om.tag.consumer_tag != consumer_tag
+                });
+
+                true
+            }
+            (false, _) => {
+                // If multiple is false, we ack the sent out message with that consumer tag and
+                // delivery tag.
+                match self
+                    .outgoing_messages
+                    .iter()
+                    .position(|om| om.tag.consumer_tag == consumer_tag && om.tag.delivery_tag == delivery_tag)
+                {
+                    None => false,
+                    Some(p) => {
+                        self.outgoing_messages.remove(p);
+                        true
+                    }
+                }
+            }
+        }
     }
 
     fn on_sent_out(&mut self, outgoing_message: OutgoingMessage) {

@@ -2,12 +2,12 @@
 name = "metalmq"
 version = "0.3.0"
 authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
-edition = "2021"
-license = "Apache-2.0"
-keywords = ["amqp", "messaging"]
-readme = "../README.md"
-repository = "https://github.com/jonasrichard/metalmq"
 description = "MetalMQ server"
+keywords = ["amqp", "messaging"]
+edition = "2021"
+repository = "https://github.com/jonasrichard/metalmq"
+license = "Apache-2.0"
+readme = "../README.md"
 
 [features]
 default = []
@@ -32,8 +32,3 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 metalmq-client = { version = "0.3", path = "../metalmq-client" }
-
-#[[bench]]
-#name = "client-state"
-#path = "benches/state.rs"
-#harness = false

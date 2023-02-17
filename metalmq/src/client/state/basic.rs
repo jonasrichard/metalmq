@@ -128,32 +128,38 @@ impl Connection {
         // TODO check if only delivered messages are acked, even multiple times
         match self.consumed_queues.get(&channel) {
             Some(cq) => {
+                let (tx, rx) = oneshot::channel();
+
                 cq.queue_sink
                     .send_timeout(
-                        queue_handler::QueueCommand::AckMessage {
+                        queue_handler::QueueCommand::AckMessage(queue_handler::AckCmd {
+                            channel,
                             consumer_tag: cq.consumer_tag.clone(),
                             delivery_tag: args.delivery_tag,
-                        },
+                            multiple: args.multiple,
+                            result: tx,
+                        }),
                         Duration::from_secs(1),
                     )
                     .await?;
-                // FIXME this queue command should have a oneshot channel in which the queue can
-                // say, hey this message what you are acking has not been delivered yet, so channel
-                // exception
+
+                rx.await.unwrap()?
             }
             None => match self.passively_consumed_queues.get(&channel) {
                 Some(pq) => {
+                    let (tx, rx) = oneshot::channel();
+
                     pq.queue_sink
-                        .send(queue_handler::QueueCommand::AckMessage {
+                        .send(queue_handler::QueueCommand::AckMessage(queue_handler::AckCmd {
+                            channel,
                             consumer_tag: String::from(""),
                             delivery_tag: args.delivery_tag,
-                        })
+                            multiple: args.multiple,
+                            result: tx,
+                        }))
                         .await?;
 
-                    // FIXME here it is not clear when we need to remove this queue from the
-                    // passively consumed queue. Rather, we need to handle the basic-get thing as a
-                    // passive consume in the queue handler, and everywhere else they will be
-                    // handled in the same way (queue delete, etc).
+                    rx.await.unwrap()?
                 }
                 None => {
                     warn!("Basic.Ack arrived without consuming the queue");

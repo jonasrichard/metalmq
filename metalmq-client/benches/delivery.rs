@@ -1,8 +1,8 @@
-use bencher::Bencher;
+use criterion::*;
 
-fn basic_deliver(bench: &mut Bencher) {
-    bench.iter(|| {});
+fn basic_deliver(c: &mut Criterion) {
+    //c.iter(|| {});
 }
 
-bencher::benchmark_group!(delivery, basic_deliver);
-bencher::benchmark_main!(delivery);
+criterion_group!(benches, basic_deliver);
+criterion_main!(benches);
