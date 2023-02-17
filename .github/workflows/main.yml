@@ -22,7 +22,14 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
 
-      # Runs a single command using the runners shell
-      - name: Cargo check
+      - name: Check for build errors
         run: |
           cargo check
+          
+      - name: MetalMQ unit tests
+        run: |
+          cargo test --bin metalmq
+
+      - name: Test doc
+        run: |
+          cargo test --doc
