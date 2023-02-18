@@ -30,6 +30,8 @@ pub struct TestCase {
 }
 
 impl TestCase {
+    /// Create the internal engine of MetalMQ, the exchange and the queue manager, it connects them
+    /// and also declare all types of exchanges for tests.
     async fn new() -> Self {
         let em = crate::exchange::manager::start();
         let qm = crate::queue::manager::start(em.clone());
@@ -124,7 +126,7 @@ impl TestCase {
             exchange_manager: self.em.clone(),
             queue_manager: self.qm.clone(),
         };
-        let (client_tx, client_rx) = mpsc::channel(1);
+        let (client_tx, client_rx) = mpsc::channel(16);
 
         (Connection::new(ctx, client_tx), client_rx)
     }
@@ -145,20 +147,24 @@ pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
     }
 }
 
-pub async fn send_content(client: &mut Connection, message: &[u8]) {
+pub async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
     let mut header = ContentHeaderFrame::default();
-    header.channel = 1u16;
+    header.channel = channel;
     header.class_id = (frame::BASIC_PUBLISH >> 16) as u16;
     header.body_size = message.len() as u64;
 
     client.receive_content_header(header).await.unwrap();
 
     let body = ContentBodyFrame {
-        channel: 1u16,
+        channel,
         body: message.to_vec(),
     };
 
     client.receive_content_body(body).await.unwrap();
+}
+
+pub async fn sleep(ms: u32) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms.into())).await;
 }
 
 pub fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {

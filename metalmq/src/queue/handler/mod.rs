@@ -146,6 +146,7 @@ struct DeliveredMessage {
 }
 
 /// Information about the queue instance
+#[derive(Debug)]
 struct QueueState {
     queue: Queue,
     declaring_connection: String,
