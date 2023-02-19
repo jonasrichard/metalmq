@@ -60,7 +60,7 @@ async fn publish_deliver_message_to_all_queues(client: &mut Client) {
         .unwrap();
 
     channel1
-        .basic_publish("event-hub", "dont-care", PublishedMessage::default().str("Event #1"))
+        .basic_publish("event-hub", "dont-care", PublishedMessage::default().text("Event #1"))
         .await
         .unwrap();
 

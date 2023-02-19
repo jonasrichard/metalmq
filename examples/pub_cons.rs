@@ -61,7 +61,8 @@ async fn main() -> Result<()> {
     let start = Instant::now();
 
     for _ in 0..message_count {
-        let message = PublishedMessage::default().str("This will be the test message what we send over multiple times");
+        let message =
+            PublishedMessage::default().text("This will be the test message what we send over multiple times");
 
         publisher.basic_publish(exchange, "", message).await?;
     }

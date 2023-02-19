@@ -14,7 +14,7 @@ async fn unrouted_mandatory_messages_gives_basic_return() -> Result<()> {
     )
     .await?;
 
-    ch.basic_publish("x-unrouter", "", PublishedMessage::default().str("unrouted message"))
+    ch.basic_publish("x-unrouter", "", PublishedMessage::default().text("unrouted message"))
         .await
         .unwrap();
 

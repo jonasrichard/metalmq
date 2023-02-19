@@ -93,7 +93,7 @@ async fn publish_deliver_message_to_proper_queue(client: &mut Client) {
 
     let routing_keys = vec!["exe", "pdf", "txt", "png"];
     for routing_key in routing_keys {
-        text.basic_publish("files", routing_key, PublishedMessage::default().str(routing_key))
+        text.basic_publish("files", routing_key, PublishedMessage::default().text(routing_key))
             .await
             .unwrap();
     }

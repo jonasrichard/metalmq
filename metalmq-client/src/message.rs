@@ -136,7 +136,11 @@ impl From<&str> for PublishedMessage {
             message: Content {
                 channel: 0u16,
                 body: value.as_bytes().to_vec(),
-                properties: MessageProperties::default(),
+                properties: MessageProperties {
+                    content_type: Some("text/plain".into()),
+                    content_encoding: Some("UTF-8".into()),
+                    ..Default::default()
+                },
             },
             ..Default::default()
         }
@@ -144,8 +148,16 @@ impl From<&str> for PublishedMessage {
 }
 
 impl PublishedMessage {
-    pub fn str(mut self, value: &str) -> Self {
-        self.message.body = value.as_bytes().to_vec();
+    pub fn channel(mut self, value: ChannelNumber) -> Self {
+        self.message.channel = value;
+        self
+    }
+
+    pub fn text<T>(mut self, value: T) -> Self
+    where
+        T: Into<Vec<u8>>,
+    {
+        self.message.body = value.into();
         self
     }
 

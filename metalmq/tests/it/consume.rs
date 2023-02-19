@@ -18,7 +18,7 @@ async fn consume_one_message() -> Result<()> {
 
     let result = helper::consume_messages(&ch, QUEUE, Exclusive(false), 1).await?;
 
-    ch.basic_publish(EXCHANGE, "", PublishedMessage::default().str("Hello"))
+    ch.basic_publish(EXCHANGE, "", PublishedMessage::default().text("Hello"))
         .await?;
 
     let msgs = result.await.unwrap();

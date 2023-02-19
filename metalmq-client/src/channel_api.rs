@@ -320,7 +320,11 @@ impl Channel {
         processor::call(&self.sink, frame).await
     }
 
-    pub async fn basic_publish(&self, exchange_name: &str, routing_key: &str, message: PublishedMessage) -> Result<()> {
+    pub async fn basic_publish<T>(&self, exchange_name: &str, routing_key: &str, message: T) -> Result<()>
+    where
+        T: Into<PublishedMessage>,
+    {
+        let message = message.into();
         let frame = frame::BasicPublishArgs::new(exchange_name)
             .routing_key(routing_key)
             .immediate(message.immediate)

@@ -62,7 +62,7 @@ pytest
 |                  |:question: durable             |
 |                  |:white_check_mark: exclusive   |
 |                  |:white_check_mark: auto-delete |
-|basic.            |                               |
+|basic.ack         |:white_check_mark:             |
 
 ## AMQP 0.9 client library
 
@@ -80,23 +80,6 @@ the `pika`. It runs on Python, so one need to install `pipenv` to run that.
 ```
 cd amqp-compliance
 pytest
-```
-
-### Debug test
-
-Switch on logging in the beginning of the test.
-
-```
-#[tokio::test]
-async fn test() -> Result<()> {
-    env_logger::builder().is_test(true).try_init();
-}
-```
-
-Start the test with the environment variable set.
-
-```
-RUST_LOG=metalmq_client=trace cargo test -- --exact exchange::declare_exchange_with_different_type --show-output
 ```
 
 ### Unit test coverage

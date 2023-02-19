@@ -589,6 +589,10 @@ impl QueueState {
         }
     }
 
+    // TODO Try to introduce functional programming style here, namely the sent messages should be
+    // returned as a return value, and function should not have side effects - at least limit side
+    // effects to small functions.
+
     async fn handle_passive_consume(&mut self, cmd: PassiveConsumeCmd) -> Result<()> {
         if self.queue.exclusive && cmd.conn_id != self.declaring_connection {
             cmd.result

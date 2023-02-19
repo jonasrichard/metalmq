@@ -44,9 +44,9 @@ async fn two_connections_publishing_to_the_same_exchange() -> Result<()> {
     )
     .await?;
 
-    ch1.basic_publish("xchg-shared", "", PublishedMessage::default().str("Content"))
+    ch1.basic_publish("xchg-shared", "", PublishedMessage::default().text("Content"))
         .await?;
-    ch2.basic_publish("xchg-shared", "", PublishedMessage::default().str("Content"))
+    ch2.basic_publish("xchg-shared", "", PublishedMessage::default().text("Content"))
         .await?;
 
     ch1.close().await?;

@@ -39,7 +39,7 @@ async fn get_with_ack(client: &mut Client, channel: &mut Channel) {
     let mut get_channel = client.channel_open(2).await.unwrap();
 
     channel
-        .basic_publish("x-get", "key", PublishedMessage::default().str("Get #1"))
+        .basic_publish("x-get", "key", PublishedMessage::default().text("Get #1"))
         .await
         .unwrap();
 
