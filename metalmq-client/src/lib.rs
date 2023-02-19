@@ -45,7 +45,7 @@
 //!
 //!     // This code is not executed, well after the receive above timed out. If we didn't receive
 //!     // with timeout this would make a dead-lock.
-//!     channel.basic_publish("an-exchange", "", PublishedMessage::default().str("A message"))
+//!     channel.basic_publish("an-exchange", "", PublishedMessage::default().text("A message"))
 //!         .await.unwrap();
 //! }
 //! ```
@@ -69,7 +69,7 @@
 //!         }
 //!     });
 //!
-//!     channel.basic_publish("an-exchange", "", PublishedMessage::default().str("A message"))
+//!     channel.basic_publish("an-exchange", "", PublishedMessage::default().text("A message"))
 //!         .await.unwrap();
 //!
 //!     join_handle.await.unwrap();
