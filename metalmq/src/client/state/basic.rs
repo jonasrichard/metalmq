@@ -378,15 +378,29 @@ impl Connection {
                 // and one which waits for confirmation.
                 match self.exchanges.get(&pc.exchange) {
                     Some(ch) => {
-                        // FIXME again, this is not good, we shouldn't clone outgoing channels all the
-                        // time
+                        let (tx, rx) = match &msg.mandatory {
+                            false => (None, None),
+                            true => {
+                                let (tx, rx) = oneshot::channel();
+                                (Some(tx), Some(rx))
+                            }
+                        };
+
                         let cmd = ExchangeCommand::Message {
                             message: msg,
-                            frame_size: self.frame_max,
-                            outgoing: self.outgoing.clone(),
+                            returned: tx,
                         };
+
                         // TODO is this the correct way of returning Err(_)
                         logerr!(ch.send_timeout(cmd, Duration::from_secs(1)).await);
+
+                        if let Some(rx) = rx {
+                            if let Some(returned_message) = rx.await.unwrap() {
+                                message::send_basic_return(returned_message, self.frame_max, &self.outgoing)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
                     }
                     None => {
                         if msg.mandatory {

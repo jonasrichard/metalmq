@@ -15,7 +15,7 @@ use crate::{
     ErrorScope, Result,
 };
 use metalmq_codec::{codec::Frame, frame};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 
 struct TestCase {
@@ -58,11 +58,10 @@ impl TestCase {
         }
     }
 
-    fn command_message(&self, message: Message, tx: mpsc::Sender<Frame>) -> ExchangeCommand {
+    fn command_message(&self, message: Message, tx: oneshot::Sender<Option<Arc<Message>>>) -> ExchangeCommand {
         ExchangeCommand::Message {
             message,
-            frame_size: 32_768,
-            outgoing: tx,
+            returned: Some(tx),
         }
     }
 
@@ -83,22 +82,13 @@ impl TestCase {
             result: tx,
         }
     }
-
-    fn first_frame(f: metalmq_codec::codec::Frame) -> frame::AMQPFrame {
-        match f {
-            Frame::Frame(fr) => fr,
-            Frame::Frames(mut frs) => frs.remove(0),
-        }
-    }
 }
 
 #[tokio::test]
 async fn send_basic_return_on_mandatory_unroutable_message() {
-    use metalmq_codec::frame;
-
     let exchange_name: String = String::from("x-name");
 
-    let (msg_tx, mut msg_rx) = mpsc::channel(1);
+    let (msg_tx, msg_rx) = oneshot::channel();
     let mut tc = TestCase::direct_exchange(&exchange_name);
 
     let mut msg = tc.message(&exchange_name, "Okay");
@@ -108,23 +98,10 @@ async fn send_basic_return_on_mandatory_unroutable_message() {
 
     tc.exchange_state.handle_command(cmd).await.unwrap();
 
-    let return_frame = match recv_timeout(&mut msg_rx).await {
-        Some(f) => TestCase::first_frame(f),
-        None => panic!("Basic.Return frame is expected"),
-    };
+    let returned_message = msg_rx.await.unwrap().unwrap();
 
-    assert!(matches!(
-        return_frame,
-        frame::AMQPFrame::Method(
-            _,
-            _,
-            frame::MethodFrameArgs::BasicReturn(frame::BasicReturnArgs {
-                reply_code: 312,
-                exchange_name: exchange_name,
-                ..
-            })
-        )
-    ));
+    assert_eq!(returned_message.exchange, "x-name");
+    // TODO more checks
 }
 
 #[tokio::test]

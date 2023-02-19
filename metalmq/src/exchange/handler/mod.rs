@@ -4,13 +4,13 @@ mod tests;
 use super::binding::Bindings;
 use crate::client::{self, channel_error, ChannelError};
 use crate::exchange::{Exchange, ExchangeType};
-use crate::message::{self, Message};
+use crate::message::Message;
 use crate::queue::handler::{QueueCommand, QueueCommandSink};
 use crate::{logerr, send, Result};
 use log::{debug, error, info, trace};
-use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, FieldTable};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;
@@ -31,8 +31,9 @@ pub struct QueueBindCmd {
 pub enum ExchangeCommand {
     Message {
         message: Message,
-        frame_size: usize,
-        outgoing: mpsc::Sender<Frame>,
+        /// If message is immediate or mandatory or if the channel is in confirm mode and the
+        /// message routing failed, exchange needs to send back the message via this channel.
+        returned: Option<oneshot::Sender<Option<Arc<Message>>>>,
     },
     QueueBind(QueueBindCmd),
     QueueUnbind {
@@ -97,15 +98,16 @@ impl ExchangeState {
 
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
-            ExchangeCommand::Message {
-                message,
-                frame_size,
-                outgoing,
-            } => {
+            ExchangeCommand::Message { message, returned } => {
                 if let Some(failed_message) = self.bindings.route_message(message).await? {
+                    // TODO handle immediate somewhere, too
                     if failed_message.mandatory {
-                        message::send_basic_return(failed_message, frame_size, &outgoing).await?;
+                        returned.unwrap().send(Some(failed_message)).unwrap();
+                    } else {
+                        returned.map(|r| r.send(None).unwrap());
                     }
+                } else {
+                    returned.map(|r| r.send(None).unwrap());
                 }
 
                 Ok(true)

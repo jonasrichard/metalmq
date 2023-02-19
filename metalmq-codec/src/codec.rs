@@ -349,8 +349,9 @@ fn decode_queue_purge(src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_queue_purge_ok(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = QueuePurgeOkArgs::default();
-    args.message_count = src.get_u32();
+    let args = QueuePurgeOkArgs {
+        message_count: src.get_u32(),
+    };
 
     MethodFrameArgs::QueuePurgeOk(args)
 }
@@ -430,12 +431,13 @@ fn decode_basic_get(src: &mut BytesMut) -> MethodFrameArgs {
 }
 
 fn decode_basic_get_ok(src: &mut BytesMut) -> MethodFrameArgs {
-    let mut args = BasicGetOkArgs::default();
-    args.delivery_tag = src.get_u64();
-    args.redelivered = src.get_u8() != 0;
-    args.exchange_name = decode_short_string(src);
-    args.routing_key = decode_short_string(src);
-    args.message_count = src.get_u32();
+    let args = BasicGetOkArgs {
+        delivery_tag: src.get_u64(),
+        redelivered: src.get_u8() != 0,
+        exchange_name: decode_short_string(src),
+        routing_key: decode_short_string(src),
+        message_count: src.get_u32(),
+    };
 
     MethodFrameArgs::BasicGetOk(args)
 }

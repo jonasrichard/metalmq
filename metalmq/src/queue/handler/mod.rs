@@ -729,29 +729,25 @@ impl QueueState {
         if self
             .consumers
             .iter()
-            .find(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
-            .is_none()
-        {
-            if self
+            .any(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
+            && self
                 .passive_consumers
                 .iter()
-                .find(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
-                .is_none()
-            {
-                cmd.result
-                    .send(channel_error(
-                        cmd.channel,
-                        frame::BASIC_ACK,
-                        ChannelError::PreconditionFailed,
-                        &format!(
-                            "Client acked a non-delivered message with delivery tag {}",
-                            cmd.delivery_tag
-                        ),
-                    ))
-                    .unwrap();
+                .any(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
+        {
+            cmd.result
+                .send(channel_error(
+                    cmd.channel,
+                    frame::BASIC_ACK,
+                    ChannelError::PreconditionFailed,
+                    &format!(
+                        "Client acked a non-delivered message with delivery tag {}",
+                        cmd.delivery_tag
+                    ),
+                ))
+                .unwrap();
 
-                return Ok(());
-            }
+            return Ok(());
         }
 
         if self
@@ -891,10 +887,8 @@ impl Outbox {
             (true, _) => {
                 // If multiple is true and delivery tag is non-zero, we ack all sent messages with
                 // delivery tag less than equal with that consumer tag.
-                self.outgoing_messages.retain(|om| {
-                    (om.tag.consumer_tag == consumer_tag && om.tag.delivery_tag > delivery_tag)
-                        || om.tag.consumer_tag != consumer_tag
-                });
+                self.outgoing_messages
+                    .retain(|om| om.tag.consumer_tag != consumer_tag || om.tag.delivery_tag > delivery_tag);
 
                 true
             }

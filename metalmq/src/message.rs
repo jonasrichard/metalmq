@@ -141,7 +141,7 @@ pub async fn send_basic_return(message: Arc<Message>, frame_size: usize, outgoin
         .frame(message.channel),
     );
 
-    // FIXME why the channel here is fixed?
+    // FIXME why the delivery tag here is fixed?
     frames.push(frame::BasicAckArgs::default().delivery_tag(1u64).frame(message.channel));
 
     chk!(send!(outgoing, Frame::Frames(frames)))?;

@@ -50,8 +50,6 @@ impl Connection {
     }
 
     pub async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> Result<()> {
-        // FIXME this is a hack for borrow checker. We need to pass the reference of the command
-        // to the enum. The command is read-only, so it must be easy.
         let exchange_name = args.exchange_name.clone();
         let cmd = DeleteExchangeCommand {
             channel,
