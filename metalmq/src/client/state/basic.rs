@@ -245,11 +245,9 @@ impl Connection {
     }
 
     pub async fn confirm_select(&mut self, channel: Channel, _args: frame::ConfirmSelectArgs) -> Result<()> {
-        if let Some(ch) = self.open_channels.get_mut(&channel) {
-            ch.confirm_mode = true;
+        self.next_confirm_delivery_tag.insert(channel, 1u64);
 
-            self.send_frame(Frame::Frame(frame::confirm_select_ok(channel))).await?;
-        }
+        self.send_frame(Frame::Frame(frame::confirm_select_ok(channel))).await?;
 
         Ok(())
     }
@@ -378,7 +376,9 @@ impl Connection {
                 // and one which waits for confirmation.
                 match self.exchanges.get(&pc.exchange) {
                     Some(ch) => {
-                        let (tx, rx) = match &msg.mandatory {
+                        // If message is mandatory or the channel is in confirm mode we can expect
+                        // returned message.
+                        let (tx, rx) = match msg.mandatory || self.next_confirm_delivery_tag.contains_key(&channel) {
                             false => (None, None),
                             true => {
                                 let (tx, rx) = oneshot::channel();
@@ -395,10 +395,26 @@ impl Connection {
                         logerr!(ch.send_timeout(cmd, Duration::from_secs(1)).await);
 
                         if let Some(rx) = rx {
-                            if let Some(returned_message) = rx.await.unwrap() {
-                                message::send_basic_return(returned_message, self.frame_max, &self.outgoing)
-                                    .await
-                                    .unwrap();
+                            match rx.await.unwrap() {
+                                Some(returned_message) => {
+                                    message::send_basic_return(returned_message, self.frame_max, &self.outgoing)
+                                        .await
+                                        .unwrap();
+                                }
+                                None => {
+                                    // TODO do we need to send ack if the message is mandatory or
+                                    // immediate?
+                                    if let Some(dt) = self.next_confirm_delivery_tag.get_mut(&channel) {
+                                        self.outgoing
+                                            .send(Frame::Frame(
+                                                frame::BasicAckArgs::default().delivery_tag(*dt).frame(channel),
+                                            ))
+                                            .await
+                                            .unwrap();
+
+                                        *dt += 1;
+                                    }
+                                }
                             }
                         }
                     }

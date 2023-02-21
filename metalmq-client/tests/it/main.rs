@@ -1,3 +1,4 @@
+mod confirm;
 mod direct;
 mod exchange;
 mod fanout;

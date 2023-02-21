@@ -27,7 +27,6 @@ impl Connection {
         if let Entry::Vacant(e) = self.open_channels.entry(channel) {
             e.insert(ChannelState {
                 channel,
-                confirm_mode: false,
                 frame_sink: self.outgoing.clone(),
             });
 

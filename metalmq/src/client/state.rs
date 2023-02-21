@@ -72,6 +72,9 @@ pub struct Connection {
     pub passively_consumed_queues: HashMap<Channel, PassivelyConsumedQueue>,
     /// Incoming messages come in different messages, we need to collect their properties
     pub in_flight_contents: HashMap<Channel, PublishedContent>,
+    /// If a channel is in confirm mode, what is the next delivery tag with which it can ack the
+    /// message.
+    pub next_confirm_delivery_tag: HashMap<Channel, u64>,
     /// Sink for AMQP frames toward the client
     pub outgoing: mpsc::Sender<Frame>,
 }
@@ -81,9 +84,6 @@ pub struct Connection {
 pub struct ChannelState {
     /// The channel number
     pub channel: Channel,
-    /// Whether the channel is in confirm mode. The default is false, so no. In confirm mode the
-    /// server can send Ack messages to the client (basic return for example).
-    pub confirm_mode: bool,
     /// The outgoing frame channel.
     pub frame_sink: mpsc::Sender<Frame>,
 }
@@ -134,6 +134,7 @@ impl Connection {
             exclusive_queues: vec![],
             passively_consumed_queues: HashMap::new(),
             in_flight_contents: HashMap::new(),
+            next_confirm_delivery_tag: HashMap::new(),
             outgoing,
         }
     }

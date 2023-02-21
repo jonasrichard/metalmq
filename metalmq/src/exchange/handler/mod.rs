@@ -26,6 +26,14 @@ pub struct QueueBindCmd {
     pub result: oneshot::Sender<Result<bool>>,
 }
 
+#[derive(Debug)]
+pub struct QueueUnbindCmd {
+    pub channel: u16,
+    pub queue_name: String,
+    pub routing_key: String,
+    pub result: oneshot::Sender<Result<bool>>,
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ExchangeCommand {
@@ -36,12 +44,7 @@ pub enum ExchangeCommand {
         returned: Option<oneshot::Sender<Option<Arc<Message>>>>,
     },
     QueueBind(QueueBindCmd),
-    QueueUnbind {
-        channel: u16,
-        queue_name: String,
-        routing_key: String,
-        result: oneshot::Sender<Result<bool>>,
-    },
+    QueueUnbind(QueueUnbindCmd),
     Delete {
         channel: u16,
         if_unused: bool,
@@ -99,63 +102,13 @@ impl ExchangeState {
     pub async fn handle_command(&mut self, command: ExchangeCommand) -> Result<bool> {
         match command {
             ExchangeCommand::Message { message, returned } => {
-                if let Some(failed_message) = self.bindings.route_message(message).await? {
-                    // TODO handle immediate somewhere, too
-                    if failed_message.mandatory {
-                        returned.unwrap().send(Some(failed_message)).unwrap();
-                    } else {
-                        returned.map(|r| r.send(None).unwrap());
-                    }
-                } else {
-                    returned.map(|r| r.send(None).unwrap());
-                }
+                self.handle_message(message, returned).await?;
 
                 Ok(true)
             }
             ExchangeCommand::QueueBind(cmd) => self.handle_queue_bind(cmd).await,
-            ExchangeCommand::QueueUnbind {
-                channel,
-                queue_name,
-                routing_key,
-                result,
-            } => {
-                info!(
-                    "Unbinding queue {} exchange {} routing key {}",
-                    queue_name, self.exchange.name, routing_key
-                );
-
-                // TODO refactor this to Bindings
-                // TODO header binding?
-                let sink = match self.exchange.exchange_type {
-                    ExchangeType::Direct => self.bindings.remove_direct_binding(&routing_key, &queue_name),
-                    ExchangeType::Topic => self.bindings.remove_topic_binding(&routing_key, &queue_name),
-                    ExchangeType::Fanout => self.bindings.remove_fanout_binding(&queue_name),
-                    _ => None,
-                };
-
-                match sink {
-                    Some(s) => {
-                        let queue_info = self.bound_queues.get(&queue_name).unwrap();
-                        let (tx, rx) = oneshot::channel();
-
-                        logerr!(send!(
-                            s,
-                            QueueCommand::ExchangeUnbound {
-                                exchange_name: self.exchange.name.clone(),
-                                result: tx,
-                            }
-                        ));
-
-                        rx.await?.unwrap();
-
-                        self.bound_queues.remove(&queue_name);
-
-                        logerr!(result.send(Ok(true)));
-                    }
-                    None => {
-                        logerr!(result.send(Ok(false)));
-                    }
-                }
+            ExchangeCommand::QueueUnbind(cmd) => {
+                self.handle_queue_unbind(cmd).await?;
 
                 Ok(true)
             }
@@ -163,35 +116,7 @@ impl ExchangeState {
                 channel,
                 if_unused,
                 result,
-            } => {
-                if if_unused {
-                    if self.bindings.is_empty() {
-                        logerr!(result.send(Ok(())));
-
-                        Ok(false)
-                    } else {
-                        let err = client::channel_error(
-                            channel,
-                            frame::EXCHANGE_DELETE,
-                            client::ChannelError::PreconditionFailed,
-                            "Exchange is in use",
-                        );
-
-                        logerr!(result.send(err));
-
-                        Ok(true)
-                    }
-                } else {
-                    self.bindings
-                        .broadcast_exchange_unbound(&self.exchange.name)
-                        .await
-                        .unwrap();
-
-                    logerr!(result.send(Ok(())));
-
-                    Ok(false)
-                }
-            }
+            } => Ok(self.handle_exchange_delete(channel, if_unused, result).await),
             ExchangeCommand::QueueDeleted { queue_name, result } => {
                 self.bindings.remove_queue(&queue_name);
 
@@ -202,6 +127,24 @@ impl ExchangeState {
                 Ok(true)
             }
         }
+    }
+    async fn handle_message(
+        &self,
+        message: Message,
+        returned: Option<oneshot::Sender<Option<Arc<Message>>>>,
+    ) -> Result<()> {
+        if let Some(failed_message) = self.bindings.route_message(message).await? {
+            // TODO handle immediate somewhere, too
+            if failed_message.mandatory {
+                returned.unwrap().send(Some(failed_message)).unwrap();
+            } else {
+                returned.map(|r| r.send(None).unwrap());
+            }
+        } else {
+            returned.map(|r| r.send(None).unwrap());
+        }
+
+        Ok(())
     }
 
     async fn handle_queue_bind(&mut self, cmd: QueueBindCmd) -> Result<bool> {
@@ -287,4 +230,84 @@ impl ExchangeState {
 
         Ok(true)
     }
+
+    async fn handle_queue_unbind(&mut self, cmd: QueueUnbindCmd) -> Result<()> {
+        info!(
+            "Unbinding queue {} exchange {} routing key {}",
+            cmd.queue_name, self.exchange.name, cmd.routing_key
+        );
+
+        // TODO refactor this to Bindings
+        // TODO header binding?
+        let sink = match self.exchange.exchange_type {
+            ExchangeType::Direct => self.bindings.remove_direct_binding(&cmd.routing_key, &cmd.queue_name),
+            ExchangeType::Topic => self.bindings.remove_topic_binding(&cmd.routing_key, &cmd.queue_name),
+            ExchangeType::Fanout => self.bindings.remove_fanout_binding(&cmd.queue_name),
+            _ => None,
+        };
+
+        match sink {
+            Some(s) => {
+                self.bound_queues.remove(&cmd.queue_name);
+
+                let (tx, rx) = oneshot::channel();
+
+                logerr!(send!(
+                    s,
+                    QueueCommand::ExchangeUnbound {
+                        exchange_name: self.exchange.name.clone(),
+                        result: tx,
+                    }
+                ));
+
+                rx.await?.unwrap();
+
+                self.bound_queues.remove(&cmd.queue_name);
+
+                logerr!(cmd.result.send(Ok(true)));
+            }
+            None => {
+                logerr!(cmd.result.send(Ok(false)));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_exchange_delete(
+        &mut self,
+        channel: u16,
+        if_unused: bool,
+        result: oneshot::Sender<Result<()>>,
+    ) -> bool {
+        if if_unused {
+            if self.bindings.is_empty() {
+                logerr!(result.send(Ok(())));
+
+                false
+            } else {
+                let err = client::channel_error(
+                    channel,
+                    frame::EXCHANGE_DELETE,
+                    client::ChannelError::PreconditionFailed,
+                    "Exchange is in use",
+                );
+
+                logerr!(result.send(err));
+
+                true
+            }
+        } else {
+            self.bindings
+                .broadcast_exchange_unbound(&self.exchange.name)
+                .await
+                .unwrap();
+
+            logerr!(result.send(Ok(())));
+
+            false
+        }
+    }
+
+    async fn handle_queue_deleted(&mut self) {}
 }

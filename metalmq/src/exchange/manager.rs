@@ -1,5 +1,5 @@
 use crate::client::{self, ChannelError};
-use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink};
+use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink, QueueUnbindCmd};
 use crate::exchange::Exchange;
 use crate::queue::handler::QueueCommandSink;
 use crate::{logerr, Result};
@@ -277,12 +277,12 @@ impl ExchangeManagerState {
             Some(exchange_state) => {
                 let (tx, rx) = oneshot::channel();
 
-                let cmd = ExchangeCommand::QueueUnbind {
+                let cmd = ExchangeCommand::QueueUnbind(QueueUnbindCmd {
                     channel: command.channel,
                     queue_name: command.queue_name.to_string(),
                     routing_key: command.routing_key.to_string(),
                     result: tx,
-                };
+                });
 
                 exchange_state.command_sink.send(cmd).await?;
                 rx.await?.map(|_| ())
@@ -345,7 +345,9 @@ impl ExchangeManagerState {
                 queue_name: evt.queue_name.clone(),
                 result: tx,
             };
-            exchange.command_sink.send(cmd).await.unwrap();
+
+            // Exchange has been deleted in the meantime
+            logerr!(exchange.command_sink.send(cmd).await);
 
             rx.await?
         }

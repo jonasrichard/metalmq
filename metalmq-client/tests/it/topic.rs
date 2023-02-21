@@ -93,9 +93,13 @@ async fn publish_deliver_message_to_proper_queue(client: &mut Client) {
 
     let routing_keys = vec!["exe", "pdf", "txt", "png"];
     for routing_key in routing_keys {
-        text.basic_publish("files", routing_key, PublishedMessage::default().text(routing_key))
-            .await
-            .unwrap();
+        text.basic_publish(
+            "files",
+            routing_key,
+            PublishedMessage::default().text(routing_key).channel(text.channel),
+        )
+        .await
+        .unwrap();
     }
 
     let expected_exe = exec_handler.receive(timeout).await.unwrap();
