@@ -3,7 +3,7 @@ use crate::{
     client::{tests::to_runtime_error, ChannelError},
     exchange::{
         binding::Bindings,
-        handler::{ExchangeCommand, ExchangeState},
+        handler::{ExchangeCommand, ExchangeState, QueueUnbindCmd},
         Exchange, ExchangeType,
     },
     message::{Message, MessageContent},
@@ -219,12 +219,12 @@ async fn queue_bind_unbind_state_check() {
     assert!(rx.await.is_ok());
 
     let (tx, rx) = oneshot::channel();
-    let cmd = ExchangeCommand::QueueUnbind {
+    let cmd = ExchangeCommand::QueueUnbind(QueueUnbindCmd {
         channel: 2,
         queue_name: "normal-queue".to_string(),
         routing_key: "routing".to_string(),
         result: tx,
-    };
+    });
 
     tc.exchange_state.handle_command(cmd).await.unwrap();
 

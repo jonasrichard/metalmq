@@ -6,7 +6,7 @@ use crate::helper;
 
 #[tokio::test]
 async fn test_get_logic() {
-    let (mut client, mut handler) = helper::connect().await.unwrap();
+    let (mut client, handler) = helper::connect().await.unwrap();
     let mut channel = client.channel_open(1).await.unwrap();
 
     channel
@@ -43,6 +43,8 @@ async fn get_with_ack(client: &mut Client, channel: &mut Channel) {
         .await
         .unwrap();
 
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
     let mut handler = get_channel.basic_get("q-get", NoAck(false)).await.unwrap();
 
     let get_signal = dbg!(handler.receive(Duration::from_secs(1)).await.unwrap());
@@ -57,6 +59,9 @@ async fn get_with_ack(client: &mut Client, channel: &mut Channel) {
         handler.basic_ack(gm.delivery_tag).await.unwrap();
     }
 
+    dbg!("Closing handler");
     handler.close().await.unwrap();
+    dbg!("Closing get channel");
     get_channel.close().await.unwrap();
+    dbg!("closed");
 }

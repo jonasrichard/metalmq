@@ -268,6 +268,10 @@ impl ClientState {
             drop(sink);
         }
 
+        send_out(&self.outgoing, Frame::Frame(frame::channel_close_ok(channel)))
+            .await
+            .unwrap();
+
         self.event_sink.send(EventSignal::ChannelClose).unwrap();
 
         Ok(())

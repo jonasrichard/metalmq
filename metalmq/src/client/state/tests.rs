@@ -40,6 +40,7 @@ impl ConnectionTest {
                 exclusive_queues: vec![],
                 passively_consumed_queues: HashMap::new(),
                 in_flight_contents: HashMap::new(),
+                next_confirm_delivery_tag: HashMap::new(),
                 outgoing: frame_tx,
             },
             frame_rx,
