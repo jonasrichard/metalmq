@@ -147,6 +147,20 @@ pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
     }
 }
 
+pub async fn channel_close(client: &mut Connection, channel: u16) {
+    client
+        .channel_close(channel, frame::ChannelCloseArgs::default())
+        .await
+        .unwrap();
+}
+
+pub async fn connection_close(client: &mut Connection) {
+    client
+        .connection_close(frame::ConnectionCloseArgs::default())
+        .await
+        .unwrap();
+}
+
 pub async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
     let mut header = ContentHeaderFrame::default();
     header.channel = channel;

@@ -17,6 +17,7 @@ integration-tests = []
 anyhow = "1.0"
 bytes = "1"
 clap = { version = "4", features = ["derive", "usage"] }
+#console-subscriber = "0"
 env_logger = "0.10"
 futures = "0.3"
 hyper = { version = "0.14", features = ["full"] }

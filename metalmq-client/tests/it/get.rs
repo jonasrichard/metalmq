@@ -56,6 +56,8 @@ async fn get_with_ack(client: &mut Client, channel: &mut Channel) {
         assert_eq!(gm.routing_key, "key");
         assert_eq!(gm.message.body, "Get #1".as_bytes().to_vec());
 
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
         handler.basic_ack(gm.delivery_tag).await.unwrap();
     }
 

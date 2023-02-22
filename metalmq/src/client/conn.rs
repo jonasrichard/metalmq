@@ -14,7 +14,7 @@ use tokio_util::codec::Framed;
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
     let (sink, stream) = Framed::new(socket, AMQPCodec {}).split();
     // We use channels with only one item long, so we can block until the frame is sent out.
-    let (consume_sink, mut consume_stream) = mpsc::channel::<Frame>(1);
+    let (consume_sink, mut consume_stream) = mpsc::channel::<Frame>(16);
     let mut conn = Connection::new(context, consume_sink);
     let heartbeat_duration = conn.get_heartbeat();
 
@@ -214,7 +214,7 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
 async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma: frame::MethodFrameArgs) -> Result<()> {
     use MethodFrameArgs::*;
 
-    match ma {
+    let r = match ma {
         ConnectionStartOk(args) => conn.connection_start_ok(channel, args).await,
         ConnectionTuneOk(args) => conn.connection_tune_ok(channel, args).await,
         ConnectionOpen(args) => conn.connection_open(channel, args).await,
@@ -240,5 +240,11 @@ async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma:
             error!("Unhandler method frame type {ma:?}");
             Ok(())
         }
+    };
+
+    if r.is_err() {
+        trace!("Method frame handled with error {:?}", r);
     }
+
+    r
 }

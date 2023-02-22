@@ -895,6 +895,8 @@ impl Outbox {
             (false, _) => {
                 // If multiple is false, we ack the sent out message with that consumer tag and
                 // delivery tag.
+                dbg!(&self.outgoing_messages);
+                dbg!(&consumer_tag);
                 match self
                     .outgoing_messages
                     .iter()

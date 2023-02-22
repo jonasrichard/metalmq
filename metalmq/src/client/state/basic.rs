@@ -152,14 +152,14 @@ impl Connection {
                     pq.queue_sink
                         .send(queue_handler::QueueCommand::AckMessage(queue_handler::AckCmd {
                             channel,
-                            consumer_tag: String::from(""),
+                            consumer_tag: pq.consumer_tag.clone(),
                             delivery_tag: args.delivery_tag,
                             multiple: args.multiple,
                             result: tx,
                         }))
                         .await?;
 
-                    rx.await.unwrap()?
+                    handle_error!(self, rx.await.unwrap()).unwrap();
                 }
                 None => {
                     warn!("Basic.Ack arrived without consuming the queue");
@@ -211,6 +211,7 @@ impl Connection {
 
             let pq = PassivelyConsumedQueue {
                 queue_name: args.queue,
+                consumer_tag: format!("{}-{}", self.id, channel),
                 delivery_tag: 1u64,
                 queue_sink: sink,
             };

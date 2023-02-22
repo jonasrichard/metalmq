@@ -123,12 +123,24 @@ impl ConnectionOpenArgs {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ConnectionCloseArgs {
     pub code: u16,
     pub text: String,
     pub class_id: u16,
     pub method_id: u16,
+}
+
+impl Default for ConnectionCloseArgs {
+    fn default() -> Self {
+        let (class_id, method_id) = super::split_class_method(super::CONNECTION_CLOSE);
+        Self {
+            code: 200,
+            text: "Normal shutdown".into(),
+            class_id,
+            method_id,
+        }
+    }
 }
 
 pub fn connection_tune() -> AMQPFrame {

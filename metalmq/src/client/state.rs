@@ -36,6 +36,7 @@ pub struct ActivelyConsumedQueue {
 #[derive(Debug)]
 pub struct PassivelyConsumedQueue {
     pub queue_name: String,
+    pub consumer_tag: String,
     pub delivery_tag: u64,
     pub queue_sink: queue_handler::QueueCommandSink,
 }

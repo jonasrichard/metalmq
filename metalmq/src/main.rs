@@ -174,6 +174,8 @@ async fn start_amqp(context: Context, url: &str) -> Result<()> {
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
+    //console_subscriber::init();
+
     setup_logger();
 
     let cli_config = config::cli();

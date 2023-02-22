@@ -1,6 +1,6 @@
 use metalmq_codec::frame::{self, BasicPublishArgs};
 
-use crate::tests::{recv_timeout, send_content, sleep, unpack_frames, TestCase};
+use crate::tests::{channel_close, connection_close, recv_timeout, send_content, sleep, unpack_frames, TestCase};
 
 #[tokio::test]
 async fn basic_publish_mandatory_message() {
@@ -40,6 +40,9 @@ async fn basic_publish_mandatory_message() {
     // No message is expected as a response
     let expected_timeout = dbg!(recv_timeout(&mut client_rx).await);
     assert!(expected_timeout.is_none());
+
+    channel_close(&mut client, 1).await;
+    connection_close(&mut client).await;
 }
 
 #[tokio::test]
@@ -79,6 +82,9 @@ async fn basic_get_empty_and_ok() {
             frame::MethodFrameArgs::BasicGetOk(frame::BasicGetOkArgs { redelivered: false, .. })
         )
     ));
+
+    channel_close(&mut client, 2).await;
+    connection_close(&mut client).await;
 }
 
 #[tokio::test]
