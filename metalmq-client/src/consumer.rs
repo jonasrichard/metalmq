@@ -117,11 +117,28 @@ impl ConsumerHandler {
         .await
     }
 
-    //pub async fn basic_nack(&self, delivery_tag: u64, multiple: bool, requeue: bool) -> Result<()> {
-    //    processor::send(&self.client_sink, frame::basic_nack(self.channel, delivery_tag, false)).await
-    //}
-    //
-    //pub async fn reject (delivery tag, requeue)
+    pub async fn basic_nack(&self, delivery_tag: u64, multiple: bool, requeue: bool) -> Result<()> {
+        processor::sync_send(
+            &self.client_sink,
+            frame::BasicNackArgs::default()
+                .delivery_tag(delivery_tag)
+                .multiple(multiple)
+                .requeue(requeue)
+                .frame(self.channel),
+        )
+        .await
+    }
+
+    pub async fn basic_reject(&self, delivery_tag: u64, requeue: bool) -> Result<()> {
+        processor::sync_send(
+            &self.client_sink,
+            frame::BasicRejectArgs::default()
+                .delivery_tag(delivery_tag)
+                .requeue(requeue)
+                .frame(self.channel),
+        )
+        .await
+    }
 
     pub async fn basic_cancel(self) -> Result<()> {
         let frame = frame::BasicCancelArgs::new(&self.consumer_tag).frame(self.channel);

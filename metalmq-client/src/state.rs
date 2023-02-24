@@ -37,29 +37,6 @@ struct DeliveredContent {
     message: Message,
 }
 
-/*
- * Consumer handling.
- *
- * A consumer process starts with a basic consume message to the server with a consumer tag.
- * If there is no error, the server starts delivering messages to the same consumer.
- * For that reason we start a new thread, so the delivered messages can be handled independently
- * from the other method frames.
- *
- * TODO If consumer sends a basic cancel, or the channel is closed because of an exception,
- * or if connection is closed because of any reason, we need to unblock the client; so we
- * need to send a message to the consumer process, denoting that the consuming is over.
- *
- * This means that we need to know about the mpsc channel in which we deliver the messages.
- * Moreover, from now on, we are not delivering just messages but control signals as well.
- * So messages look like:
- *   Delivered(Message, CTag, DeliveryTag,...)
- *   ConsumeCancelled
- *   ChannelClosed
- *   ConnectionClosed
- */
-
-// TODO basic consume subscribe to a queue but when messages are delivered we get only the exchange
-// name
 pub(crate) struct ClientState {
     state: Phase,
     username: String,

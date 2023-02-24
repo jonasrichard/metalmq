@@ -36,8 +36,7 @@ async fn connect_frame_exchange() {
     assert!(matches!(cmd_result, Ok(())));
 
     let OutgoingFrame { frame: header, .. } = frame_out_rx.recv().await.unwrap();
-    // TODO underscore is amqp header but it is boxed and patterns are not supported
-    assert!(matches!(header, Frame::Frame(_)));
+    assert!(matches!(header, Frame::Frame(AMQPFrame::Header)));
 
     // Server send back a connection-start
     frame_in_tx

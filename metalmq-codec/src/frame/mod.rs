@@ -8,7 +8,8 @@ pub use self::{
     basic::{
         basic_get_empty, confirm_select, confirm_select_ok, BasicAckArgs, BasicCancelArgs, BasicCancelOkArgs,
         BasicConsumeArgs, BasicConsumeFlags, BasicConsumeOkArgs, BasicDeliverArgs, BasicGetArgs, BasicGetOkArgs,
-        BasicPublishArgs, BasicPublishFlags, BasicRejectArgs, BasicReturnArgs, ConfirmSelectArgs,
+        BasicNackArgs, BasicNackFlags, BasicPublishArgs, BasicPublishFlags, BasicRejectArgs, BasicReturnArgs,
+        ConfirmSelectArgs,
     },
     channel::{channel_close, channel_close_ok, channel_open, channel_open_ok, ChannelCloseArgs},
     connection::{
@@ -37,6 +38,8 @@ pub const CONNECTION_OPEN: u32 = 0x000A0028;
 pub const CONNECTION_OPEN_OK: u32 = 0x000A0029;
 pub const CONNECTION_CLOSE: u32 = 0x000A0032;
 pub const CONNECTION_CLOSE_OK: u32 = 0x000A0033;
+pub const CONNECTION_BLOCKED: u32 = 0x000A003C;
+pub const CONNECTION_UNBLOCKED: u32 = 0x000A003D;
 
 pub const CHANNEL_OPEN: u32 = 0x0014000A;
 pub const CHANNEL_OPEN_OK: u32 = 0x0014000B;
@@ -78,6 +81,7 @@ pub const BASIC_REJECT: u32 = 0x003C005A;
 pub const BASIC_RECOVER_ASYNC: u32 = 0x003C0064;
 pub const BASIC_RECOVER: u32 = 0x003C006E;
 pub const BASIC_RECOVER_OK: u32 = 0x003C006F;
+pub const BASIC_NACK: u32 = 0x003C0078;
 
 pub const CONFIRM_SELECT: u32 = 0x0055000A;
 pub const CONFIRM_SELECT_OK: u32 = 0x0055000B;
@@ -153,6 +157,7 @@ pub enum MethodFrameArgs {
     BasicDeliver(BasicDeliverArgs),
     BasicAck(BasicAckArgs),
     BasicReject(BasicRejectArgs),
+    BasicNack(BasicNackArgs),
     ConfirmSelect(ConfirmSelectArgs),
     ConfirmSelectOk,
 }

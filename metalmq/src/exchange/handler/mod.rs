@@ -138,10 +138,14 @@ impl ExchangeState {
             if failed_message.mandatory {
                 returned.unwrap().send(Some(failed_message)).unwrap();
             } else {
-                returned.map(|r| r.send(None).unwrap());
+                if let Some(r) = returned {
+                    r.send(None).unwrap();
+                }
             }
         } else {
-            returned.map(|r| r.send(None).unwrap());
+            if let Some(r) = returned {
+                r.send(None).unwrap();
+            }
         }
 
         Ok(())

@@ -301,6 +301,62 @@ pub struct BasicRejectArgs {
     pub requeue: bool,
 }
 
+impl BasicRejectArgs {
+    pub fn delivery_tag(mut self, delivery_tag: u64) -> Self {
+        self.delivery_tag = delivery_tag;
+        self
+    }
+
+    pub fn requeue(mut self, mode: bool) -> Self {
+        self.requeue = mode;
+        self
+    }
+
+    pub fn frame(self, channel: Channel) -> AMQPFrame {
+        AMQPFrame::Method(channel, super::BASIC_REJECT, super::MethodFrameArgs::BasicReject(self))
+    }
+}
+
+bitflags! {
+    pub struct BasicNackFlags: u8 {
+        const MULTIPLE = 0b00000001;
+        const REQUEUE = 0b00000010;
+    }
+}
+
+impl Default for BasicNackFlags {
+    fn default() -> Self {
+        BasicNackFlags::empty()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BasicNackArgs {
+    pub delivery_tag: u64,
+    pub flags: BasicNackFlags,
+}
+
+impl BasicNackArgs {
+    pub fn delivery_tag(mut self, value: u64) -> Self {
+        self.delivery_tag = value;
+        self
+    }
+
+    pub fn multiple(mut self, value: bool) -> Self {
+        self.flags.set(BasicNackFlags::MULTIPLE, value);
+        self
+    }
+
+    pub fn requeue(mut self, value: bool) -> Self {
+        self.flags.set(BasicNackFlags::REQUEUE, value);
+        self
+    }
+
+    pub fn frame(self, channel: Channel) -> AMQPFrame {
+        AMQPFrame::Method(channel, super::BASIC_NACK, MethodFrameArgs::BasicNack(self))
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ConfirmSelectArgs {
     pub no_wait: bool,

@@ -174,6 +174,7 @@ fn decode_method_frame(src: &mut BytesMut, channel: u16) -> AMQPFrame {
         BASIC_DELIVER => decode_basic_deliver(src),
         BASIC_ACK => decode_basic_ack(src),
         BASIC_REJECT => decode_basic_reject(src),
+        BASIC_NACK => decode_basic_nack(src),
         CONFIRM_SELECT => decode_confirm_select(src),
         CONFIRM_SELECT_OK => MethodFrameArgs::ConfirmSelectOk,
         _ => unimplemented!("{:08X}", class_method),
@@ -499,6 +500,15 @@ fn decode_basic_reject(src: &mut BytesMut) -> MethodFrameArgs {
     MethodFrameArgs::BasicReject(args)
 }
 
+fn decode_basic_nack(src: &mut BytesMut) -> MethodFrameArgs {
+    let args = BasicNackArgs {
+        delivery_tag: src.get_u64(),
+        flags: BasicNackFlags::from_bits(src.get_u8()).unwrap_or_default(),
+    };
+
+    MethodFrameArgs::BasicNack(args)
+}
+
 fn decode_confirm_select(src: &mut BytesMut) -> MethodFrameArgs {
     let args = ConfirmSelectArgs {
         no_wait: src.get_u8() != 0,
@@ -705,6 +715,7 @@ fn encode_method_frame(buf: &mut BytesMut, channel: Channel, cm: ClassMethod, ar
         MethodFrameArgs::BasicDeliver(args) => encode_basic_deliver(&mut fr, args),
         MethodFrameArgs::BasicAck(args) => encode_basic_ack(&mut fr, args),
         MethodFrameArgs::BasicReject(args) => encode_basic_reject(&mut fr, args),
+        MethodFrameArgs::BasicNack(args) => encode_basic_nack(&mut fr, args),
         MethodFrameArgs::ConfirmSelect(args) => encode_confirm_select(&mut fr, args),
         MethodFrameArgs::ConfirmSelectOk => (),
     }
@@ -915,6 +926,11 @@ fn encode_basic_ack(buf: &mut BytesMut, args: &BasicAckArgs) {
 fn encode_basic_reject(buf: &mut BytesMut, args: &BasicRejectArgs) {
     buf.put_u64(args.delivery_tag);
     buf.put_u8(if args.requeue { 1 } else { 0 });
+}
+
+fn encode_basic_nack(buf: &mut BytesMut, args: &BasicNackArgs) {
+    buf.put_u64(args.delivery_tag);
+    buf.put_u8(args.flags.bits());
 }
 
 fn encode_confirm_select(buf: &mut BytesMut, args: &ConfirmSelectArgs) {
