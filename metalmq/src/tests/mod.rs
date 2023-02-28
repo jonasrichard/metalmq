@@ -1,5 +1,6 @@
+pub mod consume;
 pub mod publish;
-pub mod sut;
+pub mod queue;
 
 use tokio::sync::mpsc;
 
@@ -181,6 +182,14 @@ pub async fn sleep(ms: u32) {
     tokio::time::sleep(std::time::Duration::from_millis(ms.into())).await;
 }
 
+pub async fn recv_frames(client: &mut mpsc::Receiver<Frame>) -> Vec<frame::AMQPFrame> {
+    unpack_frames(recv_timeout(client).await.unwrap())
+}
+
+pub async fn recv_single_frame(client: &mut mpsc::Receiver<Frame>) -> frame::AMQPFrame {
+    unpack_single_frame(recv_timeout(client).await.unwrap())
+}
+
 pub fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
     if let Frame::Frame(single_frame) = f {
         single_frame
@@ -194,4 +203,12 @@ pub fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
         Frame::Frame(sf) => vec![sf],
         Frame::Frames(mf) => mf,
     }
+}
+
+pub fn basic_deliver_args(f: frame::AMQPFrame) -> frame::BasicDeliverArgs {
+    if let frame::AMQPFrame::Method(_, _, frame::MethodFrameArgs::BasicDeliver(args)) = f {
+        return args;
+    }
+
+    panic!("Not a BasicDeliver frame");
 }
