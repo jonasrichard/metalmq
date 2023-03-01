@@ -133,21 +133,6 @@ impl TestCase {
     }
 }
 
-/// Receiving with timeout
-pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
-    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-    tokio::pin!(sleep);
-
-    tokio::select! {
-        frame = rx.recv() => {
-            frame
-        }
-        _ = &mut sleep => {
-            return None;
-        }
-    }
-}
-
 pub async fn channel_close(client: &mut Connection, channel: u16) {
     client
         .channel_close(channel, frame::ChannelCloseArgs::default())
@@ -162,11 +147,36 @@ pub async fn connection_close(client: &mut Connection) {
         .unwrap();
 }
 
+pub async fn publish_content(client: &mut Connection, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
+    client
+        .basic_publish(channel, frame::BasicPublishArgs::new(exchange).routing_key(routing_key))
+        .await
+        .unwrap();
+    send_content(client, channel, message).await;
+}
+
+/// Receiving with timeout
+pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
+    let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
+    tokio::pin!(sleep);
+
+    tokio::select! {
+        frame = rx.recv() => {
+            frame
+        }
+        _ = &mut sleep => {
+            None
+        }
+    }
+}
+
 pub async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
-    let mut header = ContentHeaderFrame::default();
-    header.channel = channel;
-    header.class_id = (frame::BASIC_PUBLISH >> 16) as u16;
-    header.body_size = message.len() as u64;
+    let header = ContentHeaderFrame {
+        channel,
+        class_id: (frame::BASIC_PUBLISH >> 16) as u16,
+        body_size: message.len() as u64,
+        ..Default::default()
+    };
 
     client.receive_content_header(header).await.unwrap();
 

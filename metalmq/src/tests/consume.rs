@@ -2,7 +2,7 @@ use metalmq_codec::frame::{
     self, AMQPFrame::Method, BasicCancelArgs, BasicConsumeArgs, BasicPublishArgs, MethodFrameArgs,
 };
 
-use crate::tests::{basic_deliver_args, recv_frames, recv_single_frame, send_content, TestCase};
+use crate::tests::*;
 
 #[tokio::test]
 async fn one_consumer() {
@@ -25,11 +25,7 @@ async fn one_consumer() {
         )
     ));
 
-    client
-        .basic_publish(2, BasicPublishArgs::new("x-direct").routing_key("magic-key"))
-        .await
-        .unwrap();
-    send_content(&mut client, 2, b"Consume test").await;
+    publish_content(&mut client, 2, "x-direct", "magic-key", b"Consume test").await;
 
     let mut deliver = recv_frames(&mut client_rx).await;
     assert_eq!(dbg!(&deliver).len(), 3);
@@ -38,7 +34,7 @@ async fn one_consumer() {
 
     assert_eq!(deliver_args.consumer_tag, "ctag");
     assert_eq!(deliver_args.delivery_tag, 1u64);
-    assert_eq!(deliver_args.redelivered, false);
+    assert!(!deliver_args.redelivered);
 
     client.basic_cancel(1, BasicCancelArgs::new("ctag")).await.unwrap();
 
@@ -51,4 +47,37 @@ async fn one_consumer() {
     };
 
     assert_eq!(args.consumer_tag, "ctag");
+}
+
+#[tokio::test]
+async fn one_consumer_redeliver() {
+    let tc = TestCase::new().await;
+    let (mut client, mut client_rx) = tc.new_client();
+
+    // Consume the queue
+    client.basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag")).await.unwrap();
+    recv_frames(&mut client_rx).await;
+
+    // Publish a message
+    publish_content(&mut client, 2, "x-direct", "magic-key", b"Redeliver test").await;
+
+    // Receive it via basic deliver
+    let mut deliver = recv_frames(&mut client_rx).await;
+    let _deliver_args = basic_deliver_args(deliver.remove(0));
+
+    // Cancel consumer
+    client.basic_cancel(1, BasicCancelArgs::new("ctag")).await.unwrap();
+    let _cancel_ok = recv_single_frame(&mut client_rx).await;
+
+    // Consume the queue again
+    client.basic_consume(3, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag2")).await.unwrap();
+    recv_frames(&mut client_rx).await;
+
+    // Receive the message again
+    let mut deliver = recv_frames(&mut client_rx).await;
+    let deliver_args = basic_deliver_args(deliver.remove(0));
+
+    assert_eq!(deliver_args.consumer_tag, "ctag2");
+    assert_eq!(deliver_args.delivery_tag, 1u64);
+    assert!(deliver_args.redelivered);
 }
