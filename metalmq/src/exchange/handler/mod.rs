@@ -1,16 +1,19 @@
 #[cfg(test)]
 mod tests;
 
-use super::binding::Bindings;
-use crate::client::{self, channel_error, ChannelError};
-use crate::exchange::{Exchange, ExchangeType};
-use crate::message::Message;
-use crate::queue::handler::{QueueCommand, QueueCommandSink};
-use crate::{logerr, send, Result};
+use crate::{
+    client::{self, channel_error, ChannelError},
+    exchange::{binding::Bindings, Exchange, ExchangeType},
+};
+use crate::{
+    logerr,
+    message::Message,
+    queue::handler::{QueueCommand, QueueCommandSink},
+    send, Result,
+};
 use log::{debug, error, info, trace};
 use metalmq_codec::frame::{self, FieldTable};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 
 pub type ExchangeCommandSink = mpsc::Sender<ExchangeCommand>;

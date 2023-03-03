@@ -7,8 +7,10 @@ pub mod binding;
 pub mod handler;
 pub mod manager;
 
-use crate::client::{self, ChannelError, ConnectionError};
-use crate::Result;
+use crate::{
+    client::{self, ChannelError, ConnectionError},
+    Result,
+};
 use metalmq_codec::frame::{self, Channel, ExchangeDeclareArgs, ExchangeDeclareFlags};
 use serde_derive::Serialize;
 use std::str::FromStr;

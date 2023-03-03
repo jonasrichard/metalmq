@@ -7,14 +7,19 @@
 /// to send messages to a queue, it can hold the reference to the command sink of the queue.
 /// Although when the queue is deleted, all such queue command sink cachers needs to be notified,
 /// or they need to check if the queue sink is closed, not to get `SendError`.
-use crate::client::{channel_error, ChannelError};
-use crate::exchange::manager::ExchangeManagerSink;
-use crate::queue::handler::{self, QueueCommand, QueueCommandSink};
-use crate::queue::Queue;
-use crate::{chk, logerr, send, Result};
+use crate::{
+    chk,
+    client::{channel_error, ChannelError},
+    exchange::manager::ExchangeManagerSink,
+    logerr,
+    queue::{
+        handler::{self, QueueCommand, QueueCommandSink},
+        Queue,
+    },
+    send, Result,
+};
 use log::{error, warn};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame;
+use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 

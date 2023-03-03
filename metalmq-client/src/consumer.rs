@@ -70,27 +70,6 @@ pub struct GetHandler {
 }
 
 /// After consuming started with `ConsumerHandler` one can ack, nack or reject messages.
-///
-/// ```no_run
-/// use metalmq_client::{Channel, ConsumerSignal, Exclusive, NoAck, NoLocal};
-///
-/// async fn consume(channel: Channel) {
-///     let mut handler = channel.basic_consume("queue", NoAck(false), Exclusive(false),
-///         NoLocal(false)).await.unwrap();
-///
-///     while let Some(signal) = handler.signal_stream.recv().await {
-///         match signal {
-///             ConsumerSignal::Delivered(m) => {
-///                 handler.basic_ack(m.delivery_tag).await.unwrap();
-///             }
-///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed { .. } |
-///                 ConsumerSignal::ConnectionClosed { .. } => {
-///                 break;
-///             }
-///         }
-///     }
-/// }
-/// ```
 impl ConsumerHandler {
     pub async fn receive(&mut self, timeout: Duration) -> Option<ConsumerSignal> {
         let sleep = tokio::time::sleep(timeout);
@@ -191,7 +170,32 @@ pub struct NoAck(pub bool);
 pub struct NoLocal(pub bool);
 
 impl Channel {
-    /// See [`ConsumerHandler`]
+    /// Start consuming a queue.
+    ///
+    /// It returns a `ConsumerHandler` with which the server events can be handled. Messages are
+    /// delivered in the form of those events and also channel close or connection close events
+    /// coming through that interface.
+    ///
+    /// ```no_run
+    /// use metalmq_client::{Channel, ConsumerSignal, Exclusive, NoAck, NoLocal};
+    ///
+    /// async fn consume(channel: Channel) {
+    ///     let mut handler = channel.basic_consume("queue", NoAck(false), Exclusive(false),
+    ///         NoLocal(false)).await.unwrap();
+    ///
+    ///     while let Some(signal) = handler.signal_stream.recv().await {
+    ///         match signal {
+    ///             ConsumerSignal::Delivered(m) => {
+    ///                 handler.basic_ack(m.delivery_tag).await.unwrap();
+    ///             }
+    ///             ConsumerSignal::Cancelled | ConsumerSignal::ChannelClosed { .. } |
+    ///                 ConsumerSignal::ConnectionClosed { .. } => {
+    ///                 break;
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// ```
     pub async fn basic_consume<'a>(
         &'a self,
         queue_name: &'a str,

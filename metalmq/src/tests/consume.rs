@@ -1,6 +1,4 @@
-use metalmq_codec::frame::{
-    self, AMQPFrame::Method, BasicCancelArgs, BasicConsumeArgs, BasicPublishArgs, MethodFrameArgs,
-};
+use metalmq_codec::frame::{self, AMQPFrame::Method, BasicCancelArgs, BasicConsumeArgs, MethodFrameArgs};
 
 use crate::tests::*;
 
@@ -55,7 +53,10 @@ async fn one_consumer_redeliver() {
     let (mut client, mut client_rx) = tc.new_client();
 
     // Consume the queue
-    client.basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag")).await.unwrap();
+    client
+        .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
+        .await
+        .unwrap();
     recv_frames(&mut client_rx).await;
 
     // Publish a message
@@ -70,7 +71,10 @@ async fn one_consumer_redeliver() {
     let _cancel_ok = recv_single_frame(&mut client_rx).await;
 
     // Consume the queue again
-    client.basic_consume(3, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag2")).await.unwrap();
+    client
+        .basic_consume(3, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag2"))
+        .await
+        .unwrap();
     recv_frames(&mut client_rx).await;
 
     // Receive the message again

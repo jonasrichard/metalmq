@@ -1,11 +1,15 @@
-use crate::client::{self, ChannelError};
-use crate::exchange::handler::{self, ExchangeCommand, ExchangeCommandSink, QueueUnbindCmd};
-use crate::exchange::Exchange;
-use crate::queue::handler::QueueCommandSink;
-use crate::{logerr, Result};
+use crate::{
+    client::{self, ChannelError},
+    exchange::{
+        handler::{self, ExchangeCommand, ExchangeCommandSink, QueueUnbindCmd},
+        Exchange,
+    },
+    logerr,
+    queue::handler::QueueCommandSink,
+    Result,
+};
 use log::{debug, error, info, warn};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame;
+use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 

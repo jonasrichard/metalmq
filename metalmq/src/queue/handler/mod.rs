@@ -1,19 +1,25 @@
 #[cfg(test)]
 mod tests;
 
-use crate::client::{channel_error, ChannelError};
-use crate::exchange::handler::QueueInfo;
-use crate::exchange::manager::{self as em, ExchangeManagerSink, QueueDeletedEvent};
-use crate::message::{self, Message};
-use crate::queue::Queue;
-use crate::{logerr, Result};
+use crate::{
+    client::{channel_error, ChannelError},
+    exchange::{
+        handler::QueueInfo,
+        manager::{self as em, ExchangeManagerSink, QueueDeletedEvent},
+    },
+    logerr,
+    message::{self, Message},
+    queue::Queue,
+    Result,
+};
 use log::{error, info, trace, warn};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame;
-use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
-use std::task::Poll;
-use std::time::Instant;
+use metalmq_codec::{codec::Frame, frame};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    task::Poll,
+    time::Instant,
+};
 use tokio::sync::{mpsc, oneshot};
 
 pub type QueueCommandSink = mpsc::Sender<QueueCommand>;
