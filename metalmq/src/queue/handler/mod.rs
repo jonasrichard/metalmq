@@ -533,7 +533,7 @@ impl QueueState {
                         consumer
                             .sink
                             .send(Frame::Frame(
-                                frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(channel)
+                                frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(consumer.channel)
                             ))
                             .await
                     );

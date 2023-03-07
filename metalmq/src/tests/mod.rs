@@ -62,7 +62,7 @@ impl TestCase {
         self.queue_bind("q-direct", "x-direct", "magic-key").await;
         self.queue_bind("q-fanout", "x-fanout", "").await;
 
-        while let Ok(_) = self.setup_rx.try_recv() {}
+        while self.setup_rx.try_recv().is_ok() {}
 
         self
     }
