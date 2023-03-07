@@ -45,6 +45,8 @@ async fn one_consumer() {
     };
 
     assert_eq!(args.consumer_tag, "ctag");
+
+    tc.teardown().await;
 }
 
 #[tokio::test]

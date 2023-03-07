@@ -13,7 +13,7 @@ use crate::{
     exchange::manager::ExchangeManagerSink,
     logerr,
     queue::{
-        handler::{self, QueueCommand, QueueCommandSink},
+        handler::{self, DeleteQueueCmd, QueueCommand, QueueCommandSink},
         Queue,
     },
     send, Result,
@@ -338,14 +338,14 @@ impl QueueManagerState {
 
                 send!(
                     queue.command_sink,
-                    QueueCommand::DeleteQueue {
+                    QueueCommand::DeleteQueue(DeleteQueueCmd {
                         conn_id: command.conn_id,
                         channel: command.channel,
                         if_unused: command.if_unused,
                         if_empty: command.if_empty,
                         exchange_manager: self.exchange_manager.clone(),
                         result: tx,
-                    }
+                    })
                 )?;
 
                 rx.await?

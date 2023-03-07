@@ -65,6 +65,16 @@ pub struct PassiveCancelConsumeCmd {
     pub channel: u16,
 }
 
+#[derive(Debug)]
+pub struct DeleteQueueCmd {
+    pub conn_id: String,
+    pub channel: u16,
+    pub if_unused: bool,
+    pub if_empty: bool,
+    pub exchange_manager: ExchangeManagerSink,
+    pub result: oneshot::Sender<Result<u32>>,
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum QueueCommand {
@@ -114,14 +124,7 @@ pub enum QueueCommand {
         channel: u16,
         result: oneshot::Sender<Result<u32>>,
     },
-    DeleteQueue {
-        conn_id: String,
-        channel: u16,
-        if_unused: bool,
-        if_empty: bool,
-        exchange_manager: ExchangeManagerSink,
-        result: oneshot::Sender<Result<u32>>,
-    },
+    DeleteQueue(DeleteQueueCmd),
     /// Delete the exclusive queue, only queue manager can send this.
     DeleteExclusive {
         exchange_manager: ExchangeManagerSink,
@@ -463,103 +466,24 @@ impl QueueState {
                 channel,
                 result,
             } => {
-                // TODO you cannot purge an exclusive queue
-                let message_count = self.messages.len();
-                self.messages.clear();
+                if self.queue.exclusive && conn_id != self.declaring_connection {
+                    logerr!(result.send(channel_error(
+                        channel,
+                        frame::QUEUE_PURGE,
+                        ChannelError::ResourceLocked,
+                        "Cannot purge exclusive queue"
+                    )));
+                } else {
+                    // TODO you cannot purge an exclusive queue
+                    let message_count = self.messages.len();
+                    self.messages.clear();
 
-                logerr!(result.send(Ok(message_count as u32)));
+                    logerr!(result.send(Ok(message_count as u32)));
+                }
 
                 Ok(true)
             }
-            QueueCommand::DeleteQueue {
-                conn_id,
-                channel,
-                if_unused,
-                if_empty,
-                exchange_manager,
-                result,
-            } => {
-                info!("Queue {} is about to be deleted", self.queue.name);
-
-                // If there are consumers or candidates or if there are exchanges bound to this
-                // queue, and we cannot delete if it is used, send back and error.
-                if if_unused {
-                    if !self.consumers.is_empty() || !self.candidate_consumers.is_empty() {
-                        logerr!(result.send(channel_error(
-                            channel,
-                            frame::QUEUE_DELETE,
-                            ChannelError::PreconditionFailed,
-                            "Queue is consumed"
-                        )));
-
-                        return Ok(true);
-                    }
-
-                    if !self.bound_exchanges.is_empty() {
-                        logerr!(result.send(channel_error(
-                            channel,
-                            frame::QUEUE_DELETE,
-                            ChannelError::PreconditionFailed,
-                            "Exchanges are bound to this queue"
-                        )));
-
-                        return Ok(true);
-                    }
-                }
-
-                if if_empty && !self.messages.is_empty() {
-                    logerr!(result.send(channel_error(
-                        channel,
-                        frame::QUEUE_DELETE,
-                        ChannelError::PreconditionFailed,
-                        "Queue is not empty"
-                    )));
-
-                    return Ok(true);
-                }
-
-                // Notify all exchanges about the delete, so they can unbound themselves.
-                for _ in &self.bound_exchanges {
-                    let queue_deleted_evt = QueueDeletedEvent {
-                        queue_name: self.queue.name.clone(),
-                    };
-
-                    logerr!(em::queue_deleted(&exchange_manager, queue_deleted_evt).await);
-                }
-
-                // Cancel all consumers by sending a basic cancel.
-                for consumer in &self.consumers {
-                    logerr!(
-                        consumer
-                            .sink
-                            .send(Frame::Frame(
-                                frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(consumer.channel)
-                            ))
-                            .await
-                    );
-                }
-
-                // Cancel all candidate consumers by sending a basic cancel.
-                for consumer in &self.candidate_consumers {
-                    logerr!(
-                        consumer
-                            .sink
-                            .send(Frame::Frame(
-                                frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(channel)
-                            ))
-                            .await
-                    );
-                }
-
-                // TODO Cancel all passive consumers, I think this is silent, I don't know what we need
-                // to send back if there is a message waiting to be acked.
-
-                // Pass the number of messages in the queue to the caller.
-                logerr!(result.send(Ok(self.messages.len() as u32)));
-
-                // Quit the queue event loop.
-                Ok(false)
-            }
+            QueueCommand::DeleteQueue(cmd) => self.handle_delete_queue(cmd).await,
             QueueCommand::DeleteExclusive {
                 exchange_manager,
                 result,
@@ -728,6 +652,100 @@ impl QueueState {
         self.enqueue_outbox_messages(&consumer_tag);
 
         Ok(())
+    }
+
+    async fn handle_delete_queue(&mut self, cmd: DeleteQueueCmd) -> Result<bool> {
+        info!("Queue {} is about to be deleted", self.queue.name);
+
+        if self.queue.exclusive && cmd.conn_id != self.declaring_connection {
+            logerr!(cmd.result.send(channel_error(
+                cmd.channel,
+                frame::QUEUE_PURGE,
+                ChannelError::ResourceLocked,
+                "Cannot delete exclusive queue"
+            )));
+
+            return Ok(true);
+        }
+
+        // If there are consumers or candidates or if there are exchanges bound to this
+        // queue, and we cannot delete if it is used, send back and error.
+        if cmd.if_unused {
+            if !self.consumers.is_empty() || !self.candidate_consumers.is_empty() {
+                logerr!(cmd.result.send(channel_error(
+                    cmd.channel,
+                    frame::QUEUE_DELETE,
+                    ChannelError::PreconditionFailed,
+                    "Queue is consumed"
+                )));
+
+                return Ok(true);
+            }
+
+            if !self.bound_exchanges.is_empty() {
+                logerr!(cmd.result.send(channel_error(
+                    cmd.channel,
+                    frame::QUEUE_DELETE,
+                    ChannelError::PreconditionFailed,
+                    "Exchanges are bound to this queue"
+                )));
+
+                return Ok(true);
+            }
+        }
+
+        if cmd.if_empty && !self.messages.is_empty() {
+            logerr!(cmd.result.send(channel_error(
+                cmd.channel,
+                frame::QUEUE_DELETE,
+                ChannelError::PreconditionFailed,
+                "Queue is not empty"
+            )));
+
+            return Ok(true);
+        }
+
+        // Notify all exchanges about the delete, so they can unbound themselves.
+        for _ in &self.bound_exchanges {
+            let queue_deleted_evt = QueueDeletedEvent {
+                queue_name: self.queue.name.clone(),
+            };
+
+            logerr!(em::queue_deleted(&cmd.exchange_manager, queue_deleted_evt).await);
+        }
+
+        // Cancel all consumers by sending a basic cancel.
+        for consumer in &self.consumers {
+            logerr!(
+                consumer
+                    .sink
+                    .send(Frame::Frame(
+                        frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(consumer.channel)
+                    ))
+                    .await
+            );
+        }
+
+        // Cancel all candidate consumers by sending a basic cancel.
+        for consumer in &self.candidate_consumers {
+            logerr!(
+                consumer
+                    .sink
+                    .send(Frame::Frame(
+                        frame::BasicCancelArgs::new(&consumer.consumer_tag).frame(cmd.channel)
+                    ))
+                    .await
+            );
+        }
+
+        // TODO Cancel all passive consumers, I think this is silent, I don't know what we need
+        // to send back if there is a message waiting to be acked.
+
+        // Pass the number of messages in the queue to the caller.
+        logerr!(cmd.result.send(Ok(self.messages.len() as u32)));
+
+        // Quit the queue event loop.
+        Ok(false)
     }
 
     async fn handle_ack(&mut self, cmd: AckCmd) -> Result<()> {

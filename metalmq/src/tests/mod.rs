@@ -2,6 +2,8 @@ pub mod consume;
 pub mod publish;
 pub mod queue;
 
+use std::collections::HashMap;
+
 use tokio::sync::mpsc;
 
 use crate::{
@@ -59,12 +61,27 @@ impl TestCase {
         self.queue_declare("q-topic").await;
         self.queue_declare("q-headers").await;
 
-        self.queue_bind("q-direct", "x-direct", "magic-key").await;
-        self.queue_bind("q-fanout", "x-fanout", "").await;
+        self.queue_bind("q-direct", "x-direct", "magic-key", None).await;
+        self.queue_bind("q-fanout", "x-fanout", "", None).await;
+        self.queue_bind("q-topic", "x-topic", "topic.#", None).await;
+
+        let mut args: HashMap<String, frame::AMQPFieldValue> = HashMap::new();
+        args.insert("x-match".into(), frame::AMQPFieldValue::LongString("any".into()));
+        args.insert(
+            "message.type".into(),
+            frame::AMQPFieldValue::LongString("string".into()),
+        );
+
+        self.queue_bind("q-headers", "x-headers", "", Some(args)).await;
 
         while self.setup_rx.try_recv().is_ok() {}
 
         self
+    }
+
+    async fn teardown(self) {
+        self.queue_delete("q-direct").await;
+        self.exchange_delete("x-direct").await;
     }
 
     async fn exchange_declare(&self, name: &str, exchange_type: ExchangeType) {
@@ -75,6 +92,19 @@ impl TestCase {
                 exchange: Exchange::default().name(name).exchange_type(exchange_type),
                 passive: false,
                 outgoing: self.setup_tx.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn exchange_delete(&self, name: &str) {
+        em::delete_exchange(
+            &self.em,
+            em::DeleteExchangeCommand {
+                channel: 1,
+                if_unused: false,
+                exchange_name: name.to_string(),
             },
         )
         .await
@@ -95,7 +125,13 @@ impl TestCase {
         .unwrap();
     }
 
-    async fn queue_bind(&self, queue_name: &str, exchange_name: &str, routing_key: &str) {
+    async fn queue_bind(
+        &self,
+        queue_name: &str,
+        exchange_name: &str,
+        routing_key: &str,
+        args: Option<frame::FieldTable>,
+    ) {
         let sink = qm::get_command_sink(
             &self.qm,
             qm::GetQueueSinkQuery {
@@ -114,8 +150,23 @@ impl TestCase {
                 exchange_name: exchange_name.to_string(),
                 queue_name: queue_name.to_string(),
                 routing_key: routing_key.to_string(),
-                args: None,
+                args,
                 queue_sink: sink,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn queue_delete(&self, queue_name: &str) {
+        qm::delete_queue(
+            &self.qm,
+            qm::QueueDeleteCommand {
+                conn_id: "does-not-matter".to_string(),
+                channel: 1,
+                queue_name: queue_name.to_string(),
+                if_unused: false,
+                if_empty: false,
             },
         )
         .await
