@@ -167,14 +167,14 @@ impl QueueStateTester {
         em: ExchangeManagerSink,
         rtx: oneshot::Sender<Result<u32>>,
     ) -> QueueCommand {
-        QueueCommand::DeleteQueue {
+        QueueCommand::DeleteQueue(DeleteQueueCmd {
             conn_id: self.connection_id.clone(),
             channel,
             if_unused,
             if_empty,
             exchange_manager: em,
             result: rtx,
-        }
+        })
     }
 
     async fn consume(&mut self, ctag: &str, no_ack: bool) -> mpsc::Receiver<Frame> {
@@ -291,7 +291,7 @@ fn parse_message(frame: Frame) -> Option<DeliveredMessage> {
 
         Some(dm)
     } else {
-        return None;
+        None
     }
 }
 
@@ -367,7 +367,7 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
     let cmd = tester.command_delete(5u16, false, true, em_tx, del_tx);
     let del_result = tester.state.handle_command(cmd).await.unwrap();
 
-    assert_eq!(del_result, true);
+    assert!(del_result);
 
     let del_cmd_result = del_rx.await.unwrap();
     assert!(del_cmd_result.is_err());
@@ -453,7 +453,7 @@ async fn basic_get_then_basic_ack_deletes_the_message_from_the_queue() {
 
     assert_eq!(msg.consumer_tag, "");
     assert_eq!(msg.delivery_tag, 1);
-    assert_eq!(msg.redelivered, false);
+    assert!(!msg.redelivered);
 
     let consumer_tag = format!("{}-{}", tester.connection_id, tester.used_channel);
     let (cmd, rx) = tester.command_basic_ack(1, &consumer_tag, msg.delivery_tag);
