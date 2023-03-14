@@ -65,6 +65,7 @@ pub struct QueueDeletedEvent {
     pub queue_name: String,
 }
 
+// TODO we should remove the pub and only the super modules can refer this enum
 #[derive(Debug)]
 pub enum ExchangeManagerCommand {
     DeclareExchange(DeclareExchangeCommand, oneshot::Sender<Result<ExchangeCommandSink>>),

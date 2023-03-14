@@ -86,4 +86,6 @@ async fn one_consumer_redeliver() {
     assert_eq!(deliver_args.consumer_tag, "ctag2");
     assert_eq!(deliver_args.delivery_tag, 1u64);
     assert!(deliver_args.redelivered);
+
+    tc.teardown().await;
 }

@@ -1,17 +1,21 @@
 // Do we need to expose the messages of a 'process' or hide it in an erlang-style?
-use crate::client;
-use crate::exchange::handler::ExchangeCommandSink;
-use crate::exchange::manager as em;
-use crate::queue::handler as queue_handler;
-use crate::queue::manager as qm;
-use crate::{logerr, Context, ErrorScope, Result, RuntimeError};
+use crate::{
+    client,
+    exchange::{handler::ExchangeCommandSink, manager as em},
+    logerr,
+    queue::{handler as queue_handler, manager as qm},
+    Context, ErrorScope, Result, RuntimeError,
+};
 use log::{error, info, trace};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::ContentBodyFrame;
-use metalmq_codec::frame::{Channel, ContentHeaderFrame};
+use metalmq_codec::{
+    codec::Frame,
+    frame::{self, Channel, ContentBodyFrame, ContentHeaderFrame},
+};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+use super::{channel_error, ChannelError};
 
 pub mod basic;
 pub mod channel;
@@ -47,6 +51,8 @@ pub struct ExclusiveQueue {
     pub queue_name: String,
 }
 
+// TODO we need to create channel struct and channel errors can stop at channel boundary but
+// connection errors can be propagated. Also channel errors can have the default channel number.
 /// All the transient data of a connection are stored here.
 pub struct Connection {
     /// Unique ID of the connection.
@@ -137,6 +143,26 @@ impl Connection {
             in_flight_contents: HashMap::new(),
             next_confirm_delivery_tag: HashMap::new(),
             outgoing,
+        }
+    }
+
+    /// Look up exchange sink in exchange manager and returns the exchange sink or a 404 channel error.
+    async fn find_exchange(&self, channel: Channel, exchange_name: &str) -> Result<ExchangeCommandSink> {
+        match em::get_exchange_sink(
+            &self.em,
+            em::GetExchangeSinkQuery {
+                exchange_name: exchange_name.to_string(),
+            },
+        )
+        .await
+        {
+            Some(sink) => Ok(sink),
+            None => channel_error(
+                channel,
+                frame::BASIC_PUBLISH,
+                ChannelError::NotFound,
+                &format!("Exchange {} not found", &exchange_name),
+            ),
         }
     }
 

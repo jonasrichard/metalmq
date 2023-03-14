@@ -45,6 +45,7 @@ async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<Tcp
     while let Some(data) = stream.next().await {
         trace!("Incoming {data:?}");
 
+        let data = data?;
         if !handle_in_stream_data(conn, data).await? {
             break;
         }
@@ -83,12 +84,13 @@ async fn incoming_loop_with_heartbeat(
 
                         last_message_received = tokio::time::Instant::now();
 
+                        let data = data?;
                         if !handle_in_stream_data(conn, data).await? {
-                            break 'input;
+                            break 'input Ok(());
                         }
                     }
                     None => {
-                        break 'input;
+                        break 'input Ok(());
                     }
                 }
             }
@@ -97,13 +99,11 @@ async fn incoming_loop_with_heartbeat(
                     warn!("No heartbeat arrived for {:?}, closing connection", last_message_received.elapsed());
 
                     // TODO should we raise a connection exception instead?
-                    break 'input;
+                    break 'input Ok(());
                 }
             }
         }
     }
-
-    Ok(())
 }
 
 /// Handle sending of outgoing frames. The underlying futures sink flushes the sent items, so
@@ -162,12 +162,9 @@ async fn outgoing_loop_with_heartbeat(
     Ok(())
 }
 
-async fn handle_in_stream_data(
-    conn: &mut Connection,
-    data: std::result::Result<Frame, std::io::Error>,
-) -> Result<bool> {
+async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<bool> {
     match data {
-        Ok(Frame::Frame(frame)) => {
+        Frame::Frame(frame) => {
             if handle_client_frame(conn, frame).await.is_err() {
                 conn.cleanup().await?;
 
@@ -176,7 +173,7 @@ async fn handle_in_stream_data(
 
             Ok(true)
         }
-        Ok(Frame::Frames(frames)) => {
+        Frame::Frames(frames) => {
             for frame in frames {
                 if handle_client_frame(conn, frame).await.is_err() {
                     conn.cleanup().await?;
@@ -187,10 +184,7 @@ async fn handle_in_stream_data(
 
             Ok(true)
         }
-        Err(e) => Err(Box::new(e)),
     }
-
-    // TODO here we need to do the cleanup
 }
 
 async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> {

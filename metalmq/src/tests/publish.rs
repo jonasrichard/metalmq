@@ -1,6 +1,9 @@
 use metalmq_codec::frame::{self, BasicPublishArgs};
 
-use crate::tests::{channel_close, connection_close, recv_timeout, send_content, sleep, unpack_frames, TestCase};
+use crate::tests::{
+    basic_deliver_args, channel_close, connection_close, publish_content, recv_timeout, send_content, sleep,
+    unpack_frames, TestCase,
+};
 
 #[tokio::test]
 async fn basic_publish_mandatory_message() {
@@ -172,4 +175,39 @@ async fn basic_ack_multiple() {
             frame::MethodFrameArgs::QueueDeleteOk(frame::QueueDeleteOkArgs { message_count: 0 })
         )
     ));
+}
+
+#[tokio::test]
+async fn publish_to_topic_exchange() {
+    let tc = TestCase::new().await;
+    let (mut client, mut client_rx) = tc.new_client();
+
+    publish_content(&mut client, 1, "x-topic", "topic.key", b"Topic test").await;
+
+    client
+        .basic_consume(
+            2,
+            frame::BasicConsumeArgs::default().queue("q-topic").consumer_tag("ctag"),
+        )
+        .await
+        .unwrap();
+
+    let _consume_ok = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+
+    let delivery = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let mut frames = delivery.into_iter();
+
+    let basic_deliver = basic_deliver_args(frames.next().unwrap());
+    assert_eq!("x-topic", basic_deliver.exchange_name);
+    // ...
+
+    if let frame::AMQPFrame::ContentHeader(header) = frames.next().unwrap() {
+        assert_eq!(2, header.channel);
+    }
+
+    if let frame::AMQPFrame::ContentBody(body) = frames.next().unwrap() {
+        assert_eq!(b"Topic test", body.body.as_slice());
+    }
+
+    tc.teardown().await;
 }

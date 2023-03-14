@@ -158,7 +158,6 @@ pub async fn send_basic_get_ok(
     outgoing: &FrameSink,
 ) -> Result<()> {
     let mut frames = message_to_content_frames(channel, message.content.clone(), frame_size);
-    // TODO handle redelivered
 
     let basic_get = frame::BasicGetOkArgs::new(delivery_tag, &message.exchange)
         .redelivered(redelivered)

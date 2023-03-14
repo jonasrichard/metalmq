@@ -8,8 +8,8 @@ use metalmq_codec::{
 use tokio::sync::oneshot;
 
 use crate::{
-    client::{self, channel_error, state::Connection, ChannelError, ConnectionError},
-    exchange::{handler::ExchangeCommand, manager as em},
+    client::{self, channel_error, connection_error, state::Connection, ChannelError, ConnectionError},
+    exchange::handler::ExchangeCommand,
     handle_error, logerr, message,
     queue::{
         handler as queue_handler,
@@ -22,30 +22,23 @@ use super::{ActivelyConsumedQueue, PassivelyConsumedQueue, PublishedContent};
 
 impl Connection {
     pub async fn basic_publish(&mut self, channel: Channel, args: frame::BasicPublishArgs) -> Result<()> {
+        // Ensure that the exchange command sink is cached
         if !self.exchanges.contains_key(&args.exchange_name) {
-            match em::get_exchange_sink(
-                &self.em,
-                em::GetExchangeSinkQuery {
-                    exchange_name: args.exchange_name.clone(),
-                },
-            )
-            .await
-            {
-                Some(sink) => {
-                    self.exchanges.insert(args.exchange_name.clone(), sink);
-                }
-                None => {
-                    return channel_error(
-                        channel,
-                        frame::BASIC_PUBLISH,
-                        ChannelError::NotFound,
-                        &format!("Exchange {} not found", args.exchange_name),
-                    );
-                }
-            };
+            let exchange_sink = self.find_exchange(channel, &args.exchange_name).await?;
+
+            self.exchanges.insert(args.exchange_name.clone(), exchange_sink);
         }
 
-        // TODO check if there is in flight content in the channel -> error
+        // If we have an in-flight half content (no body), send back an unexpected frame error.
+        if self.in_flight_contents.contains_key(&channel) {
+            return connection_error(
+                frame::BASIC_PUBLISH,
+                ConnectionError::UnexpectedFrame,
+                "Unexpected Basic.Publish during receiving message header and body",
+            );
+        }
+
+        // Start collecting the published message
         self.in_flight_contents.insert(
             channel,
             PublishedContent {

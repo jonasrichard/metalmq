@@ -1,6 +1,6 @@
-pub mod consume;
-pub mod publish;
-pub mod queue;
+mod consume;
+mod publish;
+mod queue;
 
 use std::collections::HashMap;
 
@@ -25,7 +25,7 @@ use metalmq_codec::{
 
 /// TestCase for System Under Test which spawns an exchange manager and a queue manager and can
 /// test more integrated features like forwarding messages from exchanges to queues.
-pub struct TestCase {
+struct TestCase {
     em: ExchangeManagerSink,
     qm: QueueManagerSink,
     setup_tx: mpsc::Sender<Frame>,
@@ -82,6 +82,10 @@ impl TestCase {
     async fn teardown(self) {
         self.queue_delete("q-direct").await;
         self.exchange_delete("x-direct").await;
+        self.queue_delete("q-fanout").await;
+        self.exchange_delete("x-fanout").await;
+        self.queue_delete("q-topic").await;
+        self.exchange_delete("x-topic").await;
     }
 
     async fn exchange_declare(&self, name: &str, exchange_type: ExchangeType) {
@@ -184,21 +188,21 @@ impl TestCase {
     }
 }
 
-pub async fn channel_close(client: &mut Connection, channel: u16) {
+async fn channel_close(client: &mut Connection, channel: u16) {
     client
         .channel_close(channel, frame::ChannelCloseArgs::default())
         .await
         .unwrap();
 }
 
-pub async fn connection_close(client: &mut Connection) {
+async fn connection_close(client: &mut Connection) {
     client
         .connection_close(frame::ConnectionCloseArgs::default())
         .await
         .unwrap();
 }
 
-pub async fn publish_content(client: &mut Connection, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
+async fn publish_content(client: &mut Connection, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
     client
         .basic_publish(channel, frame::BasicPublishArgs::new(exchange).routing_key(routing_key))
         .await
@@ -221,7 +225,7 @@ pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
     }
 }
 
-pub async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
+async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
     let header = ContentHeaderFrame {
         channel,
         class_id: (frame::BASIC_PUBLISH >> 16) as u16,
@@ -239,19 +243,19 @@ pub async fn send_content(client: &mut Connection, channel: u16, message: &[u8])
     client.receive_content_body(body).await.unwrap();
 }
 
-pub async fn sleep(ms: u32) {
+async fn sleep(ms: u32) {
     tokio::time::sleep(std::time::Duration::from_millis(ms.into())).await;
 }
 
-pub async fn recv_frames(client: &mut mpsc::Receiver<Frame>) -> Vec<frame::AMQPFrame> {
+async fn recv_frames(client: &mut mpsc::Receiver<Frame>) -> Vec<frame::AMQPFrame> {
     unpack_frames(recv_timeout(client).await.unwrap())
 }
 
-pub async fn recv_single_frame(client: &mut mpsc::Receiver<Frame>) -> frame::AMQPFrame {
+async fn recv_single_frame(client: &mut mpsc::Receiver<Frame>) -> frame::AMQPFrame {
     unpack_single_frame(recv_timeout(client).await.unwrap())
 }
 
-pub fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
+fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
     if let Frame::Frame(single_frame) = f {
         single_frame
     } else {
@@ -259,14 +263,14 @@ pub fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
     }
 }
 
-pub fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
+fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
     match f {
         Frame::Frame(sf) => vec![sf],
         Frame::Frames(mf) => mf,
     }
 }
 
-pub fn basic_deliver_args(f: frame::AMQPFrame) -> frame::BasicDeliverArgs {
+fn basic_deliver_args(f: frame::AMQPFrame) -> frame::BasicDeliverArgs {
     if let frame::AMQPFrame::Method(_, _, frame::MethodFrameArgs::BasicDeliver(args)) = f {
         return args;
     }
