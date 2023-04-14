@@ -11,7 +11,10 @@ use crate::{
 use log::{debug, error, info, warn};
 use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{
+    mpsc::{self, Receiver},
+    oneshot,
+};
 
 use super::handler::QueueBindCmd;
 

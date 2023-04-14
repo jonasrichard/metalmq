@@ -1,6 +1,9 @@
+use bitflags::BitFlags;
+
 use super::{AMQPFrame, Channel, FieldTable, MethodFrameArgs};
 
 bitflags! {
+    #[derive(Debug)]
     pub struct ExchangeDeclareFlags: u8 {
         const PASSIVE = 0b00000001;
         const DURABLE = 0b00000010;
@@ -38,22 +41,22 @@ impl ExchangeDeclareArgs {
     }
 
     pub fn auto_delete(mut self, mode: bool) -> Self {
-        self.flags.set(ExchangeDeclareFlags::AUTO_DELETE, mode);
+        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::AUTO_DELETE, mode);
         self
     }
 
     pub fn durable(mut self, mode: bool) -> Self {
-        self.flags.set(ExchangeDeclareFlags::DURABLE, mode);
+        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::DURABLE, mode);
         self
     }
 
     pub fn internal(mut self, mode: bool) -> Self {
-        self.flags.set(ExchangeDeclareFlags::INTERNAL, mode);
+        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::INTERNAL, mode);
         self
     }
 
     pub fn passive(mut self, mode: bool) -> Self {
-        self.flags.set(ExchangeDeclareFlags::PASSIVE, mode);
+        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::PASSIVE, mode);
         self
     }
 
@@ -67,6 +70,7 @@ impl ExchangeDeclareArgs {
 }
 
 bitflags! {
+    #[derive(Debug)]
     pub struct ExchangeDeleteFlags: u8 {
         const IF_UNUSED = 0b00000001;
         const NO_WAIT = 0b00000010;
@@ -92,7 +96,7 @@ impl ExchangeDeleteArgs {
     }
 
     pub fn if_unused(mut self, mode: bool) -> Self {
-        self.flags.set(ExchangeDeleteFlags::IF_UNUSED, mode);
+        BitFlags::set(&mut self.flags, ExchangeDeleteFlags::IF_UNUSED, mode);
         self
     }
 

@@ -1,14 +1,18 @@
-use crate::client;
-use crate::client::state::Connection;
-use crate::{Context, Result};
-use futures::stream::{SplitSink, SplitStream, StreamExt};
-use futures::SinkExt;
+use crate::{
+    client::{self, state::Connection, to_runtime_error},
+    Context, Result,
+};
+use futures::{
+    stream::{SplitSink, SplitStream, StreamExt},
+    SinkExt,
+};
 use log::{error, trace, warn};
-use metalmq_codec::codec::{AMQPCodec, Frame};
-use metalmq_codec::frame::{self, AMQPFrame, MethodFrameArgs};
+use metalmq_codec::{
+    codec::{AMQPCodec, Frame},
+    frame::{self, AMQPFrame, MethodFrameArgs},
+};
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::{net::TcpStream, sync::mpsc};
 use tokio_util::codec::Framed;
 
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
@@ -45,9 +49,19 @@ async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<Tcp
     while let Some(data) = stream.next().await {
         trace!("Incoming {data:?}");
 
-        let data = data?;
-        if !handle_in_stream_data(conn, data).await? {
+        if let Err(e) = data {
+            conn.handle_error(to_runtime_error(Box::new(e))).await?;
+
             break;
+        }
+
+        let data = data?;
+        match handle_in_stream_data(conn, data).await {
+            Ok(false) => break,
+            Ok(true) => (),
+            Err(e) => {
+                conn.handle_error(to_runtime_error(e)).await?;
+            }
         }
     }
 
@@ -59,13 +73,6 @@ async fn incoming_loop_with_heartbeat(
     mut stream: SplitStream<Framed<TcpStream, AMQPCodec>>,
     heartbeat_duration: Duration,
 ) -> Result<()> {
-    // TODO
-    // We need to start monitor heartbeat messages after connection open.
-    //
-    // Probably conn needs to have a field like last message arrived. If we haven't received
-    // anything for a longer period, we can close the connection.
-    //
-    // Connection.Tune decides how frequently we send and expect the heartbeat frames.
     let heartbeat = tokio::time::interval(heartbeat_duration);
     tokio::pin!(heartbeat);
 
@@ -84,9 +91,21 @@ async fn incoming_loop_with_heartbeat(
 
                         last_message_received = tokio::time::Instant::now();
 
-                        let data = data?;
-                        if !handle_in_stream_data(conn, data).await? {
+                        if let Err(e) = data {
+                            conn.handle_error(to_runtime_error(Box::new(e))).await?;
+
                             break 'input Ok(());
+                        }
+
+                        // In case of normal closing of the stream we suppose that cleanup has been
+                        // already done.
+                        let data = data?;
+                        match handle_in_stream_data(conn, data).await {
+                            Ok(false) => break 'input Ok(()),
+                            Ok(true) => (),
+                            Err(e) => {
+                                conn.handle_error(to_runtime_error(e)).await?;
+                            }
                         }
                     }
                     None => {
@@ -98,7 +117,11 @@ async fn incoming_loop_with_heartbeat(
                 if last_message_received.elapsed() > 2 * heartbeat_duration {
                     warn!("No heartbeat arrived for {:?}, closing connection", last_message_received.elapsed());
 
-                    // TODO should we raise a connection exception instead?
+                    // If server misses a heartbeat it needs to close the connection without the
+                    // connection close/close-ok handshake.
+                    //
+                    // TODO but still we need to close consumer resources and auto delete queues,
+                    // exchanges.
                     break 'input Ok(());
                 }
             }

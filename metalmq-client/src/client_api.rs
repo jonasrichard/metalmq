@@ -9,6 +9,7 @@ use anyhow::{anyhow, Result};
 use metalmq_codec::frame;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
+use url::Url;
 
 pub(crate) type ConsumerSink = mpsc::UnboundedSender<ConsumerSignal>;
 pub(crate) type GetSink = mpsc::UnboundedSender<GetSignal>;
@@ -110,12 +111,15 @@ async fn create_connection(url: &str, conn_sink: ConnectionSink) -> Result<Clien
 }
 
 impl Client {
-    // TODO expect only one parameter and parse the url
+    pub async fn connect_with_url(url: &Url) -> Result<(Client, EventHandler)> {
+        Self::connect(url.host_str().unwrap(), url.username(), url.password().unwrap()).await
+    }
+
     /// The main entry point of the API, it connects to an AMQP compatible server.
-    pub async fn connect(url: &str, username: &str, password: &str) -> Result<(Client, EventHandler)> {
+    pub async fn connect(host: &str, username: &str, password: &str) -> Result<(Client, EventHandler)> {
         let (conn_evt_tx, conn_evt_rx) = mpsc::unbounded_channel();
         let (connected_tx, connected_rx) = oneshot::channel();
-        let client_sink = create_connection(url, conn_evt_tx).await?;
+        let client_sink = create_connection(host, conn_evt_tx).await?;
 
         client_sink
             .send(ClientRequest {

@@ -82,7 +82,9 @@ pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
     Frame::Frame(amqp_frame)
 }
 
-pub fn to_runtime_error(err: Box<dyn std::error::Error>) -> RuntimeError {
+/// Converts all errors as `RuntimeError`. Unknown errors are wrapped as internal connection
+/// errors.
+pub fn to_runtime_error(err: Box<dyn std::error::Error + Send + Sync>) -> RuntimeError {
     match err.downcast::<RuntimeError>() {
         Ok(rte) => *rte,
         Err(e) => RuntimeError {

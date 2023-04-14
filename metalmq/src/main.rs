@@ -28,16 +28,11 @@ pub struct Context {
     pub queue_manager: queue::manager::QueueManagerSink,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub enum ErrorScope {
+    #[default]
     Connection,
     Channel,
-}
-
-impl Default for ErrorScope {
-    fn default() -> Self {
-        ErrorScope::Connection
-    }
 }
 
 #[derive(Debug, Default)]
@@ -174,7 +169,8 @@ async fn start_amqp(context: Context, url: &str) -> Result<()> {
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-    //console_subscriber::init();
+    #[cfg(feature = "tracing")]
+    console_subscriber::init();
 
     setup_logger();
 

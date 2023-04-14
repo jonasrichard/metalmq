@@ -173,7 +173,7 @@ impl Connection {
         Ok(())
     }
 
-    async fn handle_connection_close(&mut self) -> Result<()> {
+    pub async fn handle_connection_close(&mut self) -> Result<()> {
         // TODO should be here just to close all channels, not repeating the channel close logic
         // Most of the time we have all channels closed at this point, but what if the connection
         // has been cut and client didn't have a chance to close everything properly?
@@ -202,7 +202,7 @@ impl Connection {
         Ok(())
     }
 
-    async fn handle_channel_close(&mut self, channel: Channel) -> Result<()> {
+    pub async fn handle_channel_close(&mut self, channel: Channel) -> Result<()> {
         // Cancel consumed queues on the channel
         if let Some(cq) = self.consumed_queues.remove(&channel) {
             qm::cancel_consume(
@@ -239,7 +239,7 @@ impl Connection {
     /// error, or it returns with `Ok` if it is a channel error. This is handy if we want to handle
     /// the output with a `?` operator and we want to die in case of a connection error (aka we
     /// want to propagate the error to the client handler).
-    async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
+    pub async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
         trace!("Handling error {:?}", err);
 
         self.send_frame(client::runtime_error_to_frame(&err)).await?;

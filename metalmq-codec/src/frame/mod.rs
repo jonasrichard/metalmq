@@ -4,6 +4,8 @@ mod connection;
 mod exchange;
 mod queue;
 
+use bitflags::BitFlags;
+
 pub use self::{
     basic::{
         basic_get_empty, confirm_select, confirm_select_ok, BasicAckArgs, BasicCancelArgs, BasicCancelOkArgs,
@@ -163,6 +165,7 @@ pub enum MethodFrameArgs {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug)]
     pub struct HeaderPropertyFlags: u16 {
         const CLUSTER_ID       = 0b0000_0000_0000_0100;
         const APP_ID           = 0b0000_0000_0000_1000;
@@ -216,7 +219,7 @@ pub struct ContentHeaderFrame {
 impl ContentHeaderFrame {
     pub fn with_content_type(&mut self, content_type: String) -> &ContentHeaderFrame {
         self.content_type = Some(content_type);
-        self.prop_flags.set(HeaderPropertyFlags::CONTENT_TYPE, true);
+        BitFlags::set(&mut self.prop_flags, HeaderPropertyFlags::CONTENT_TYPE, true);
         self
     }
 

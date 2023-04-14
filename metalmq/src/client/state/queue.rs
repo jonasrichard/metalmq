@@ -64,6 +64,7 @@ impl Connection {
                     queue_sink: sink,
                 };
 
+                // TODO now we can use let patter = x else {} so we can drop this macro
                 handle_error!(self, em::bind_queue(&self.em, cmd).await).unwrap();
 
                 self.send_frame(Frame::Frame(frame::queue_bind_ok(channel))).await?;

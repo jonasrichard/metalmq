@@ -1,6 +1,9 @@
+use bitflags::BitFlags;
+
 use super::{AMQPFrame, Channel, FieldTable, MethodFrameArgs};
 
 bitflags! {
+    #[derive(Debug)]
     pub struct QueueDeclareFlags: u8 {
         const PASSIVE = 0b00000001;
         const DURABLE = 0b00000010;
@@ -30,22 +33,22 @@ impl QueueDeclareArgs {
     }
 
     pub fn auto_delete(mut self, mode: bool) -> Self {
-        self.flags.set(QueueDeclareFlags::AUTO_DELETE, mode);
+        BitFlags::set(&mut self.flags, QueueDeclareFlags::AUTO_DELETE, mode);
         self
     }
 
     pub fn durable(mut self, mode: bool) -> Self {
-        self.flags.set(QueueDeclareFlags::DURABLE, mode);
+        BitFlags::set(&mut self.flags, QueueDeclareFlags::DURABLE, mode);
         self
     }
 
     pub fn exclusive(mut self, mode: bool) -> Self {
-        self.flags.set(QueueDeclareFlags::EXCLUSIVE, mode);
+        BitFlags::set(&mut self.flags, QueueDeclareFlags::EXCLUSIVE, mode);
         self
     }
 
     pub fn passive(mut self, mode: bool) -> Self {
-        self.flags.set(QueueDeclareFlags::PASSIVE, mode);
+        BitFlags::set(&mut self.flags, QueueDeclareFlags::PASSIVE, mode);
         self
     }
 
@@ -144,6 +147,7 @@ impl QueuePurgeOkArgs {
 }
 
 bitflags! {
+    #[derive(Debug)]
     pub struct QueueDeleteFlags: u8 {
         const IF_UNUSED = 0b00000001;
         const IF_EMPTY = 0b00000010;
@@ -170,12 +174,12 @@ impl QueueDeleteArgs {
     }
 
     pub fn if_empty(mut self, mode: bool) -> Self {
-        self.flags.set(QueueDeleteFlags::IF_EMPTY, mode);
+        BitFlags::set(&mut self.flags, QueueDeleteFlags::IF_EMPTY, mode);
         self
     }
 
     pub fn if_unused(mut self, mode: bool) -> Self {
-        self.flags.set(QueueDeleteFlags::IF_UNUSED, mode);
+        BitFlags::set(&mut self.flags, QueueDeleteFlags::IF_UNUSED, mode);
         self
     }
 

@@ -1,3 +1,7 @@
+mod consumer;
+mod inmemory;
+mod outbox;
+
 #[cfg(test)]
 mod tests;
 
@@ -21,6 +25,8 @@ use std::{
     time::Instant,
 };
 use tokio::sync::{mpsc, oneshot};
+
+use self::outbox::{Outbox, OutgoingMessage};
 
 pub type QueueCommandSink = mpsc::Sender<QueueCommand>;
 
@@ -148,10 +154,11 @@ enum SendResult {
 pub type FrameSink = mpsc::Sender<Frame>;
 
 #[derive(Clone, Debug)]
-struct DeliveredMessage {
+pub struct DeliveredMessage {
     message: Arc<Message>,
     /// How many times it tried to be delivered.
     delivery_count: u8,
+    rejected_connections: Vec<String>,
 }
 
 /// Information about the queue instance
@@ -196,6 +203,8 @@ struct Consumer {
     sink: FrameSink,
     /// The next delivery tag it needs to send out
     delivery_tag_counter: u64,
+    /// Number of inflight message (messages sent out but not not yet acked)
+    in_flight_count: u32,
     /// The maximum frame size the consumer can process
     frame_size: usize,
 }
@@ -311,6 +320,7 @@ impl QueueState {
                 let delivered_message = DeliveredMessage {
                     message,
                     delivery_count: 0,
+                    rejected_connections: vec![],
                 };
 
                 logerr!(self.send_out_message(delivered_message).await);
@@ -416,6 +426,7 @@ impl QueueState {
                         exclusive,
                         sink,
                         delivery_tag_counter: 1u64,
+                        in_flight_count: 0,
                         frame_size,
                     };
                     self.candidate_consumers.push(consumer);
@@ -564,6 +575,7 @@ impl QueueState {
             exclusive: false,
             sink: cmd.sink,
             delivery_tag_counter: 1u64,
+            in_flight_count: 0,
             frame_size: cmd.frame_size,
         };
 
@@ -882,76 +894,4 @@ fn poll_command_chan(commands: &mut mpsc::Receiver<QueueCommand>) -> Poll<Option
 
     let mut cx = Context::from_waker(noop_waker_ref());
     commands.poll_recv(&mut cx)
-}
-
-#[derive(Debug)]
-struct OutgoingMessage {
-    message: DeliveredMessage,
-    tag: Tag,
-    sent_at: Instant,
-}
-
-#[derive(Debug)]
-struct Outbox {
-    outgoing_messages: Vec<OutgoingMessage>,
-}
-
-impl Outbox {
-    /// Acking messages by remove them based on the parameters. Return false if a message is double
-    /// acked.
-    fn on_ack_arrive(&mut self, consumer_tag: String, delivery_tag: u64, multiple: bool) -> bool {
-        match (multiple, delivery_tag) {
-            (true, 0) => {
-                // If multiple is true and delivery tag is 0, we ack all sent messages with that
-                // consumer tag.
-                self.outgoing_messages.retain(|om| om.tag.consumer_tag != consumer_tag);
-
-                true
-            }
-            (true, _) => {
-                // If multiple is true and delivery tag is non-zero, we ack all sent messages with
-                // delivery tag less than equal with that consumer tag.
-                self.outgoing_messages
-                    .retain(|om| om.tag.consumer_tag != consumer_tag || om.tag.delivery_tag > delivery_tag);
-
-                true
-            }
-            (false, _) => {
-                // If multiple is false, we ack the sent out message with that consumer tag and
-                // delivery tag.
-                dbg!(&self.outgoing_messages);
-                dbg!(&consumer_tag);
-                match self
-                    .outgoing_messages
-                    .iter()
-                    .position(|om| om.tag.consumer_tag == consumer_tag && om.tag.delivery_tag == delivery_tag)
-                {
-                    None => false,
-                    Some(p) => {
-                        self.outgoing_messages.remove(p);
-                        true
-                    }
-                }
-            }
-        }
-    }
-
-    fn on_sent_out(&mut self, outgoing_message: OutgoingMessage) {
-        self.outgoing_messages.push(outgoing_message);
-    }
-
-    fn remove_messages_by_ctag(&mut self, ctag: &str) -> Vec<DeliveredMessage> {
-        let mut messages = vec![];
-        let mut i = 0;
-
-        while i < self.outgoing_messages.len() {
-            if self.outgoing_messages[i].tag.consumer_tag == ctag {
-                messages.push(self.outgoing_messages.remove(i).message);
-            } else {
-                i += 1;
-            }
-        }
-
-        messages
-    }
 }

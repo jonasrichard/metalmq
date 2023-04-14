@@ -1,6 +1,9 @@
+use bitflags::BitFlags;
+
 use super::{AMQPFrame, Channel, FieldTable, MethodFrameArgs};
 
 bitflags! {
+    #[derive(Debug)]
     pub struct BasicConsumeFlags: u8 {
         const NO_LOCAL = 0b00000001;
         const NO_ACK = 0b00000010;
@@ -35,17 +38,17 @@ impl BasicConsumeArgs {
     }
 
     pub fn exclusive(mut self, mode: bool) -> Self {
-        self.flags.set(BasicConsumeFlags::EXCLUSIVE, mode);
+        BitFlags::set(&mut self.flags, BasicConsumeFlags::EXCLUSIVE, mode);
         self
     }
 
     pub fn no_ack(mut self, mode: bool) -> Self {
-        self.flags.set(BasicConsumeFlags::NO_ACK, mode);
+        BitFlags::set(&mut self.flags, BasicConsumeFlags::NO_ACK, mode);
         self
     }
 
     pub fn no_local(mut self, mode: bool) -> Self {
-        self.flags.set(BasicConsumeFlags::NO_LOCAL, mode);
+        BitFlags::set(&mut self.flags, BasicConsumeFlags::NO_LOCAL, mode);
         self
     }
 
@@ -174,6 +177,7 @@ impl BasicGetOkArgs {
 }
 
 bitflags! {
+    #[derive(Clone, Debug)]
     pub struct BasicPublishFlags: u8 {
         const MANDATORY = 0b00000001;
         const IMMEDIATE = 0b00000010;
@@ -207,12 +211,12 @@ impl BasicPublishArgs {
     }
 
     pub fn immediate(mut self, mode: bool) -> Self {
-        self.flags.set(BasicPublishFlags::IMMEDIATE, mode);
+        BitFlags::set(&mut self.flags, BasicPublishFlags::IMMEDIATE, mode);
         self
     }
 
     pub fn mandatory(mut self, mode: bool) -> Self {
-        self.flags.set(BasicPublishFlags::MANDATORY, mode);
+        BitFlags::set(&mut self.flags, BasicPublishFlags::MANDATORY, mode);
         self
     }
 
@@ -318,6 +322,7 @@ impl BasicRejectArgs {
 }
 
 bitflags! {
+    #[derive(Clone, Debug)]
     pub struct BasicNackFlags: u8 {
         const MULTIPLE = 0b00000001;
         const REQUEUE = 0b00000010;
@@ -343,12 +348,12 @@ impl BasicNackArgs {
     }
 
     pub fn multiple(mut self, value: bool) -> Self {
-        self.flags.set(BasicNackFlags::MULTIPLE, value);
+        BitFlags::set(&mut self.flags, BasicNackFlags::MULTIPLE, value);
         self
     }
 
     pub fn requeue(mut self, value: bool) -> Self {
-        self.flags.set(BasicNackFlags::REQUEUE, value);
+        BitFlags::set(&mut self.flags, BasicNackFlags::REQUEUE, value);
         self
     }
 
