@@ -4,7 +4,7 @@ mod connection;
 mod exchange;
 mod queue;
 
-use bitflags::BitFlags;
+use bitflags::Flags;
 
 pub use self::{
     basic::{
@@ -219,7 +219,7 @@ pub struct ContentHeaderFrame {
 impl ContentHeaderFrame {
     pub fn with_content_type(&mut self, content_type: String) -> &ContentHeaderFrame {
         self.content_type = Some(content_type);
-        BitFlags::set(&mut self.prop_flags, HeaderPropertyFlags::CONTENT_TYPE, true);
+        Flags::set(&mut self.prop_flags, HeaderPropertyFlags::CONTENT_TYPE, true);
         self
     }
 

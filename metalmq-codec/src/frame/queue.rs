@@ -1,4 +1,4 @@
-use bitflags::BitFlags;
+use bitflags::Flags;
 
 use super::{AMQPFrame, Channel, FieldTable, MethodFrameArgs};
 
@@ -33,22 +33,22 @@ impl QueueDeclareArgs {
     }
 
     pub fn auto_delete(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, QueueDeclareFlags::AUTO_DELETE, mode);
+        Flags::set(&mut self.flags, QueueDeclareFlags::AUTO_DELETE, mode);
         self
     }
 
     pub fn durable(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, QueueDeclareFlags::DURABLE, mode);
+        Flags::set(&mut self.flags, QueueDeclareFlags::DURABLE, mode);
         self
     }
 
     pub fn exclusive(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, QueueDeclareFlags::EXCLUSIVE, mode);
+        Flags::set(&mut self.flags, QueueDeclareFlags::EXCLUSIVE, mode);
         self
     }
 
     pub fn passive(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, QueueDeclareFlags::PASSIVE, mode);
+        Flags::set(&mut self.flags, QueueDeclareFlags::PASSIVE, mode);
         self
     }
 
@@ -174,12 +174,12 @@ impl QueueDeleteArgs {
     }
 
     pub fn if_empty(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, QueueDeleteFlags::IF_EMPTY, mode);
+        Flags::set(&mut self.flags, QueueDeleteFlags::IF_EMPTY, mode);
         self
     }
 
     pub fn if_unused(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, QueueDeleteFlags::IF_UNUSED, mode);
+        Flags::set(&mut self.flags, QueueDeleteFlags::IF_UNUSED, mode);
         self
     }
 

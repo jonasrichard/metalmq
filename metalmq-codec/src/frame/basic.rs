@@ -1,4 +1,4 @@
-use bitflags::BitFlags;
+use bitflags::Flags;
 
 use super::{AMQPFrame, Channel, FieldTable, MethodFrameArgs};
 
@@ -38,17 +38,17 @@ impl BasicConsumeArgs {
     }
 
     pub fn exclusive(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicConsumeFlags::EXCLUSIVE, mode);
+        Flags::set(&mut self.flags, BasicConsumeFlags::EXCLUSIVE, mode);
         self
     }
 
     pub fn no_ack(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicConsumeFlags::NO_ACK, mode);
+        Flags::set(&mut self.flags, BasicConsumeFlags::NO_ACK, mode);
         self
     }
 
     pub fn no_local(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicConsumeFlags::NO_LOCAL, mode);
+        Flags::set(&mut self.flags, BasicConsumeFlags::NO_LOCAL, mode);
         self
     }
 
@@ -211,12 +211,12 @@ impl BasicPublishArgs {
     }
 
     pub fn immediate(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicPublishFlags::IMMEDIATE, mode);
+        Flags::set(&mut self.flags, BasicPublishFlags::IMMEDIATE, mode);
         self
     }
 
     pub fn mandatory(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicPublishFlags::MANDATORY, mode);
+        Flags::set(&mut self.flags, BasicPublishFlags::MANDATORY, mode);
         self
     }
 
@@ -348,12 +348,12 @@ impl BasicNackArgs {
     }
 
     pub fn multiple(mut self, value: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicNackFlags::MULTIPLE, value);
+        Flags::set(&mut self.flags, BasicNackFlags::MULTIPLE, value);
         self
     }
 
     pub fn requeue(mut self, value: bool) -> Self {
-        BitFlags::set(&mut self.flags, BasicNackFlags::REQUEUE, value);
+        Flags::set(&mut self.flags, BasicNackFlags::REQUEUE, value);
         self
     }
 

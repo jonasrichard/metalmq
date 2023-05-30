@@ -1,4 +1,4 @@
-use bitflags::BitFlags;
+use bitflags::Flags;
 
 use super::{AMQPFrame, Channel, FieldTable, MethodFrameArgs};
 
@@ -41,22 +41,22 @@ impl ExchangeDeclareArgs {
     }
 
     pub fn auto_delete(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::AUTO_DELETE, mode);
+        Flags::set(&mut self.flags, ExchangeDeclareFlags::AUTO_DELETE, mode);
         self
     }
 
     pub fn durable(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::DURABLE, mode);
+        Flags::set(&mut self.flags, ExchangeDeclareFlags::DURABLE, mode);
         self
     }
 
     pub fn internal(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::INTERNAL, mode);
+        Flags::set(&mut self.flags, ExchangeDeclareFlags::INTERNAL, mode);
         self
     }
 
     pub fn passive(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, ExchangeDeclareFlags::PASSIVE, mode);
+        Flags::set(&mut self.flags, ExchangeDeclareFlags::PASSIVE, mode);
         self
     }
 
@@ -96,7 +96,7 @@ impl ExchangeDeleteArgs {
     }
 
     pub fn if_unused(mut self, mode: bool) -> Self {
-        BitFlags::set(&mut self.flags, ExchangeDeleteFlags::IF_UNUSED, mode);
+        Flags::set(&mut self.flags, ExchangeDeleteFlags::IF_UNUSED, mode);
         self
     }
 
