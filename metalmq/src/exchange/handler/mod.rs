@@ -140,15 +140,11 @@ impl ExchangeState {
             // TODO handle immediate somewhere, too
             if failed_message.mandatory {
                 returned.unwrap().send(Some(failed_message)).unwrap();
-            } else {
-                if let Some(r) = returned {
-                    r.send(None).unwrap();
-                }
-            }
-        } else {
-            if let Some(r) = returned {
+            } else if let Some(r) = returned {
                 r.send(None).unwrap();
             }
+        } else if let Some(r) = returned {
+            r.send(None).unwrap();
         }
 
         Ok(())

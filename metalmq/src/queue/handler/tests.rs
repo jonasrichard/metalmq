@@ -458,11 +458,11 @@ async fn basic_get_then_basic_ack_deletes_the_message_from_the_queue() {
     let consumer_tag = format!("{}-{}", tester.connection_id, tester.used_channel);
     let (cmd, rx) = tester.command_basic_ack(1, &consumer_tag, msg.delivery_tag);
 
-    dbg!(&cmd);
+    //dbg!(&cmd);
 
     tester.state.handle_command(cmd).await.unwrap();
 
-    dbg!(&tester.state.outbox);
+    //dbg!(&tester.state.outbox);
 
     rx.await.unwrap().unwrap();
 

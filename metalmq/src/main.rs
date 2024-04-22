@@ -9,8 +9,8 @@ mod restapi;
 pub mod tests;
 
 use env_logger::Builder;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::Server;
+use hyper::body::Incoming;
+use hyper::Request;
 use log::{error, info};
 use std::convert::Infallible;
 use std::fmt;
@@ -101,22 +101,19 @@ fn setup_logger() {
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
-            let mut lvl = buf.style();
-            lvl.set_bold(true);
-
-            match record.level() {
-                log::Level::Error => lvl.set_color(env_logger::fmt::Color::Red),
-                log::Level::Warn => lvl.set_color(env_logger::fmt::Color::Yellow),
-                log::Level::Info => lvl.set_color(env_logger::fmt::Color::Green),
-                log::Level::Debug => lvl.set_color(env_logger::fmt::Color::Rgb(192, 192, 192)),
-                log::Level::Trace => lvl.set_color(env_logger::fmt::Color::Rgb(96, 96, 96)),
-            };
+            //match record.level() {
+            //    log::Level::Error => lvl.set_color(Color::Red),
+            //    log::Level::Warn => lvl.set_color(Color::Yellow),
+            //    log::Level::Info => lvl.set_color(Color::Green),
+            //    log::Level::Debug => lvl.set_color(Color::Rgb(192, 192, 192)),
+            //    log::Level::Trace => lvl.set_color(Color::Rgb(96, 96, 96)),
+            //};
 
             writeln!(
                 buf,
                 "{} - [{:5}] {}:{} - {}",
                 buf.timestamp_millis(),
-                lvl.value(record.level()),
+                record.level(),
                 record.file().unwrap_or_default(),
                 record.line().unwrap_or_default(),
                 record.args()
@@ -127,20 +124,39 @@ fn setup_logger() {
 }
 
 async fn start_http(context: Context, url: &str) -> Result<()> {
-    let http_addr = url.parse()?;
+    use hyper::server::conn::http1::Builder;
+    use hyper::service::service_fn;
+    use hyper_util::rt::tokio::TokioIo;
+    use std::net::SocketAddr;
+
+    let http_addr: SocketAddr = url.parse()?;
 
     info!("Start HTTP admin API on {}", url);
 
-    let make_svc = make_service_fn(move |_conn| {
-        let context = context.clone();
-        async move { Ok::<_, Infallible>(service_fn(move |req| restapi::route(req, context.clone()))) }
-    });
+    //let context = context.clone();
 
-    let server = Server::bind(&http_addr).serve(make_svc);
+    //let service_handler = service_fn(|req: Request<Incoming>| async move { restapi::route(req, context) });
+
+    //let service = service_fn(move |_conn| {
+    //    let context = context.clone();
+    //    async move { Ok::<_, Infallible>(service_fn(move |req| restapi::route(req, context.clone()))) }
+    //});
+
+    let listener = TcpListener::bind(&http_addr).await?;
 
     tokio::spawn(async move {
-        if let Err(e) = server.await {
-            eprintln!("HTTP error {}", e);
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
+
+            tokio::spawn(async move {
+                let http = Builder::new();
+                let conn = http.serve_connection(io, service_fn(restapi::simple));
+
+                if let Err(err) = conn.await {
+                    eprintln!("Error serving connection {err:?}");
+                }
+            });
         }
     });
 

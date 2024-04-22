@@ -100,5 +100,6 @@ open target/coverage/html/index.html
 In the examples the publish-consume test has dependency on the tokio console.
 
 ```
+RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo +nightly run --bin metalmq --features tracing
 RUSTFLAGS="--cfg tokio_unstable" cargo run --example publish-consume
 ```

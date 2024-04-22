@@ -11,10 +11,7 @@ use crate::{
 use log::{debug, error, info, warn};
 use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
-use tokio::sync::{
-    mpsc::{self, Receiver},
-    oneshot,
-};
+use tokio::sync::{mpsc, oneshot};
 
 use super::handler::QueueBindCmd;
 
@@ -481,8 +478,8 @@ mod tests {
 
         let state = manager.exchanges.get("transactions").unwrap();
         assert_eq!(state.exchange.exchange_type, ExchangeType::Direct);
-        assert_eq!(state.exchange.durable, true);
-        assert_eq!(state.exchange.auto_delete, true);
-        assert_eq!(state.exchange.internal, true);
+        assert!(state.exchange.durable);
+        assert!(state.exchange.auto_delete);
+        assert!(state.exchange.internal);
     }
 }

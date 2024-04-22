@@ -75,6 +75,12 @@ async fn main() -> Result<()> {
         Instant::elapsed(&start)
     );
 
+    publisher.queue_unbind(queue, exchange, "").await.unwrap();
+    publisher
+        .queue_delete(queue, IfUnused(false), IfEmpty(false))
+        .await
+        .unwrap();
+    publisher.exchange_delete(exchange, IfUnused(false)).await.unwrap();
     publisher.close().await?;
     consumer.close().await?;
     client.close().await?;
