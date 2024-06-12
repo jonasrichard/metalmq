@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
     let exchange = "x_pubsub";
     let queue = "q_pubsub";
 
-    let (mut client, _) = Client::connect("localhost:5672", "guest", "guest").await?;
+    let (mut client, _) = Client::connect("::1:5672", "guest", "guest").await?;
 
     let mut publisher = client.channel_open(1).await?;
 

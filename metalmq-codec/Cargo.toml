@@ -9,7 +9,7 @@ repository = "https://github.com/jonasrichard/metalmq"
 description = "MetalMQ codec library"
 
 [dependencies]
-bitflags = "2.1"
+bitflags = "2.5"
 bytes = "1"
 futures = "0.3"
 tokio-stream = "0.1"

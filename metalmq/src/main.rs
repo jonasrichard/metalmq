@@ -12,9 +12,9 @@ use env_logger::Builder;
 use hyper::body::Incoming;
 use hyper::Request;
 use log::{error, info};
-use std::convert::Infallible;
 use std::fmt;
 use std::io::Write;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::signal;
 
@@ -101,13 +101,16 @@ fn setup_logger() {
     builder
         .format_timestamp_millis()
         .format(|buf, record| {
-            //match record.level() {
-            //    log::Level::Error => lvl.set_color(Color::Red),
-            //    log::Level::Warn => lvl.set_color(Color::Yellow),
-            //    log::Level::Info => lvl.set_color(Color::Green),
-            //    log::Level::Debug => lvl.set_color(Color::Rgb(192, 192, 192)),
-            //    log::Level::Trace => lvl.set_color(Color::Rgb(96, 96, 96)),
-            //};
+            let mut lvl = buf.style();
+            lvl.set_bold(true);
+
+            match record.level() {
+                log::Level::Error => lvl.set_color(AnsiColor::Red),
+                log::Level::Warn => lvl.set_color(AnsiColor::Yellow),
+                log::Level::Info => lvl.set_color(AnsiColor::Green),
+                log::Level::Debug => lvl.set_color(RgbColor(192, 192, 192)),
+                log::Level::Trace => lvl.set_color(RgbColor(96, 96, 96)),
+            };
 
             writeln!(
                 buf,
@@ -133,34 +136,34 @@ async fn start_http(context: Context, url: &str) -> Result<()> {
 
     info!("Start HTTP admin API on {}", url);
 
-    //let context = context.clone();
+    let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
+    let listener = TcpListener::bind(addr).await?;
 
-    //let service_handler = service_fn(|req: Request<Incoming>| async move { restapi::route(req, context) });
+    loop {
+        let (tcp, _) = listener.accept().await?;
 
-    //let service = service_fn(move |_conn| {
+        tokio::spawn(async move {
+            if let Err(err) = http1::Builder::new()
+                .serve_connection(tcp, service_fn(move |req| restapi::route(req, context.clone())))
+                .await
+            {
+                eprintln!("Error http {:?}", err);
+            }
+        });
+    }
+
+    //let make_svc = make_service_fn(move |_conn| {
     //    let context = context.clone();
     //    async move { Ok::<_, Infallible>(service_fn(move |req| restapi::route(req, context.clone()))) }
     //});
 
-    let listener = TcpListener::bind(&http_addr).await?;
+    //let server = Server::bind(&http_addr).serve(make_svc);
 
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let io = TokioIo::new(stream);
-
-            tokio::spawn(async move {
-                let http = Builder::new();
-                let conn = http.serve_connection(io, service_fn(restapi::simple));
-
-                if let Err(err) = conn.await {
-                    eprintln!("Error serving connection {err:?}");
-                }
-            });
-        }
-    });
-
-    Ok(())
+    //tokio::spawn(async move {
+    //    if let Err(e) = server.await {
+    //        eprintln!("HTTP error {}", e);
+    //    }
+    //});
 }
 
 async fn start_amqp(context: Context, url: &str) -> Result<()> {
