@@ -8,18 +8,16 @@ mod restapi;
 #[cfg(test)]
 pub mod tests;
 
-use clap::builder::styling::{AnsiColor, Effects, RgbColor};
-use env_logger::Builder;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
+use hyper::{
+    body::{self, Incoming},
+    server::conn::http1,
+    service::service_fn,
+    Request,
+};
 use hyper_util::rt::TokioIo;
 use log::{error, info};
-use std::fmt;
-use std::io::Write;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::net::TcpListener;
-use tokio::signal;
+use std::{fmt, io::Write, net::SocketAddr, sync::Arc};
+use tokio::{net::TcpListener, signal};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -99,6 +97,9 @@ macro_rules! send {
 }
 
 fn setup_logger() {
+    use clap::builder::styling::{AnsiColor, Effects, RgbColor};
+    use env_logger::Builder;
+
     let mut builder = Builder::from_default_env();
 
     builder
@@ -108,7 +109,7 @@ fn setup_logger() {
             lvl.effects(Effects::BOLD);
 
             match record.level() {
-                log::Level::Error => lvl.fg_color(Some(clap::builder::styling::AnsiColor::Red.into())),
+                log::Level::Error => lvl.fg_color(Some(AnsiColor::Red.into())),
                 log::Level::Warn => lvl.fg_color(Some(AnsiColor::Yellow.into())),
                 log::Level::Info => lvl.fg_color(Some(AnsiColor::Green.into())),
                 log::Level::Debug => lvl.fg_color(Some(RgbColor(192, 192, 192).into())),
