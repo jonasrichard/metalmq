@@ -16,7 +16,7 @@ impl MessageQueue {
     // according to that. If someone exceeeded the prefetch limit, it shouldn't get more messages
     // but others can. So we need to maintain how many messages have been sent out without being
     // acked.
-    pub fn take_message(&mut self, connections: Vec<String>) -> Option<DeliveredMessage> {
+    pub fn take_message(&mut self, _connections: Vec<String>) -> Option<DeliveredMessage> {
         self.messages.pop_front()
     }
 }

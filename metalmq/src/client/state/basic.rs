@@ -233,7 +233,7 @@ impl Connection {
         rx.await.unwrap()
     }
 
-    pub async fn basic_reject(&mut self, channel: Channel, args: frame::BasicRejectArgs) -> Result<()> {
+    pub async fn basic_reject(&mut self, _channel: Channel, _args: frame::BasicRejectArgs) -> Result<()> {
         // TODO reject passively and actively listened queue's messages
         Ok(())
     }
