@@ -4,6 +4,9 @@ WORKDIR /src
 
 #COPY certs.pem /etc/ssl/certs/
 
+# TODO use cargo chef to speed up consequent builds
+# https://github.com/LukeMathWalker/cargo-chef
+
 # Speed up build, download and build deps if Cargo changes
 COPY Cargo.* /src/
 COPY metalmq/Cargo.* /src/metalmq/
