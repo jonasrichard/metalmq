@@ -368,6 +368,15 @@ impl Connection {
                 //
                 // We can even have two types of message command as ExchangeCommand: one which is async
                 // and one which waits for confirmation.
+
+                // FIXME we need to separate the exchange lookup logic
+                // A client can send a message to the default exchange which is empty string, so
+                // in that case the exchange won't be in the 'cache'. Also a client can send
+                // message without declaring an exchange, so we need to ask exchange manager if
+                // this exchange exists. Of course we can cache the exchanges, but in that case if
+                // anyone deletes the exchange the client state needs to be notified.
+                //
+                // FIXME also message sending should be somewhere else in order to be testable
                 match self.exchanges.get(&pc.exchange) {
                     Some(ch) => {
                         // If message is mandatory or the channel is in confirm mode we can expect

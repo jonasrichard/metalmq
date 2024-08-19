@@ -126,8 +126,8 @@ async fn delete_not_existing_exchange_error_404() -> Result<()> {
     assert_eq!(err.channel, Some(9));
     assert_eq!(err.code, 404);
 
-    ch.close().await?;
-    c.close().await?;
+    assert!(matches!(ch.close().await, Ok(())));
+    assert!(matches!(c.close().await, Ok(())));
 
     Ok(())
 }

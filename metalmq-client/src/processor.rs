@@ -367,9 +367,7 @@ pub(crate) async fn call(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQPFrame
             response: Some(WaitFor::FrameResponse(tx)),
         },
     )
-    .await
-    .unwrap();
-    // TODO ^^^ here we need to apply ? operator to bubble up the send error, not to panic
+    .await?;
 
     rx.await.unwrap()?;
 
@@ -384,8 +382,7 @@ pub(crate) async fn sync_send(sink: &mpsc::Sender<ClientRequest>, f: frame::AMQP
         param: Param::Frame(Box::new(f)),
         response: Some(WaitFor::SentOut(tx)),
     })
-    .await
-    .unwrap();
+    .await?;
 
     rx.await.unwrap()?;
 

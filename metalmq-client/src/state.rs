@@ -249,7 +249,7 @@ impl ClientState {
             .await
             .unwrap();
 
-        self.event_sink.send(EventSignal::ChannelClose).unwrap();
+        self.event_sink.send(EventSignal::ChannelClose)?;
 
         Ok(())
     }
@@ -330,6 +330,8 @@ impl ClientState {
         channel: ChannelNumber,
         args: frame::QueueDeleteOkArgs,
     ) -> Result<()> {
+        // TODO we may maintain the queues which are declared by this client and here we can
+        // remove if the deletion was successful
         Ok(())
     }
 

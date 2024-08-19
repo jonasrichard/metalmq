@@ -8,12 +8,7 @@ mod restapi;
 #[cfg(test)]
 pub mod tests;
 
-use hyper::{
-    body::{self, Incoming},
-    server::conn::http1,
-    service::service_fn,
-    Request,
-};
+use hyper::{server::conn::http1, service::service_fn};
 use hyper_util::rt::TokioIo;
 use log::{error, info};
 use std::{fmt, io::Write, net::SocketAddr, sync::Arc};
@@ -106,7 +101,7 @@ fn setup_logger() {
         .format_timestamp_millis()
         .format(|buf, record| {
             let lvl = buf.default_level_style(record.level());
-            lvl.effects(Effects::BOLD);
+            let _ = lvl.effects(Effects::BOLD);
 
             match record.level() {
                 log::Level::Error => lvl.fg_color(Some(AnsiColor::Red.into())),
@@ -187,7 +182,7 @@ pub async fn main() -> Result<()> {
 
     let cli_config = config::cli();
 
-    let config = config::parse_config(&cli_config.config_file_path)?;
+    let config = config::parse_config(&cli_config.config_file_path).expect("Cannot parse config file");
 
     let exchange_manager = exchange::manager::start();
     let context = Context {
@@ -195,9 +190,13 @@ pub async fn main() -> Result<()> {
         queue_manager: queue::manager::start(exchange_manager),
     };
 
-    start_http(context.clone(), &config.network.http_listen).await?;
+    //start_http(context.clone(), &config.network.http_listen)
+    //    .await
+    //    .expect("Cannot start http server");
 
-    start_amqp(context, &config.network.amqp_listen).await?;
+    start_amqp(context, &config.network.amqp_listen)
+        .await
+        .expect("Cannon start AMQP server");
 
     signal::ctrl_c().await?;
 
