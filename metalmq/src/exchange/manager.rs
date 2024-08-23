@@ -1,5 +1,5 @@
 use crate::{
-    client::{self, ChannelError},
+    client::{channel, channel::ChannelError},
     exchange::{
         handler::{self, ExchangeCommand, ExchangeCommandSink, QueueUnbindCmd},
         Exchange,
@@ -209,7 +209,7 @@ impl ExchangeManagerState {
         validate_exchange_name(command.channel, &command.exchange.name)?;
 
         match self.exchanges.get(&command.exchange.name) {
-            None if command.passive => client::channel_error(
+            None if command.passive => channel::channel_error(
                 command.channel,
                 frame::EXCHANGE_DECLARE,
                 ChannelError::NotFound,
@@ -217,7 +217,7 @@ impl ExchangeManagerState {
             ),
             Some(exchg) => {
                 if exchg.exchange != command.exchange {
-                    client::channel_error(
+                    channel::channel_error(
                         command.channel,
                         frame::EXCHANGE_DECLARE,
                         ChannelError::PreconditionFailed,
@@ -270,7 +270,7 @@ impl ExchangeManagerState {
             None => {
                 warn!("Exchange not found {}", command.exchange_name);
 
-                client::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found")
+                channel::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found")
             }
         }
     }
@@ -292,7 +292,7 @@ impl ExchangeManagerState {
                 exchange_state.command_sink.send(cmd).await?;
                 rx.await?.map(|_| ())
             }
-            None => client::channel_error(
+            None => channel::channel_error(
                 command.channel,
                 frame::QUEUE_UNBIND,
                 ChannelError::NotFound,
@@ -323,7 +323,7 @@ impl ExchangeManagerState {
 
             delete_result
         } else {
-            client::channel_error(
+            channel::channel_error(
                 command.channel,
                 frame::EXCHANGE_DELETE,
                 ChannelError::NotFound,
@@ -366,7 +366,7 @@ fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
 
     for c in exchange_name.chars() {
         if !c.is_alphanumeric() && spec.find(c).is_none() {
-            return client::channel_error(
+            return channel::channel_error(
                 channel,
                 frame::EXCHANGE_DECLARE,
                 ChannelError::PreconditionFailed,

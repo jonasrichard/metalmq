@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::{
-    client::{self, channel_error, ChannelError},
+    client::{channel, channel::ChannelError},
     exchange::{binding::Bindings, Exchange, ExchangeType},
 };
 use crate::{
@@ -156,7 +156,7 @@ impl ExchangeState {
         match cmd.sink.send(QueueCommand::GetInfo { result: queue_info_tx }).await {
             Err(_) => cmd
                 .result
-                .send(channel_error(
+                .send(channel::channel_error(
                     cmd.channel,
                     frame::QUEUE_BIND,
                     ChannelError::NotFound,
@@ -166,7 +166,7 @@ impl ExchangeState {
             Ok(()) => match queue_info_rx.await {
                 Err(_) => {
                     cmd.result
-                        .send(channel_error(
+                        .send(channel::channel_error(
                             cmd.channel,
                             frame::QUEUE_BIND,
                             ChannelError::NotFound,
@@ -179,7 +179,7 @@ impl ExchangeState {
 
                     if queue_info.exclusive && cmd.conn_id != queue_info.declaring_connection {
                         cmd.result
-                            .send(channel_error(
+                            .send(channel::channel_error(
                                 cmd.channel,
                                 frame::QUEUE_BIND,
                                 ChannelError::ResourceLocked,
@@ -289,10 +289,10 @@ impl ExchangeState {
 
                 false
             } else {
-                let err = client::channel_error(
+                let err = channel::channel_error(
                     channel,
                     frame::EXCHANGE_DELETE,
-                    client::ChannelError::PreconditionFailed,
+                    ChannelError::PreconditionFailed,
                     "Exchange is in use",
                 );
 

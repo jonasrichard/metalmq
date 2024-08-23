@@ -1,6 +1,7 @@
 // Do we need to expose the messages of a 'process' or hide it in an erlang-style?
 use crate::{
     client,
+    client::{channel, ChannelError},
     exchange::{handler::ExchangeCommandSink, manager as em},
     logerr,
     queue::{handler as queue_handler, manager as qm},
@@ -15,35 +16,17 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use super::{channel_error, ChannelError};
-
 pub mod basic;
 pub mod channel;
 pub mod connect;
 pub mod exchange;
 pub mod queue;
+pub mod receive_message;
 
 #[cfg(test)]
 mod tests;
 
 // TODO all field of all struct are pub which is not good and it is because of tests
-
-/// Queues consumed by the connection with Basic.Consume
-#[derive(Debug)]
-pub struct ActivelyConsumedQueue {
-    pub queue_name: String,
-    pub consumer_tag: String,
-    pub queue_sink: queue_handler::QueueCommandSink,
-}
-
-/// Queues consumed by the connection with Basic.Get
-#[derive(Debug)]
-pub struct PassivelyConsumedQueue {
-    pub queue_name: String,
-    pub consumer_tag: String,
-    pub delivery_tag: u64,
-    pub queue_sink: queue_handler::QueueCommandSink,
-}
 
 /// Exclusive queue declared by the connection
 #[derive(Debug)]
@@ -84,29 +67,6 @@ pub struct Connection {
     pub next_confirm_delivery_tag: HashMap<Channel, u64>,
     /// Sink for AMQP frames toward the client
     pub outgoing: mpsc::Sender<Frame>,
-}
-
-/// Represents a channel
-#[derive(Debug)]
-pub struct ChannelState {
-    /// The channel number
-    pub channel: Channel,
-    /// The outgoing frame channel.
-    pub frame_sink: mpsc::Sender<Frame>,
-}
-
-#[derive(Debug, Default)]
-pub struct PublishedContent {
-    pub channel: Channel,
-    pub exchange: String,
-    pub routing_key: String,
-    pub mandatory: bool,
-    pub immediate: bool,
-    /// The method frame class id which initiated the sending of the content.
-    pub method_frame_class_id: u32,
-    pub content_header: ContentHeaderFrame,
-    pub content_bodies: Vec<ContentBodyFrame>,
-    pub body_size: usize,
 }
 
 #[macro_export]

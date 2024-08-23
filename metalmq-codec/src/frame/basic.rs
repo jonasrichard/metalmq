@@ -227,6 +227,14 @@ impl BasicPublishArgs {
             super::MethodFrameArgs::BasicPublish(self),
         )
     }
+
+    pub fn is_mandatory(&self) -> bool {
+        self.flags.contains(BasicPublishFlags::MANDATORY)
+    }
+
+    pub fn is_immediate(&self) -> bool {
+        self.flags.contains(BasicPublishFlags::IMMEDIATE)
+    }
 }
 
 #[derive(Clone, Debug, Default)]

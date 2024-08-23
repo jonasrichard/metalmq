@@ -10,7 +10,8 @@ use tokio::sync::oneshot;
 use crate::{
     client::{self, channel_error, connection_error, state::Connection, ChannelError, ConnectionError},
     exchange::handler::ExchangeCommand,
-    handle_error, logerr, message,
+    handle_error, logerr,
+    message::{self, Message},
     queue::{
         handler as queue_handler,
         manager::{self as qm, QueueCancelConsume, QueueConsumeCommand},
@@ -42,11 +43,12 @@ impl Connection {
         self.in_flight_contents.insert(
             channel,
             PublishedContent {
+                source_connection: self.id.clone(),
                 channel,
-                exchange: args.exchange_name,
-                routing_key: args.routing_key,
-                mandatory: args.flags.contains(frame::BasicPublishFlags::MANDATORY),
-                immediate: args.flags.contains(frame::BasicPublishFlags::IMMEDIATE),
+                exchange: args.exchange_name.clone(),
+                routing_key: args.routing_key.clone(),
+                mandatory: args.is_mandatory(),
+                immediate: args.is_immediate(),
                 method_frame_class_id: frame::BASIC_PUBLISH,
                 ..Default::default()
             },
@@ -123,6 +125,7 @@ impl Connection {
             Some(cq) => {
                 let (tx, rx) = oneshot::channel();
 
+                // TODO why we need here the timeout?
                 cq.queue_sink
                     .send_timeout(
                         queue_handler::QueueCommand::AckMessage(queue_handler::AckCmd {
@@ -251,46 +254,7 @@ impl Connection {
         // TODO if body_size is 0, there won't be content body frame, so we need to send Message
         // now!
         if let Some(pc) = self.in_flight_contents.get_mut(&header.channel) {
-            // Class Id in content header must match to the class id of the method frame initiated
-            // the sending of the content.
-            if header.class_id != (pc.method_frame_class_id >> 16) as u16 {
-                handle_error!(
-                    self,
-                    client::connection_error::<()>(
-                        pc.method_frame_class_id,
-                        ConnectionError::FrameError,
-                        "Class ID in content header must match that of the method frame"
-                    )
-                )
-                .unwrap();
-            }
-
-            // Weight must be zero.
-            if header.weight != 0 {
-                handle_error!(
-                    self,
-                    client::connection_error::<()>(
-                        pc.method_frame_class_id,
-                        ConnectionError::FrameError,
-                        "Weight must be 0"
-                    )
-                )
-                .unwrap();
-            }
-
-            if header.channel == 0 {
-                handle_error!(
-                    self,
-                    client::connection_error::<()>(
-                        pc.method_frame_class_id,
-                        ConnectionError::ChannelError,
-                        "Channel must not be 0"
-                    )
-                )
-                .unwrap();
-            }
-
-            pc.content_header = header;
+            pc.handle_content_header(header)?;
         }
 
         Ok(())
@@ -315,45 +279,14 @@ impl Connection {
         }
 
         if let Some(mut pc) = self.in_flight_contents.remove(&body.channel) {
-            pc.body_size += body.body.len();
-            pc.content_bodies.push(body);
+            pc.handle_content_body(body)?;
 
             if pc.body_size < pc.content_header.body_size as usize {
                 self.in_flight_contents.insert(channel, pc);
 
                 return Ok(());
             } else {
-                let mut message_body = vec![];
-
-                // TODO we shouldn't concatenate the body parts, because we need to send them in
-                // chunks anyway. Can a consumer support less or more frame size than a server?
-                for cb in pc.content_bodies {
-                    message_body.extend(cb.body);
-                }
-
-                let msg = message::Message {
-                    source_connection: self.id.clone(),
-                    channel: pc.channel,
-                    exchange: pc.exchange.clone(),
-                    routing_key: pc.routing_key,
-                    mandatory: pc.mandatory,
-                    immediate: pc.immediate,
-                    content: message::MessageContent {
-                        class_id: pc.content_header.class_id,
-                        weight: pc.content_header.weight,
-                        body: message_body,
-                        body_size: pc.content_header.body_size,
-                        prop_flags: pc.content_header.prop_flags,
-                        content_encoding: pc.content_header.content_encoding,
-                        content_type: pc.content_header.content_type,
-                        delivery_mode: pc.content_header.delivery_mode,
-                        message_id: pc.content_header.message_id,
-                        timestamp: pc.content_header.timestamp,
-                        headers: pc.content_header.headers,
-                        // TODO copy all the message properties
-                        ..Default::default()
-                    },
-                };
+                let msg: Message = pc.into();
 
                 // FIXME this logic
                 //
@@ -377,7 +310,7 @@ impl Connection {
                 // anyone deletes the exchange the client state needs to be notified.
                 //
                 // FIXME also message sending should be somewhere else in order to be testable
-                match self.exchanges.get(&pc.exchange) {
+                match self.exchanges.get(&msg.exchange) {
                     Some(ch) => {
                         // If message is mandatory or the channel is in confirm mode we can expect
                         // returned message.
@@ -408,6 +341,7 @@ impl Connection {
                                     // TODO do we need to send ack if the message is mandatory or
                                     // immediate?
                                     if let Some(dt) = self.next_confirm_delivery_tag.get_mut(&channel) {
+                                        // We can keep this mut shorter, if it matters
                                         self.outgoing
                                             .send(Frame::Frame(
                                                 frame::BasicAckArgs::default().delivery_tag(*dt).frame(channel),
@@ -422,6 +356,10 @@ impl Connection {
                         }
                     }
                     None => {
+                        // FIXME this is not good, if we haven't declare the exchange it won't
+                        // exists from the point of view of this code. But this is not correct.
+                        // If we don't have the exchange it means that we haven't sent anything to
+                        // that exchange yet.
                         if msg.mandatory {
                             logerr!(message::send_basic_return(Arc::new(msg), self.frame_max, &self.outgoing).await);
                         }

@@ -1,5 +1,5 @@
 use crate::{
-    client::{self, state::Connection, to_runtime_error},
+    client::{self, connection, state::Connection, to_runtime_error},
     Context, Result,
 };
 use futures::{
@@ -210,6 +210,17 @@ async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<boo
     }
 }
 
+// FIXME new design is needed
+//
+// In the new design each channel should be a spawned thread, because the goal of the channels is
+// that the client and the server can send messages parallelly.
+//
+// So all of these fn calls will be message sendings with an return value mpsc channel here. When
+// we send out a message to a channel, we already have that return value channel cloned in the
+// channel. So we can listen the messages coming back and we can react on that. The return value
+// channel is only good for handling the errors because the reponse AMQP frames will be sent out
+// via the cloned outgoing channel.
+
 async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> {
     use AMQPFrame::*;
 
@@ -223,7 +234,7 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
         ContentBody(cb) => conn.receive_content_body(cb).await,
         Heartbeat(0) => Ok(()),
         Heartbeat(_) => {
-            client::connection_error(0, client::ConnectionError::FrameError, "Heartbeat must have channel 0")
+            connection::connection_error(0, client::ConnectionError::FrameError, "Heartbeat must have channel 0")
         }
     }
 }
