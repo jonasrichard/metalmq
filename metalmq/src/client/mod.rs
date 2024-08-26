@@ -4,6 +4,8 @@ pub mod connection;
 pub mod handler;
 pub mod state;
 
+use connection::ConnectionError;
+
 use crate::{ErrorScope, RuntimeError};
 
 //pub fn connection_error_frame(err: RuntimeError) -> Option<Frame> {

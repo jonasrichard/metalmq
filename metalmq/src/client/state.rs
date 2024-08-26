@@ -126,13 +126,6 @@ impl Connection {
         }
     }
 
-    /// Send frame out to client asynchronously.
-    pub async fn send_frame(&self, f: Frame) -> Result<()> {
-        self.outgoing.send(f).await?;
-
-        Ok(())
-    }
-
     pub async fn handle_connection_close(&mut self) -> Result<()> {
         // TODO should be here just to close all channels, not repeating the channel close logic
         // Most of the time we have all channels closed at this point, but what if the connection

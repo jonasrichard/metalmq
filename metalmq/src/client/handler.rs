@@ -5,13 +5,6 @@ use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::Result;
 
-pub type MethodArgs = (u16, u32, frame::MethodFrameArgs);
-
-struct Connection {
-    channel_handlers: HashMap<u16, JoinHandle<()>>,
-    channel_receivers: HashMap<u16, mpsc::Sender<MethodArgs>>,
-}
-
 struct Channel {
     number: u16,
 }

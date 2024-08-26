@@ -1,8 +1,10 @@
+mod router;
+mod types;
+
 use metalmq_codec::codec::Frame;
 
 use crate::{ErrorScope, Result, RuntimeError};
 
-// TODO here goes the connection related business logic
 #[derive(Debug)]
 pub enum ConnectionError {
     ConnectionForced = 320,

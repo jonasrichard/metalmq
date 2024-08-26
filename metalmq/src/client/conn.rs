@@ -1,5 +1,10 @@
 use crate::{
-    client::{self, connection, state::Connection, to_runtime_error},
+    client::{
+        self,
+        connection::{self, ConnectionError},
+        state::Connection,
+        to_runtime_error,
+    },
     Context, Result,
 };
 use futures::{
@@ -15,6 +20,7 @@ use std::time::Duration;
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_util::codec::Framed;
 
+/// Accept the client connection and spawn tokio threads to handle outgoing message sending.
 pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result<()> {
     let (sink, stream) = Framed::new(socket, AMQPCodec {}).split();
     // We use channels with only one item long, so we can block until the frame is sent out.
@@ -220,24 +226,6 @@ async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<boo
 // channel. So we can listen the messages coming back and we can react on that. The return value
 // channel is only good for handling the errors because the reponse AMQP frames will be sent out
 // via the cloned outgoing channel.
-
-async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> {
-    use AMQPFrame::*;
-
-    match f {
-        Header => {
-            conn.send_frame(Frame::Frame(frame::ConnectionStartArgs::new().frame()))
-                .await
-        }
-        Method(ch, cm, mf) => handle_method_frame(conn, ch, cm, mf).await,
-        ContentHeader(ch) => conn.receive_content_header(ch).await,
-        ContentBody(cb) => conn.receive_content_body(cb).await,
-        Heartbeat(0) => Ok(()),
-        Heartbeat(_) => {
-            connection::connection_error(0, client::ConnectionError::FrameError, "Heartbeat must have channel 0")
-        }
-    }
-}
 
 // TODO this will be in the new Connection impl
 async fn handle_method_frame(
