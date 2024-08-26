@@ -31,7 +31,7 @@ impl Connection {
         match authenticated {
             true => self.send_frame(Frame::Frame(frame::connection_tune())).await,
             false => {
-                self.send_frame(client::connection_error_frame(
+                self.send_frame(client::connection::connection_error_frame(
                     0u32,
                     ConnectionError::AccessRefused,
                     "ACCESS_REFUSED - Username and password are incorrect",
@@ -65,7 +65,7 @@ impl Connection {
         // TODO in case of virtual host which exists but the client doesn't have permission to work
         // with we need to send back an access-refused connection error.
         if args.virtual_host != "/" {
-            self.send_frame(client::connection_error_frame(
+            self.send_frame(client::connection::connection_error_frame(
                 frame::CONNECTION_OPEN,
                 ConnectionError::InvalidPath,
                 "Cannot connect to virtualhost",

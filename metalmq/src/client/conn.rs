@@ -229,7 +229,7 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
             conn.send_frame(Frame::Frame(frame::ConnectionStartArgs::new().frame()))
                 .await
         }
-        Method(ch, _, mf) => handle_method_frame(conn, ch, mf).await,
+        Method(ch, cm, mf) => handle_method_frame(conn, ch, cm, mf).await,
         ContentHeader(ch) => conn.receive_content_header(ch).await,
         ContentBody(cb) => conn.receive_content_body(cb).await,
         Heartbeat(0) => Ok(()),
@@ -239,7 +239,13 @@ async fn handle_client_frame(conn: &mut Connection, f: AMQPFrame) -> Result<()> 
     }
 }
 
-async fn handle_method_frame(conn: &mut Connection, channel: frame::Channel, ma: frame::MethodFrameArgs) -> Result<()> {
+// TODO this will be in the new Connection impl
+async fn handle_method_frame(
+    conn: &mut Connection,
+    channel: frame::Channel,
+    cm: u32,
+    ma: frame::MethodFrameArgs,
+) -> Result<()> {
     use MethodFrameArgs::*;
 
     let r = match ma {

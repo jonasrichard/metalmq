@@ -8,47 +8,6 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
-    pub async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> Result<()> {
-        let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
-        let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
-        let exchange_name = args.exchange_name.clone();
-
-        logerr!(handle_error!(
-            self,
-            exchange::validate_exchange_type(&args.exchange_type)
-        ));
-
-        logerr!(handle_error!(
-            self,
-            exchange::validate_exchange_name(channel, &args.exchange_name)
-        ));
-
-        let cmd = DeclareExchangeCommand {
-            channel,
-            exchange: args.into(),
-            passive,
-            outgoing: self.outgoing.clone(),
-        };
-        let result = manager::declare_exchange(&self.em, cmd).await;
-
-        match result {
-            Ok(ch) => {
-                self.exchanges.insert(exchange_name.clone(), ch);
-
-                if no_wait {
-                    Ok(())
-                } else {
-                    self.send_frame(Frame::Frame(frame::exchange_declare_ok(channel))).await
-                }
-            }
-            Err(err) => {
-                let rte = client::to_runtime_error(err);
-
-                self.handle_error(rte).await
-            }
-        }
-    }
-
     pub async fn exchange_delete(&mut self, channel: Channel, args: frame::ExchangeDeleteArgs) -> Result<()> {
         let exchange_name = args.exchange_name.clone();
         let cmd = DeleteExchangeCommand {

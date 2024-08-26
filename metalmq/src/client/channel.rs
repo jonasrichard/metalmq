@@ -4,7 +4,7 @@ use metalmq_codec::{
 };
 use tokio::sync::mpsc;
 
-use crate::{queue::handler as queue_handler, ErrorScope, Result, RuntimeError};
+use crate::{exchange, handle_error, logerr, queue::handler as queue_handler, ErrorScope, Result, RuntimeError};
 
 pub mod open_close;
 
@@ -80,4 +80,51 @@ pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
     };
 
     Frame::Frame(amqp_frame)
+}
+
+impl Channel {
+    pub async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> Result<()> {
+        use crate::exchange::manager::DeclareExchangeCommand;
+
+        let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
+        let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
+        let exchange_name = args.exchange_name.clone();
+
+        logerr!(handle_error!(
+            self,
+            exchange::validate_exchange_type(&args.exchange_type)
+        ));
+
+        logerr!(handle_error!(
+            self,
+            exchange::validate_exchange_name(self.number, &args.exchange_name)
+        ));
+
+        let cmd = DeclareExchangeCommand {
+            channel: self.number,
+            exchange: args.into(),
+            passive,
+            outgoing: self.outgoing.clone(),
+        };
+        let result = crate::exchange::manager::declare_exchange(&self.em, cmd).await;
+
+        match result {
+            Ok(ch) => {
+                self.exchanges.insert(exchange_name.clone(), ch);
+
+                if no_wait {
+                    Ok(())
+                } else {
+                    self.outgoing
+                        .send(Frame::Frame(frame::exchange_declare_ok(channel)))
+                        .await?
+                }
+            }
+            Err(err) => {
+                let rte = client::to_runtime_error(err);
+
+                self.handle_error(rte).await
+            }
+        }
+    }
 }
