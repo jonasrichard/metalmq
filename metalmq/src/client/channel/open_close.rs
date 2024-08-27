@@ -8,6 +8,7 @@ use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{self, Channel};
 
 impl Connection {
+    // TODO connect this to the connection.start_channel, before we need to do the validation
     pub async fn channel_open(&mut self, channel: Channel) -> Result<()> {
         use std::collections::hash_map::Entry;
 

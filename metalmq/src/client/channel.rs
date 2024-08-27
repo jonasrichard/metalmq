@@ -4,9 +4,11 @@ use metalmq_codec::{
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use crate::{exchange, handle_error, logerr, queue::handler as queue_handler, ErrorScope, Result, RuntimeError};
+use crate::{queue::handler as queue_handler, ErrorScope, Result, RuntimeError};
 
+pub mod exchange;
 pub mod open_close;
+pub mod queue;
 
 #[derive(Debug)]
 pub enum ChannelError {
