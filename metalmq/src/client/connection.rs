@@ -1,6 +1,6 @@
-mod open_close;
-mod router;
-mod types;
+pub mod open_close;
+pub mod router;
+pub mod types;
 
 use metalmq_codec::codec::Frame;
 

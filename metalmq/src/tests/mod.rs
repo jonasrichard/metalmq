@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 use crate::{
-    client::state::Connection,
+    client::connection::types::Connection,
     exchange::{
         manager::{self as em, ExchangeManagerSink},
         Exchange, ExchangeType,

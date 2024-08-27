@@ -6,7 +6,7 @@ mod outbox;
 mod tests;
 
 use crate::{
-    client::{channel_error, ChannelError},
+    client::channel::{channel_error, ChannelError},
     exchange::{
         handler::QueueInfo,
         manager::{self as em, ExchangeManagerSink, QueueDeletedEvent},

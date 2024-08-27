@@ -1,11 +1,14 @@
-use log::{info, trace};
+use log::{debug, info, trace, warn};
 use metalmq_codec::{
     codec::Frame,
     frame::{self, ConnectionCloseArgs, ConnectionOpenArgs, ConnectionStartOkArgs, ConnectionTuneOkArgs},
 };
 
 use super::{connection_error_frame, types::Connection, ConnectionError};
-use crate::Result;
+use crate::{
+    client::{channel::runtime_error_to_frame, connection::connection_error},
+    ErrorScope, Result, RuntimeError,
+};
 
 impl Connection {
     pub async fn handle_connection_start_ok(&mut self, args: ConnectionStartOkArgs) -> Result<()> {
@@ -87,5 +90,110 @@ impl Connection {
         //   - queues -> delete the exclusive queues
 
         self.send_frame(Frame::Frame(frame::connection_close_ok())).await
+    }
+
+    pub async fn handle_channel_open(&mut self, channel: u16) -> Result<()> {
+        // Client cannot open a channel whose number is higher than the maximum allowed.
+        if channel > self.channel_max {
+            warn!("Channel number is too big: {channel}");
+
+            let err = connection_error(
+                frame::CHANNEL_OPEN,
+                ConnectionError::NotAllowed,
+                "NOT_ALLOWED - Channel number is too large",
+            );
+
+            return err;
+        }
+
+        self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
+
+        Ok(())
+    }
+
+    pub async fn handle_channel_close(&mut self, channel: u16, _args: frame::ChannelCloseArgs) -> Result<()> {
+        // TODO delete exclusive queues
+
+        self.close_channel(channel).await?;
+        self.send_frame(Frame::Frame(frame::channel_close_ok(channel))).await?;
+
+        Ok(())
+    }
+
+    pub async fn handle_channel_close_ok(&mut self, channel: u16) -> Result<()> {
+        // TODO not sure if we need to send out basic cancel here
+        self.channel_handlers.remove(&channel);
+        self.channel_receivers.remove(&channel);
+
+        Ok(())
+    }
+
+    pub async fn close(&mut self) -> Result<()> {
+        info!("Cleanup connection {}", self.id);
+
+        for (channel, ch_tx) in &self.channel_receivers {
+            // drop channel channel in order to stop it
+            let _ = ch_tx;
+
+            if let Some(jh) = self.channel_handlers.remove(&channel) {
+                jh.await;
+            }
+        }
+
+        //for (channel, cq) in &self.consumed_queues {
+        //    debug!(
+        //        "Cancel consumer channel: {} queue: {} consumer tag: {}",
+        //        channel, cq.queue_name, cq.consumer_tag
+        //    );
+
+        //    let cmd = QueueCancelConsume {
+        //        channel: *channel,
+        //        queue_name: cq.queue_name.clone(),
+        //        consumer_tag: cq.consumer_tag.clone(),
+        //    };
+
+        //    logerr!(qm::cancel_consume(&self.qm, cmd).await);
+        //}
+
+        Ok(())
+    }
+
+    pub async fn close_channel(&mut self, channel: u16) -> Result<()> {
+        if let Some(ch_tx) = self.channel_receivers.remove(&channel) {
+            drop(ch_tx);
+        }
+
+        if let Some(jh) = self.channel_handlers.remove(&channel) {
+            jh.await;
+        }
+
+        Ok(())
+    }
+
+    /// Handle a runtime error a connection or a channel error. At first it sends the error frame
+    /// and then handle the closing of a channel or connection depending what kind of exception
+    /// happened.
+    ///
+    /// This function just sends out the error frame and return with `Err` if it is a connection
+    /// error, or it returns with `Ok` if it is a channel error. This is handy if we want to handle
+    /// the output with a `?` operator and we want to die in case of a connection error (aka we
+    /// want to propagate the error to the client handler).
+    pub async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
+        trace!("Handling error {:?}", err);
+
+        self.send_frame(runtime_error_to_frame(&err)).await?;
+
+        match err.scope {
+            ErrorScope::Connection => {
+                self.close().await?;
+
+                Err(Box::new(err))
+            }
+            ErrorScope::Channel => {
+                self.close_channel(err.channel).await?;
+
+                Ok(())
+            }
+        }
     }
 }

@@ -1,6 +1,6 @@
 use super::QueueBindCmd;
 use crate::{
-    client::{tests::to_runtime_error, ChannelError},
+    client::{channel::ChannelError, tests::to_runtime_error},
     exchange::{
         binding::Bindings,
         handler::{ExchangeCommand, ExchangeState, QueueUnbindCmd},

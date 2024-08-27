@@ -6,6 +6,7 @@ use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::{queue::handler as queue_handler, ErrorScope, Result, RuntimeError};
 
+pub mod basic;
 pub mod exchange;
 pub mod open_close;
 pub mod queue;
@@ -75,6 +76,7 @@ pub fn channel_error<T>(channel: u16, cm: u32, code: ChannelError, text: &str) -
     }))
 }
 
+// TODO move all error converstion to an error mod
 pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
     let amqp_frame = match rte.scope {
         ErrorScope::Connection => frame::connection_close(rte.code, &rte.text, rte.class_method),

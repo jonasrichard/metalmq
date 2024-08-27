@@ -1,86 +1,65 @@
-use crate::client::state::{ChannelState, Connection};
-use crate::client::{self, ConnectionError};
-use crate::logerr;
-use crate::queue::manager::{self as qm, QueueCancelConsume};
-use crate::{handle_error, Result};
-use log::{debug, error, info, warn};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, Channel};
+use crate::client::channel::runtime_error_to_frame;
+use crate::RuntimeError;
+use crate::{ErrorScope, Result};
+use log::trace;
 
-impl Connection {
-    // TODO connect this to the connection.start_channel, before we need to do the validation
-    pub async fn channel_open(&mut self, channel: Channel) -> Result<()> {
-        use std::collections::hash_map::Entry;
+use super::Channel;
 
-        // Client cannot open a channel whose number is higher than the maximum allowed.
-        if channel > self.channel_max {
-            warn!("Channel number is too big: {channel}");
+impl Channel {
+    pub async fn handle_connection_close(&mut self) -> Result<()> {
+        // TODO should be here just to close all channels, not repeating the channel close logic
+        // Most of the time we have all channels closed at this point, but what if the connection
+        // has been cut and client didn't have a chance to close everything properly?
+        //for (channel, cq) in self.consumed_queues.drain() {
+        //    let cmd = qm::QueueCancelConsume {
+        //        channel,
+        //        queue_name: cq.queue_name.clone(),
+        //        consumer_tag: cq.consumer_tag.clone(),
+        //    };
 
-            let err = client::connection_error(
-                frame::CHANNEL_OPEN,
-                ConnectionError::NotAllowed,
-                "NOT_ALLOWED - Channel number is too large",
-            );
+        //    logerr!(qm::cancel_consume(&self.qm, cmd).await);
+        //}
 
-            return handle_error!(self, err);
-        }
+        //for qs in &self.exclusive_queues {
+        //    qm::queue_deleted(
+        //        &self.qm,
+        //        qm::QueueDeletedEvent {
+        //            queue: qs.queue_name.clone(),
+        //        },
+        //    )
+        //    .await
+        //    .unwrap();
+        //}
 
-        if let Entry::Vacant(e) = self.open_channels.entry(channel) {
-            e.insert(ChannelState {
-                channel,
-                frame_sink: self.outgoing.clone(),
-            });
-
-            self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
-        } else {
-            let err = client::connection_error(
-                frame::CHANNEL_OPEN,
-                ConnectionError::ChannelError,
-                "CHANNEL_ERROR - Channel is already opened",
-            );
-
-            return handle_error!(self, err);
-        }
-
+        // TODO cleanup, like close all channels, delete temporal queues, etc
         Ok(())
     }
 
-    pub async fn channel_close(&mut self, channel: Channel, _args: frame::ChannelCloseArgs) -> Result<()> {
-        self.handle_channel_close(channel).await?;
+    pub async fn handle_channel_close(&mut self, channel: Channel) -> Result<()> {
+        // Cancel consumed queues on the channel
+        //if let Some(cq) = self.consumed_queues.remove(&channel) {
+        //    qm::cancel_consume(
+        //        &self.qm,
+        //        qm::QueueCancelConsume {
+        //            channel,
+        //            queue_name: cq.queue_name.clone(),
+        //            consumer_tag: cq.consumer_tag.clone(),
+        //        },
+        //    )
+        //    .await?;
+        //}
 
-        //// TODO delete exclusive queues
-
-        self.open_channels.remove(&channel);
-
-        self.send_frame(Frame::Frame(frame::channel_close_ok(channel))).await?;
-
-        Ok(())
-    }
-
-    pub async fn channel_close_ok(&mut self, channel: Channel) -> Result<()> {
-        // TODO not sure if we need to send out basic cancel here
-        self.open_channels.remove(&channel);
-
-        Ok(())
-    }
-
-    pub async fn cleanup(&mut self) -> Result<()> {
-        info!("Cleanup connection {}", self.id);
-
-        for (channel, cq) in &self.consumed_queues {
-            debug!(
-                "Cancel consumer channel: {} queue: {} consumer tag: {}",
-                channel, cq.queue_name, cq.consumer_tag
-            );
-
-            let cmd = QueueCancelConsume {
-                channel: *channel,
-                queue_name: cq.queue_name.clone(),
-                consumer_tag: cq.consumer_tag.clone(),
-            };
-
-            logerr!(qm::cancel_consume(&self.qm, cmd).await);
-        }
+        //// Cancel passive consumers registered because of a Basic.Get
+        //if let Some(pq) = self.passively_consumed_queues.remove(&channel) {
+        //    pq.queue_sink
+        //        .send(queue_handler::QueueCommand::PassiveCancelConsume(
+        //            queue_handler::PassiveCancelConsumeCmd {
+        //                conn_id: self.id.clone(),
+        //                channel,
+        //            },
+        //        ))
+        //        .await?;
+        //}
 
         Ok(())
     }

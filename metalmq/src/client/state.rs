@@ -1,7 +1,6 @@
 // Do we need to expose the messages of a 'process' or hide it in an erlang-style?
 use crate::{
     client,
-    client::{channel, ChannelError},
     exchange::{handler::ExchangeCommandSink, manager as em},
     logerr,
     queue::{handler as queue_handler, manager as qm},
@@ -10,18 +9,18 @@ use crate::{
 use log::{error, info, trace};
 use metalmq_codec::{
     codec::Frame,
-    frame::{self, Channel, ContentBodyFrame, ContentHeaderFrame},
+    frame::{self, Channel},
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-pub mod basic;
-pub mod channel;
-pub mod connect;
-pub mod exchange;
-pub mod queue;
-pub mod receive_message;
+//pub mod basic;
+//pub mod channel;
+//pub mod connect;
+//pub mod exchange;
+//pub mod queue;
+//pub mod receive_message;
 
 #[cfg(test)]
 mod tests;

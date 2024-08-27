@@ -8,7 +8,7 @@ use crate::{client::channel::Channel, Result};
 use super::{connection_error, types::Connection, ConnectionError};
 
 impl Connection {
-    async fn handle_client_frame(&mut self, f: AMQPFrame) -> Result<()> {
+    pub async fn handle_client_frame(&mut self, f: AMQPFrame) -> Result<()> {
         use AMQPFrame::*;
 
         match &f {
@@ -32,7 +32,11 @@ impl Connection {
             0x000A => self.handle_connection_command(f).await,
             _ if *class_method == metalmq_codec::frame::CHANNEL_OPEN => {
                 if self.channel_receivers.contains_key(channel) {
-                    connection_error(*class_method, ConnectionError::ChannelError, "Channel already open")
+                    connection_error(
+                        *class_method,
+                        ConnectionError::ChannelError,
+                        "CHANNEL_ERROR - Channel is already opened",
+                    )
                 } else {
                     self.start_channel(*channel).await
                 }
@@ -45,7 +49,7 @@ impl Connection {
         use MethodFrameArgs::*;
 
         match f {
-            AMQPFrame::Method(_, cm, mf) => match mf {
+            AMQPFrame::Method(_, _cm, mf) => match mf {
                 ConnectionStartOk(args) => self.handle_connection_start_ok(args).await,
                 ConnectionTuneOk(args) => self.handle_connection_tune_ok(args).await,
                 ConnectionOpen(args) => self.handle_connection_open(args).await,
@@ -59,6 +63,8 @@ impl Connection {
     }
 
     async fn start_channel(&mut self, channel: u16) -> Result<()> {
+        self.handle_channel_open(channel).await?;
+
         let (ch_tx, jh) = Channel::start(channel, self.outgoing.clone()).await;
 
         self.channel_receivers.insert(channel, ch_tx);
@@ -76,7 +82,7 @@ impl Connection {
 
     async fn send_command_to_channel(&self, ch: u16, f: AMQPFrame) -> Result<()> {
         if let Some(ch_tx) = self.channel_receivers.get(&ch) {
-            ch_tx.send(f);
+            ch_tx.send(f).await?;
         } else {
             return connection_error(0, ConnectionError::ChannelError, "No such channel");
         }

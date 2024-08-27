@@ -1,5 +1,5 @@
 use crate::{
-    client::{tests::to_runtime_error, ConnectionError},
+    client::{connection::ConnectionError, tests::to_runtime_error},
     tests::{recv_frames, recv_timeout, send_content, unpack_frames, unpack_single_frame, TestCase},
 };
 use metalmq_codec::frame::{self, ExchangeDeclareArgs};

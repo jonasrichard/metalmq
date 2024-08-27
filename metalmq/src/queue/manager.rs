@@ -9,7 +9,7 @@
 /// or they need to check if the queue sink is closed, not to get `SendError`.
 use crate::{
     chk,
-    client::{channel_error, ChannelError},
+    client::channel::{channel_error, ChannelError},
     exchange::manager::ExchangeManagerSink,
     logerr,
     queue::{

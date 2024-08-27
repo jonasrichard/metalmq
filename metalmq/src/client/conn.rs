@@ -1,10 +1,5 @@
 use crate::{
-    client::{
-        self,
-        connection::{self, ConnectionError},
-        state::Connection,
-        to_runtime_error,
-    },
+    client::{connection::types::Connection, to_runtime_error},
     Context, Result,
 };
 use futures::{
@@ -14,7 +9,7 @@ use futures::{
 use log::{error, trace, warn};
 use metalmq_codec::{
     codec::{AMQPCodec, Frame},
-    frame::{self, AMQPFrame, MethodFrameArgs},
+    frame,
 };
 use std::time::Duration;
 use tokio::{net::TcpStream, sync::mpsc};
@@ -26,7 +21,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
     // We use channels with only one item long, so we can block until the frame is sent out.
     let (consume_sink, mut consume_stream) = mpsc::channel::<Frame>(16);
     let mut conn = Connection::new(context, consume_sink);
-    let heartbeat_duration = conn.get_heartbeat();
+    let heartbeat_duration = conn.heartbeat_interval;
 
     tokio::spawn(async move {
         if let Err(e) = if let Some(heartbeat) = heartbeat_duration {
@@ -46,7 +41,7 @@ pub(crate) async fn handle_client(socket: TcpStream, context: Context) -> Result
         incoming_loop(&mut conn, stream).await?
     }
 
-    conn.cleanup().await?;
+    conn.close().await?;
 
     Ok(())
 }
@@ -194,8 +189,8 @@ async fn outgoing_loop_with_heartbeat(
 async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<bool> {
     match data {
         Frame::Frame(frame) => {
-            if handle_client_frame(conn, frame).await.is_err() {
-                conn.cleanup().await?;
+            if conn.handle_client_frame(frame).await.is_err() {
+                conn.close().await?;
 
                 return Ok(false);
             }
@@ -204,8 +199,8 @@ async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<boo
         }
         Frame::Frames(frames) => {
             for frame in frames {
-                if handle_client_frame(conn, frame).await.is_err() {
-                    conn.cleanup().await?;
+                if conn.handle_client_frame(frame).await.is_err() {
+                    conn.close().await?;
 
                     return Ok(false);
                 }
@@ -228,45 +223,45 @@ async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<boo
 // via the cloned outgoing channel.
 
 // TODO this will be in the new Connection impl
-async fn handle_method_frame(
-    conn: &mut Connection,
-    channel: frame::Channel,
-    cm: u32,
-    ma: frame::MethodFrameArgs,
-) -> Result<()> {
-    use MethodFrameArgs::*;
-
-    let r = match ma {
-        ConnectionStartOk(args) => conn.connection_start_ok(channel, args).await,
-        ConnectionTuneOk(args) => conn.connection_tune_ok(channel, args).await,
-        ConnectionOpen(args) => conn.connection_open(channel, args).await,
-        ConnectionClose(args) => conn.connection_close(args).await,
-        ChannelOpen => conn.channel_open(channel).await,
-        ChannelClose(args) => conn.channel_close(channel, args).await,
-        ChannelCloseOk => conn.channel_close_ok(channel).await,
-        ExchangeDeclare(args) => conn.exchange_declare(channel, args).await,
-        ExchangeDelete(args) => conn.exchange_delete(channel, args).await,
-        QueueDeclare(args) => conn.queue_declare(channel, args).await,
-        QueueBind(args) => conn.queue_bind(channel, args).await,
-        QueuePurge(args) => conn.queue_purge(channel, args).await,
-        QueueDelete(args) => conn.queue_delete(channel, args).await,
-        QueueUnbind(args) => conn.queue_unbind(channel, args).await,
-        BasicPublish(args) => conn.basic_publish(channel, args).await,
-        BasicConsume(args) => conn.basic_consume(channel, args).await,
-        BasicCancel(args) => conn.basic_cancel(channel, args).await,
-        BasicAck(args) => conn.basic_ack(channel, args).await,
-        BasicGet(args) => conn.basic_get(channel, args).await,
-        BasicReject(args) => conn.basic_reject(channel, args).await,
-        ConfirmSelect(args) => conn.confirm_select(channel, args).await,
-        _ => {
-            error!("Unhandler method frame type {ma:?}");
-            Ok(())
-        }
-    };
-
-    if r.is_err() {
-        trace!("Method frame handled with error {:?}", r);
-    }
-
-    r
-}
+//async fn handle_method_frame(
+//    conn: &mut Connection,
+//    channel: frame::Channel,
+//    cm: u32,
+//    ma: frame::MethodFrameArgs,
+//) -> Result<()> {
+//    use MethodFrameArgs::*;
+//
+//    let r = match ma {
+//        ConnectionStartOk(args) => conn.connection_start_ok(channel, args).await,
+//        ConnectionTuneOk(args) => conn.connection_tune_ok(channel, args).await,
+//        ConnectionOpen(args) => conn.connection_open(channel, args).await,
+//        ConnectionClose(args) => conn.connection_close(args).await,
+//        ChannelOpen => conn.channel_open(channel).await,
+//        ChannelClose(args) => conn.channel_close(channel, args).await,
+//        ChannelCloseOk => conn.channel_close_ok(channel).await,
+//        ExchangeDeclare(args) => conn.exchange_declare(channel, args).await,
+//        ExchangeDelete(args) => conn.exchange_delete(channel, args).await,
+//        QueueDeclare(args) => conn.queue_declare(channel, args).await,
+//        QueueBind(args) => conn.queue_bind(channel, args).await,
+//        QueuePurge(args) => conn.queue_purge(channel, args).await,
+//        QueueDelete(args) => conn.queue_delete(channel, args).await,
+//        QueueUnbind(args) => conn.queue_unbind(channel, args).await,
+//        BasicPublish(args) => conn.basic_publish(channel, args).await,
+//        BasicConsume(args) => conn.basic_consume(channel, args).await,
+//        BasicCancel(args) => conn.basic_cancel(channel, args).await,
+//        BasicAck(args) => conn.basic_ack(channel, args).await,
+//        BasicGet(args) => conn.basic_get(channel, args).await,
+//        BasicReject(args) => conn.basic_reject(channel, args).await,
+//        ConfirmSelect(args) => conn.confirm_select(channel, args).await,
+//        _ => {
+//            error!("Unhandler method frame type {ma:?}");
+//            Ok(())
+//        }
+//    };
+//
+//    if r.is_err() {
+//        trace!("Method frame handled with error {:?}", r);
+//    }
+//
+//    r
+//}

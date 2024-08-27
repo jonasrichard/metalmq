@@ -1,6 +1,6 @@
 //! Messages are sent to exchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
-use crate::client::ChannelError;
+use crate::client::channel::ChannelError;
 use crate::queue::handler::FrameSink;
 use crate::queue::handler::Tag;
 use crate::{chk, send, Result};
