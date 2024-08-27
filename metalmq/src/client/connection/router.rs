@@ -1,9 +1,9 @@
 use metalmq_codec::{
     codec::Frame,
-    frame::{AMQPFrame, ConnectionStartArgs},
+    frame::{AMQPFrame, ConnectionStartArgs, MethodFrameArgs},
 };
 
-use crate::Result;
+use crate::{client::channel::Channel, Result};
 
 use super::{connection_error, types::Connection, ConnectionError};
 
@@ -29,24 +29,46 @@ impl Connection {
 
         // WARN this is quite ugly and the intent is not clear
         match class_method >> 16 {
-            0x000A => {
-                self.handle_connection_command(f).await?;
+            0x000A => self.handle_connection_command(f).await,
+            _ if *class_method == metalmq_codec::frame::CHANNEL_OPEN => {
+                if self.channel_receivers.contains_key(channel) {
+                    connection_error(*class_method, ConnectionError::ChannelError, "Channel already open")
+                } else {
+                    self.start_channel(*channel).await
+                }
             }
-            _ if *class_method == metalmq_codec::frame::CHANNEL_OPEN => {}
-            _ => {
-                self.send_command_to_channel(*channel, f).await?;
-            }
+            _ => self.send_command_to_channel(*channel, f).await,
         }
-
-        Ok(())
     }
 
     async fn handle_connection_command(&mut self, f: AMQPFrame) -> Result<()> {
+        use MethodFrameArgs::*;
+
+        match f {
+            AMQPFrame::Method(_, cm, mf) => match mf {
+                ConnectionStartOk(args) => self.handle_connection_start_ok(args).await,
+                ConnectionTuneOk(args) => self.handle_connection_tune_ok(args).await,
+                ConnectionOpen(args) => self.handle_connection_open(args).await,
+                ConnectionClose(args) => self.handle_connection_close(args).await,
+                _ => unreachable!(),
+            },
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    async fn start_channel(&mut self, channel: u16) -> Result<()> {
+        let (ch_tx, jh) = Channel::start(channel, self.outgoing.clone()).await;
+
+        self.channel_receivers.insert(channel, ch_tx);
+        self.channel_handlers.insert(channel, jh);
+
         Ok(())
     }
 
     /// Send frame out to client asynchronously.
-    async fn send_frame(&self, f: Frame) -> Result<()> {
+    pub async fn send_frame(&self, f: Frame) -> Result<()> {
         self.outgoing.send(f).await?;
 
         Ok(())

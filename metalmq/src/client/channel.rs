@@ -1,8 +1,8 @@
 use metalmq_codec::{
     codec::Frame,
-    frame::{self, ContentBodyFrame, ContentHeaderFrame},
+    frame::{self, AMQPFrame, ContentBodyFrame, ContentHeaderFrame},
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::{exchange, handle_error, logerr, queue::handler as queue_handler, ErrorScope, Result, RuntimeError};
 
@@ -83,48 +83,29 @@ pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
 }
 
 impl Channel {
-    pub async fn exchange_declare(&mut self, channel: Channel, args: frame::ExchangeDeclareArgs) -> Result<()> {
-        use crate::exchange::manager::DeclareExchangeCommand;
-
-        let no_wait = args.flags.contains(frame::ExchangeDeclareFlags::NO_WAIT);
-        let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
-        let exchange_name = args.exchange_name.clone();
-
-        logerr!(handle_error!(
-            self,
-            exchange::validate_exchange_type(&args.exchange_type)
-        ));
-
-        logerr!(handle_error!(
-            self,
-            exchange::validate_exchange_name(self.number, &args.exchange_name)
-        ));
-
-        let cmd = DeclareExchangeCommand {
-            channel: self.number,
-            exchange: args.into(),
-            passive,
-            outgoing: self.outgoing.clone(),
+    pub async fn start(
+        channel_number: u16,
+        outgoing: mpsc::Sender<Frame>,
+    ) -> (mpsc::Sender<AMQPFrame>, JoinHandle<Result<()>>) {
+        let mut channel = Channel {
+            number: channel_number,
+            consumed_queue: None,
+            in_flight_content: None,
+            confirm_mode: false,
+            next_confirm_delivery_tag: 1u64,
+            outgoing,
         };
-        let result = crate::exchange::manager::declare_exchange(&self.em, cmd).await;
 
-        match result {
-            Ok(ch) => {
-                self.exchanges.insert(exchange_name.clone(), ch);
+        let (tx, rx) = mpsc::channel(16);
 
-                if no_wait {
-                    Ok(())
-                } else {
-                    self.outgoing
-                        .send(Frame::Frame(frame::exchange_declare_ok(channel)))
-                        .await?
-                }
-            }
-            Err(err) => {
-                let rte = client::to_runtime_error(err);
+        let jh = tokio::spawn(async move { channel.handle_message(rx).await });
 
-                self.handle_error(rte).await
-            }
-        }
+        (tx, jh)
+    }
+
+    pub async fn handle_message(&mut self, mut rx: mpsc::Receiver<AMQPFrame>) -> Result<()> {
+        while let Some(f) = rx.recv().await {}
+
+        Ok(())
     }
 }
