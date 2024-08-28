@@ -1,81 +1,71 @@
 use metalmq_codec::frame::{self, BasicPublishArgs};
 
-use crate::tests::{
-    basic_deliver_args, channel_close, connection_close, publish_content, recv_timeout, send_content, sleep,
-    unpack_frames, TestCase,
-};
+use crate::tests::{basic_deliver_args, channel_close, connection_close, recv_timeout, sleep, unpack_frames, TestCase};
 
 #[tokio::test]
 async fn basic_publish_mandatory_message() {
-    let tc = TestCase::new().await;
-    let (mut client, mut client_rx) = tc.new_client();
+    let test_case = TestCase::new().await;
+    let mut test_client = test_case.new_client();
 
     // Publish message to an exchange which doesn't route to queues -> channel error
-    let publish = BasicPublishArgs::new("x-direct")
-        .routing_key("invalid-key")
-        .mandatory(true);
-
-    client.basic_publish(1u16, publish).await.unwrap();
-
-    send_content(&mut client, 1u16, b"A simple message").await;
+    test_client
+        .publish_content(1u16, "x-direct", "invalid-key", b"A simple message")
+        .await;
 
     // Since the routing key is not matching and message is mandatory, server sends back the message
     // with a Basic.Return frame
-    let return_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let return_frames = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
 
     assert!(matches!(
         dbg!(return_frames).get(0).unwrap(),
         frame::AMQPFrame::Method(1u16, _, frame::MethodFrameArgs::BasicReturn(_))
     ));
 
-    client
+    test_client
         .basic_publish(
             1u16,
             BasicPublishArgs::new("x-direct")
                 .routing_key("magic-key")
                 .mandatory(true),
         )
-        .await
-        .unwrap();
+        .await;
 
-    send_content(&mut client, 1u16, b"Another message").await;
+    test_client.send_content(1u16, b"Another message").await;
 
     // No message is expected as a response
-    let expected_timeout = dbg!(recv_timeout(&mut client_rx).await);
+    let expected_timeout = dbg!(recv_timeout(&mut test_client.conn_rx).await);
     assert!(expected_timeout.is_none());
 
-    channel_close(&mut client, 1).await;
-    connection_close(&mut client).await;
+    channel_close(&mut test_client.connection, 1).await;
+    connection_close(&mut test_client.connection).await;
 }
 
 #[tokio::test]
 async fn basic_get_empty_and_ok() {
-    let tc = TestCase::new().await;
-    let (mut client, mut client_rx) = tc.new_client();
+    let test_case = TestCase::new().await;
+    let mut test_client = test_case.new_client();
 
-    client
+    test_client
         .basic_get(2, frame::BasicGetArgs::new("q-fanout").no_ack(false))
-        .await
-        .unwrap();
+        .await;
 
-    let get_empty_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let get_empty_frames = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
 
     assert!(matches!(
         dbg!(get_empty_frames).get(0).unwrap(),
         frame::AMQPFrame::Method(2, _, frame::MethodFrameArgs::BasicGetEmpty)
     ));
 
-    client
+    test_client
         .basic_publish(1, frame::BasicPublishArgs::new("x-fanout"))
-        .await
-        .unwrap();
-    send_content(&mut client, 1u16, b"A fanout message").await;
+        .await;
+    test_client.send_content(1u16, b"A fanout message").await;
 
     sleep(100).await;
 
-    client.basic_get(2, frame::BasicGetArgs::new("q-fanout")).await.unwrap();
+    test_client.basic_get(2, frame::BasicGetArgs::new("q-fanout")).await;
 
-    let get_frames = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let get_frames = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
 
     assert!(matches!(
         dbg!(get_frames).get(0).unwrap(),
@@ -86,31 +76,32 @@ async fn basic_get_empty_and_ok() {
         )
     ));
 
-    channel_close(&mut client, 2).await;
-    connection_close(&mut client).await;
+    channel_close(&mut test_client.connection, 2).await;
+    connection_close(&mut test_client.connection).await;
 }
 
 #[tokio::test]
 async fn basic_ack_multiple() {
-    let tc = TestCase::new().await;
-    let (mut client, mut client_rx) = tc.new_client();
+    let test_case = TestCase::new().await;
+    let mut test_client = test_case.new_client();
 
     // Send 10 messages
     for i in 0..10 {
-        client
+        test_client
             .basic_publish(
                 3,
                 dbg!(frame::BasicPublishArgs::new("x-direct").routing_key("magic-key")),
             )
-            .await
-            .unwrap();
-        send_content(&mut client, 3u16, format!("Ack test #{i}").as_bytes()).await;
+            .await;
+        test_client
+            .send_content(3u16, format!("Ack test #{i}").as_bytes())
+            .await;
     }
 
     sleep(100).await;
 
     // Consume 10 messages with another client
-    let (mut consumer, mut consumer_rx) = tc.new_client();
+    let mut consumer = test_case.new_client();
 
     consumer
         .basic_consume(
@@ -119,10 +110,9 @@ async fn basic_ack_multiple() {
                 .queue("q-direct")
                 .consumer_tag("unit-test"),
         )
-        .await
-        .unwrap();
+        .await;
 
-    let consumer_ok = unpack_frames(recv_timeout(&mut consumer_rx).await.unwrap());
+    let consumer_ok = unpack_frames(recv_timeout(&mut consumer.conn_rx).await.unwrap());
     assert!(matches!(
         dbg!(consumer_ok).get(0).unwrap(),
         frame::AMQPFrame::Method(4, _, frame::MethodFrameArgs::BasicConsumeOk(_))
@@ -131,7 +121,7 @@ async fn basic_ack_multiple() {
     let mut last_delivery_tag = 0u64;
 
     for _ in 0..10 {
-        let message_frames = unpack_frames(recv_timeout(&mut consumer_rx).await.unwrap());
+        let message_frames = unpack_frames(recv_timeout(&mut consumer.conn_rx).await.unwrap());
 
         dbg!(&message_frames);
 
@@ -154,19 +144,17 @@ async fn basic_ack_multiple() {
                 .delivery_tag(last_delivery_tag)
                 .multiple(true),
         )
-        .await
-        .unwrap();
+        .await;
 
     // Check if queue is empty by deleting and if it is empty
-    client
+    test_client
         .queue_delete(
             4,
             frame::QueueDeleteArgs::default().queue_name("q-direct").if_empty(true),
         )
-        .await
-        .unwrap();
+        .await;
 
-    let delete_ok = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let delete_ok = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
     assert!(matches!(
         dbg!(delete_ok).get(0).unwrap(),
         frame::AMQPFrame::Method(
@@ -179,22 +167,23 @@ async fn basic_ack_multiple() {
 
 #[tokio::test]
 async fn publish_to_topic_exchange() {
-    let tc = TestCase::new().await;
-    let (mut client, mut client_rx) = tc.new_client();
+    let test_case = TestCase::new().await;
+    let mut test_client = test_case.new_client();
 
-    publish_content(&mut client, 1, "x-topic", "topic.key", b"Topic test").await;
+    test_client
+        .publish_content(1, "x-topic", "topic.key", b"Topic test")
+        .await;
 
-    client
+    test_client
         .basic_consume(
             2,
             frame::BasicConsumeArgs::default().queue("q-topic").consumer_tag("ctag"),
         )
-        .await
-        .unwrap();
+        .await;
 
-    let _consume_ok = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let _consume_ok = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
 
-    let delivery = unpack_frames(recv_timeout(&mut client_rx).await.unwrap());
+    let delivery = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
     let mut frames = delivery.into_iter();
 
     let basic_deliver = basic_deliver_args(frames.next().unwrap());
@@ -209,5 +198,5 @@ async fn publish_to_topic_exchange() {
         assert_eq!(b"Topic test", body.body.as_slice());
     }
 
-    tc.teardown().await;
+    test_case.teardown().await;
 }
