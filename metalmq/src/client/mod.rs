@@ -1,6 +1,8 @@
 pub mod channel;
 pub mod conn;
 pub mod connection;
+#[cfg(test)]
+pub(crate) mod tests;
 
 use connection::ConnectionError;
 
@@ -32,16 +34,5 @@ pub fn to_runtime_error(err: Box<dyn std::error::Error + Send + Sync>) -> Runtim
             text: format!("Internal error: {e}"),
             class_method: 0,
         },
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::RuntimeError;
-    use crate::Result;
-
-    /// Helper for tests to extract the `Err` as `RuntimeError`
-    pub(crate) fn to_runtime_error<T: std::fmt::Debug>(result: Result<T>) -> RuntimeError {
-        *result.unwrap_err().downcast::<RuntimeError>().unwrap()
     }
 }

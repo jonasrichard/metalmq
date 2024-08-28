@@ -20,7 +20,7 @@ use crate::{
 };
 use metalmq_codec::{
     codec::Frame,
-    frame::{self, ContentBodyFrame, ContentHeaderFrame},
+    frame::{self, AMQPFrame, ContentBodyFrame, ContentHeaderFrame},
 };
 
 /// TestCase for System Under Test which spawns an exchange manager and a queue manager and can
@@ -30,6 +30,8 @@ struct TestCase {
     qm: QueueManagerSink,
     setup_tx: mpsc::Sender<Frame>,
     setup_rx: mpsc::Receiver<Frame>,
+    conn_tx: mpsc::Sender<Frame>,
+    conn_rx: mpsc::Receiver<Frame>,
 }
 
 impl TestCase {
@@ -39,12 +41,15 @@ impl TestCase {
         let em = crate::exchange::manager::start();
         let qm = crate::queue::manager::start(em.clone());
         let (setup_tx, setup_rx) = mpsc::channel(128);
+        let (conn_tx, conn_rx) = mpsc::channel(16);
 
         Self {
             em,
             qm,
             setup_tx,
             setup_rx,
+            conn_tx,
+            conn_rx,
         }
         .setup()
         .await
@@ -177,37 +182,38 @@ impl TestCase {
         .unwrap();
     }
 
-    fn new_client(&self) -> (Connection, mpsc::Receiver<Frame>) {
+    fn new_client(&self) -> Connection {
         let ctx = Context {
             exchange_manager: self.em.clone(),
             queue_manager: self.qm.clone(),
         };
-        let (client_tx, client_rx) = mpsc::channel(16);
 
-        (Connection::new(ctx, client_tx), client_rx)
+        Connection::new(ctx, self.conn_tx.clone())
     }
 }
 
 async fn channel_close(client: &mut Connection, channel: u16) {
     client
-        .channel_close(channel, frame::ChannelCloseArgs::default())
+        .handle_channel_close(channel, frame::ChannelCloseArgs::default())
         .await
         .unwrap();
 }
 
 async fn connection_close(client: &mut Connection) {
     client
-        .connection_close(frame::ConnectionCloseArgs::default())
+        .handle_connection_close(frame::ConnectionCloseArgs::default())
         .await
         .unwrap();
 }
 
 async fn publish_content(client: &mut Connection, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
-    client
-        .basic_publish(channel, frame::BasicPublishArgs::new(exchange).routing_key(routing_key))
-        .await
-        .unwrap();
-    send_content(client, channel, message).await;
+    let ch_tx = client.channel_receivers.get(&channel).unwrap();
+    let f = frame::BasicPublishArgs::new(exchange)
+        .routing_key(routing_key)
+        .frame(channel);
+
+    ch_tx.send(f).await.unwrap();
+    send_content(ch_tx, channel, message).await;
 }
 
 /// Receiving with timeout
@@ -225,7 +231,7 @@ pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
     }
 }
 
-async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
+async fn send_content(ch_tx: &mpsc::Sender<AMQPFrame>, channel: u16, message: &[u8]) {
     let header = ContentHeaderFrame {
         channel,
         class_id: (frame::BASIC_PUBLISH >> 16) as u16,
@@ -233,14 +239,14 @@ async fn send_content(client: &mut Connection, channel: u16, message: &[u8]) {
         ..Default::default()
     };
 
-    client.receive_content_header(header).await.unwrap();
+    ch_tx.send(AMQPFrame::ContentHeader(header)).await.unwrap();
 
     let body = ContentBodyFrame {
         channel,
         body: message.to_vec(),
     };
 
-    client.receive_content_body(body).await.unwrap();
+    ch_tx.send(AMQPFrame::ContentBody(body)).await.unwrap();
 }
 
 async fn sleep(ms: u32) {
