@@ -8,7 +8,7 @@ pub mod handler;
 pub mod manager;
 
 use crate::{
-    client::{channel, channel::ChannelError, connection, connection::ConnectionError},
+    client::{channel, channel::types::ChannelError, connection, connection::ConnectionError},
     Result,
 };
 use metalmq_codec::frame::{self, Channel, ExchangeDeclareArgs, ExchangeDeclareFlags};

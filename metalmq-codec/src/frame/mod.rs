@@ -93,6 +93,23 @@ pub type ClassMethod = u32;
 pub type ClassId = u16;
 pub type Weight = u16;
 
+// TODO
+// We would save a lot of time if we have a trait like
+//
+// trait IntoFrame {
+//     fn frame(channel: u16) -> AMQPFrame
+// }
+//
+// also Frame can implement From<AMQPFrame>, so a lot of times in the server implementation when we
+// need to change between Frame and AMQPFrame types at least generating those types would be
+// easier.
+//
+// Also client can write a function, especially the TestClient which would say
+//
+// fn handle_method_args(channel: u16, args: impl IntoFrame) {
+//     send(args.frame(channel));
+// }
+
 /// Represents an AMQP frame.
 pub enum AMQPFrame {
     /// Header is to be sent to the server at first, announcing the AMQP version we support

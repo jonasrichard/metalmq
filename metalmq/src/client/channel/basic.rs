@@ -2,7 +2,7 @@ use metalmq_codec::frame;
 
 use crate::Result;
 
-use super::Channel;
+use super::types::Channel;
 
 impl Channel {
     pub async fn handle_basic_publish(&mut self, args: frame::BasicPublishArgs) -> Result<()> {

@@ -1,5 +1,5 @@
 use crate::{
-    client::{channel, channel::ChannelError},
+    client::{channel, channel::types::ChannelError},
     exchange::{
         handler::{self, ExchangeCommand, ExchangeCommandSink, QueueUnbindCmd},
         Exchange,

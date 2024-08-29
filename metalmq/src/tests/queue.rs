@@ -1,6 +1,6 @@
-use crate::{
-    client::{connection::ConnectionError, tests::to_runtime_error},
-    tests::{recv_frames, recv_timeout, unpack_frames, unpack_single_frame, TestCase},
+use crate::tests::{
+    test_client::{unpack_frames, unpack_single_frame},
+    TestCase,
 };
 use metalmq_codec::frame::{self, ExchangeDeclareArgs};
 
@@ -16,7 +16,7 @@ async fn bind_queue_with_validation() {
 
     test_client.exchange_declare(1, args).await;
 
-    let exchange_declare_ok = unpack_single_frame(recv_timeout(&mut test_client.conn_rx).await.unwrap());
+    let exchange_declare_ok = unpack_single_frame(test_client.recv_timeout().await.unwrap());
 
     assert!(matches!(exchange_declare_ok, frame::AMQPFrame::Method(_, _, _)));
 
@@ -26,7 +26,7 @@ async fn bind_queue_with_validation() {
         .exchange_type("direct");
     test_client.exchange_declare(2, args).await;
 
-    let channel_error = unpack_single_frame(recv_timeout(&mut test_client.conn_rx).await.unwrap());
+    let channel_error = unpack_single_frame(test_client.recv_timeout().await.unwrap());
 
     assert!(matches!(
         channel_error,
@@ -63,7 +63,7 @@ async fn queue_purge_clean_the_queue() {
         .await
         .unwrap();
 
-    let purge_ok = unpack_frames(recv_timeout(&mut test_client.conn_rx).await.unwrap());
+    let purge_ok = unpack_frames(test_client.recv_timeout().await.unwrap());
     assert!(matches!(
         dbg!(purge_ok).get(0).unwrap(),
         frame::AMQPFrame::Method(
@@ -83,7 +83,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
     test_client
         .queue_declare(1, frame::QueueDeclareArgs::default().name("queue-delete-test"))
         .await;
-    recv_frames(&mut test_client.conn_rx).await;
+    test_client.recv_frames().await;
 
     test_client
         .exchange_declare(
@@ -93,7 +93,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
                 .exchange_type("direct"),
         )
         .await;
-    recv_frames(&mut test_client.conn_rx).await;
+    test_client.recv_frames().await;
 
     test_client
         .connection
@@ -104,7 +104,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
         )
         .await
         .unwrap();
-    recv_frames(&mut test_client.conn_rx).await;
+    test_client.recv_frames().await;
 
     //let mut consumer = tc.new_client();
 

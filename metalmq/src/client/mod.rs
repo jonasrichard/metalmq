@@ -1,8 +1,6 @@
 pub mod channel;
 pub mod conn;
 pub mod connection;
-#[cfg(test)]
-pub(crate) mod tests;
 
 use connection::ConnectionError;
 

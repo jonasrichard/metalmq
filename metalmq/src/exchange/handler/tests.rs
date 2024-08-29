@@ -1,6 +1,6 @@
 use super::QueueBindCmd;
 use crate::{
-    client::{channel::ChannelError, tests::to_runtime_error},
+    client::{channel::types::ChannelError, to_runtime_error},
     exchange::{
         binding::Bindings,
         handler::{ExchangeCommand, ExchangeState, QueueUnbindCmd},
@@ -11,10 +11,8 @@ use crate::{
         handler::{self, QueueCommand, QueueCommandSink},
         Queue,
     },
-    tests::recv_timeout,
     ErrorScope, Result,
 };
-use metalmq_codec::{codec::Frame, frame};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 
@@ -126,7 +124,7 @@ async fn cannot_bind_nonexisting_queue() {
     let result = r_rx.await.unwrap();
     assert!(result.is_err());
 
-    let err = to_runtime_error(result);
+    let err = to_runtime_error(result.unwrap_err());
     assert_eq!(ChannelError::NotFound as u16, err.code);
 }
 
@@ -154,7 +152,7 @@ async fn cannot_bind_exclusive_queue_with_different_connection() {
     let res = rx.await.unwrap();
     assert!(res.is_err());
 
-    let err = to_runtime_error(res);
+    let err = to_runtime_error(res.unwrap_err());
     assert_eq!(err.scope, ErrorScope::Channel);
     assert_eq!(err.code, ChannelError::ResourceLocked as u16);
 }

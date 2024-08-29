@@ -1,6 +1,8 @@
+mod connect;
 mod consume;
 mod publish;
 mod queue;
+mod test_client;
 
 use std::collections::HashMap;
 
@@ -18,18 +20,8 @@ use crate::{
     },
     Context,
 };
-use metalmq_codec::{
-    codec::Frame,
-    frame::{self, AMQPFrame, ContentBodyFrame, ContentHeaderFrame},
-};
-
-/// The test client used by test cases. It makes available the sender part of the input channel, so
-/// one can control the connection by sending frames in the `conn_tx`.
-struct TestClient {
-    connection: Connection,
-    conn_tx: mpsc::Sender<Frame>,
-    conn_rx: mpsc::Receiver<Frame>,
-}
+use metalmq_codec::{codec::Frame, frame};
+use test_client::TestClient;
 
 /// TestCase for System Under Test which spawns an exchange manager and a queue manager and can
 /// test more integrated features like forwarding messages from exchanges to queues.
@@ -201,100 +193,6 @@ impl TestCase {
     }
 }
 
-impl TestClient {
-    async fn exchange_declare(&mut self, channel: u16, args: frame::ExchangeDeclareArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn exchange_delete(&mut self, channel: u16, args: frame::ExchangeDeleteArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn queue_declare(&mut self, channel: u16, args: frame::QueueDeclareArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn queue_delete(&mut self, channel: u16, args: frame::QueueDeleteArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn basic_publish(&mut self, channel: u16, args: frame::BasicPublishArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn basic_consume(&mut self, channel: u16, args: frame::BasicConsumeArgs) {
-        let f = args.frame(channel);
-
-        self.connection.handle_client_frame(f).await.unwrap();
-    }
-
-    async fn basic_ack(&mut self, channel: u16, args: frame::BasicAckArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn basic_get(&mut self, channel: u16, args: frame::BasicGetArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    async fn basic_cancel(&mut self, channel: u16, args: frame::BasicCancelArgs) {
-        let f = args.frame(channel);
-
-        self.connection.handle_client_frame(f).await.unwrap();
-    }
-
-    async fn publish_content(&mut self, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
-        let f = frame::BasicPublishArgs::new(exchange)
-            .routing_key(routing_key)
-            .frame(channel);
-
-        self.connection.handle_client_frame(f).await.unwrap();
-
-        self.send_content(channel, message).await;
-    }
-
-    async fn send_content(&mut self, channel: u16, message: &[u8]) {
-        let header = ContentHeaderFrame {
-            channel,
-            class_id: (frame::BASIC_PUBLISH >> 16) as u16,
-            body_size: message.len() as u64,
-            ..Default::default()
-        };
-
-        self.connection
-            .handle_client_frame(AMQPFrame::ContentHeader(header))
-            .await
-            .unwrap();
-
-        let body = ContentBodyFrame {
-            channel,
-            body: message.to_vec(),
-        };
-
-        self.connection
-            .handle_client_frame(AMQPFrame::ContentBody(body))
-            .await
-            .unwrap();
-    }
-
-    async fn close(&mut self) {
-        self.connection.close().await.unwrap();
-    }
-}
-
-async fn channel_close(client: &mut Connection, channel: u16) {
-    client
-        .handle_channel_close(channel, frame::ChannelCloseArgs::default())
-        .await
-        .unwrap();
-}
-
-async fn connection_close(client: &mut Connection) {
-    client
-        .handle_connection_close(frame::ConnectionCloseArgs::default())
-        .await
-        .unwrap();
-}
-
 /// Receiving with timeout
 pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
     let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
@@ -308,39 +206,4 @@ pub async fn recv_timeout<T>(rx: &mut mpsc::Receiver<T>) -> Option<T> {
             None
         }
     }
-}
-
-async fn sleep(ms: u32) {
-    tokio::time::sleep(std::time::Duration::from_millis(ms.into())).await;
-}
-
-async fn recv_frames(client: &mut mpsc::Receiver<Frame>) -> Vec<frame::AMQPFrame> {
-    unpack_frames(recv_timeout(client).await.unwrap())
-}
-
-async fn recv_single_frame(client: &mut mpsc::Receiver<Frame>) -> frame::AMQPFrame {
-    unpack_single_frame(recv_timeout(client).await.unwrap())
-}
-
-fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
-    if let Frame::Frame(single_frame) = f {
-        single_frame
-    } else {
-        panic!("Frame {f:?} is not a single frame");
-    }
-}
-
-fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
-    match f {
-        Frame::Frame(sf) => vec![sf],
-        Frame::Frames(mf) => mf,
-    }
-}
-
-fn basic_deliver_args(f: frame::AMQPFrame) -> frame::BasicDeliverArgs {
-    if let frame::AMQPFrame::Method(_, _, frame::MethodFrameArgs::BasicDeliver(args)) = f {
-        return args;
-    }
-
-    panic!("Not a BasicDeliver frame");
 }

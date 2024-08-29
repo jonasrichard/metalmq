@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::{
-    client::{channel, channel::ChannelError},
+    client::{channel, channel::types::ChannelError},
     exchange::{binding::Bindings, Exchange, ExchangeType},
 };
 use crate::{

@@ -3,7 +3,7 @@ use metalmq_codec::{
     frame::{AMQPFrame, ConnectionStartArgs, MethodFrameArgs},
 };
 
-use crate::{client::channel::Channel, Result};
+use crate::{client::channel::types::Channel, Result};
 
 use super::{connection_error, types::Connection, ConnectionError};
 

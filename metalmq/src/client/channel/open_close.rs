@@ -3,7 +3,7 @@ use crate::RuntimeError;
 use crate::{ErrorScope, Result};
 use log::trace;
 
-use super::Channel;
+use super::types::Channel;
 
 impl Channel {
     pub async fn handle_connection_close(&mut self) -> Result<()> {

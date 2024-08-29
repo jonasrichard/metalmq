@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    client::tests::to_runtime_error,
+    client::to_runtime_error,
     message::{Message, MessageContent},
     tests::recv_timeout,
     ErrorScope,
@@ -372,7 +372,7 @@ async fn cannot_delete_non_empty_queue_if_empty_true() {
     let del_cmd_result = del_rx.await.unwrap();
     assert!(del_cmd_result.is_err());
 
-    let err = to_runtime_error(del_cmd_result);
+    let err = to_runtime_error(del_cmd_result.unwrap_err());
     assert_eq!(err.code, ChannelError::PreconditionFailed as u16);
     assert_eq!(err.text, "Queue is not empty".to_string());
 
@@ -518,7 +518,7 @@ async fn exclusive_cannot_be_bound_to_others_exchange() {
     println!("{:?}", res);
     assert!(res.is_err());
 
-    let err = to_runtime_error(res);
+    let err = to_runtime_error(res.unwrap_err());
     assert_eq!(err.channel, 3u16);
     assert_eq!(err.scope, ErrorScope::Channel);
     assert_eq!(err.code, ChannelError::AccessRefused as u16);
