@@ -1,24 +1,18 @@
-use std::time::Duration;
-
 use crate::{
-    client::{self, ConnectionError},
-    exchange::handler::ExchangeCommand,
-    logerr,
+    client::{connection::connection_error, ConnectionError},
     message::{Message, MessageContent},
     Result,
 };
-use log::error;
 use metalmq_codec::frame;
-use tokio::sync::{mpsc::Sender, oneshot};
 
-use super::PublishedContent;
+use super::types::PublishedContent;
 
 impl PublishedContent {
     pub fn handle_content_header(&mut self, header: frame::ContentHeaderFrame) -> Result<()> {
         // Class Id in content header must match to the class id of the method frame initiated
         // the sending of the content.
         if header.class_id != (self.method_frame_class_id >> 16) as u16 {
-            return crate::client::connection_error::<()>(
+            return connection_error(
                 self.method_frame_class_id,
                 ConnectionError::FrameError,
                 "Class ID in content header must match that of the method frame",
@@ -27,7 +21,7 @@ impl PublishedContent {
 
         // Weight must be zero.
         if header.weight != 0 {
-            return client::connection_error::<()>(
+            return connection_error(
                 self.method_frame_class_id,
                 ConnectionError::FrameError,
                 "Weight must be 0",
@@ -35,7 +29,7 @@ impl PublishedContent {
         }
 
         if header.channel == 0 {
-            return client::connection_error::<()>(
+            return connection_error(
                 self.method_frame_class_id,
                 ConnectionError::ChannelError,
                 "Channel must not be 0",
@@ -54,26 +48,26 @@ impl PublishedContent {
         Ok(())
     }
 
-    /// Send the message to an exchange or directly to the queue if the destination is the default
-    /// exchange (exchange with name `""`).
-    pub async fn send_message(message: Message, exchange_channel: &Sender<ExchangeCommand>) -> Result<()> {
-        // If message is mandatory or the channel is in confirm mode we can expect
-        // returned message.
-        let (tx, rx) = match message.mandatory || self.next_confirm_delivery_tag.contains_key(&message.channel) {
-            false => (None, None),
-            true => {
-                let (tx, rx) = oneshot::channel();
-                (Some(tx), Some(rx))
-            }
-        };
+    // Send the message to an exchange or directly to the queue if the destination is the default
+    // exchange (exchange with name `""`).
+    //pub async fn send_message(message: Message, exchange_channel: &Sender<ExchangeCommand>) -> Result<()> {
+    //    // If message is mandatory or the channel is in confirm mode we can expect
+    //    // returned message.
+    //    let (tx, rx) = match message.mandatory || self.next_confirm_delivery_tag.contains_key(&message.channel) {
+    //        false => (None, None),
+    //        true => {
+    //            let (tx, rx) = oneshot::channel();
+    //            (Some(tx), Some(rx))
+    //        }
+    //    };
 
-        let cmd = ExchangeCommand::Message { message, returned: tx };
+    //    let cmd = ExchangeCommand::Message { message, returned: tx };
 
-        // TODO is this the correct way of returning Err(_)
-        logerr!(exchange_channel.send_timeout(cmd, Duration::from_secs(1)).await);
+    //    // TODO is this the correct way of returning Err(_)
+    //    logerr!(exchange_channel.send_timeout(cmd, Duration::from_secs(1)).await);
 
-        Ok(())
-    }
+    //    Ok(())
+    //}
 }
 
 impl From<PublishedContent> for Message {

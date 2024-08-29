@@ -1,11 +1,14 @@
+use std::collections::HashMap;
+
+use crate::exchange;
+use crate::queue;
 use crate::Result;
+
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{AMQPFrame, ContentBodyFrame, ContentHeaderFrame};
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-
-use crate::queue;
 
 #[derive(Debug)]
 pub enum ChannelError {
@@ -53,26 +56,31 @@ pub struct PublishedContent {
 /// Represents a channel
 #[derive(Debug)]
 pub struct Channel {
+    pub source_connection: String,
     pub number: u16,
     pub consumed_queue: Option<ActivelyConsumedQueue>,
     pub in_flight_content: Option<PublishedContent>,
     pub confirm_mode: bool,
     pub next_confirm_delivery_tag: u64,
     pub outgoing: mpsc::Sender<Frame>,
+    pub exchanges: HashMap<String, exchange::handler::ExchangeCommandSink>,
 }
 
 impl Channel {
     pub async fn start(
+        connection_id: String,
         channel_number: u16,
         outgoing: mpsc::Sender<Frame>,
     ) -> (mpsc::Sender<AMQPFrame>, JoinHandle<Result<()>>) {
         let mut channel = Channel {
+            source_connection: connection_id,
             number: channel_number,
             consumed_queue: None,
             in_flight_content: None,
             confirm_mode: false,
             next_confirm_delivery_tag: 1u64,
             outgoing,
+            exchanges: HashMap::new(),
         };
 
         let (tx, rx) = mpsc::channel(16);

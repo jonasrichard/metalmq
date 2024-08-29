@@ -65,7 +65,7 @@ impl Connection {
     async fn start_channel(&mut self, channel: u16) -> Result<()> {
         self.handle_channel_open(channel).await?;
 
-        let (ch_tx, jh) = Channel::start(channel, self.outgoing.clone()).await;
+        let (ch_tx, jh) = Channel::start(self.id.clone(), channel, self.outgoing.clone()).await;
 
         self.channel_receivers.insert(channel, ch_tx);
         self.channel_handlers.insert(channel, jh);
