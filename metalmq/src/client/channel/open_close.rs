@@ -35,7 +35,7 @@ impl Channel {
         Ok(())
     }
 
-    pub async fn handle_channel_close(&mut self, channel: Channel) -> Result<()> {
+    pub async fn handle_channel_close(&mut self, channel: u16) -> Result<()> {
         // Cancel consumed queues on the channel
         //if let Some(cq) = self.consumed_queues.remove(&channel) {
         //    qm::cancel_consume(

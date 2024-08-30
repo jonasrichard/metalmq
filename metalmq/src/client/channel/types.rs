@@ -64,34 +64,57 @@ pub struct Channel {
     pub next_confirm_delivery_tag: u64,
     pub outgoing: mpsc::Sender<Frame>,
     pub exchanges: HashMap<String, exchange::handler::ExchangeCommandSink>,
+    pub em: exchange::manager::ExchangeManagerSink,
+    pub qm: queue::manager::QueueManagerSink,
 }
 
 impl Channel {
-    pub async fn start(
-        connection_id: String,
-        channel_number: u16,
-        outgoing: mpsc::Sender<Frame>,
-    ) -> (mpsc::Sender<AMQPFrame>, JoinHandle<Result<()>>) {
-        let mut channel = Channel {
-            source_connection: connection_id,
-            number: channel_number,
-            consumed_queue: None,
-            in_flight_content: None,
-            confirm_mode: false,
-            next_confirm_delivery_tag: 1u64,
-            outgoing,
-            exchanges: HashMap::new(),
-        };
-
-        let (tx, rx) = mpsc::channel(16);
-
-        let jh = tokio::spawn(async move { channel.handle_message(rx).await });
-
-        (tx, jh)
-    }
-
     pub async fn handle_message(&mut self, mut rx: mpsc::Receiver<AMQPFrame>) -> Result<()> {
-        while let Some(f) = rx.recv().await {}
+        while let Some(f) = rx.recv().await {
+            match f {
+                AMQPFrame::Method(ch, cm, ma) => {
+                    let result = match ma {
+                        metalmq_codec::frame::MethodFrameArgs::ChannelClose(_) => self.handle_channel_close(ch).await,
+                        metalmq_codec::frame::MethodFrameArgs::ChannelCloseOk => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::ExchangeDeclare(args) => {
+                            self.handle_exchange_declare(args).await
+                        }
+                        metalmq_codec::frame::MethodFrameArgs::ExchangeDeclareOk => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::ExchangeDelete(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::ExchangeDeleteOk => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueDeclare(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueDeclareOk(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueBind(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueBindOk => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueuePurge(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueuePurgeOk(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueDelete(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueDeleteOk(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueUnbind(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::QueueUnbindOk => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicConsume(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicConsumeOk(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicCancel(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicCancelOk(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicGet(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicGetOk(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicGetEmpty => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicPublish(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicReturn(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicDeliver(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicAck(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicReject(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::BasicNack(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::ConfirmSelect(_) => todo!(),
+                        metalmq_codec::frame::MethodFrameArgs::ConfirmSelectOk => todo!(),
+                        _ => unreachable!(),
+                    };
+                }
+                AMQPFrame::ContentHeader(_) => todo!(),
+                AMQPFrame::ContentBody(_) => todo!(),
+                _ => unreachable!(),
+            }
+        }
 
         Ok(())
     }

@@ -1,35 +1,32 @@
-use crate::tests::{
-    test_client::{unpack_frames, unpack_single_frame},
-    TestCase,
-};
+use crate::tests::{test_client::unpack_frames, TestCase};
 use metalmq_codec::frame::{self, ExchangeDeclareArgs};
 
 #[tokio::test]
 async fn bind_queue_with_validation() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut client = test_case.new_connected_client(1).await;
 
     // Normal exchange declaration sends back ExchangeDeclareOk
     let args = ExchangeDeclareArgs::default()
         .exchange_name("normal-exchange")
         .exchange_type("direct");
 
-    test_client.exchange_declare(1, args).await;
+    let exchange_declare_ok = client.send_frame_with_response(args.frame(1)).await;
 
-    let exchange_declare_ok = unpack_single_frame(test_client.recv_timeout().await.unwrap());
-
-    assert!(matches!(exchange_declare_ok, frame::AMQPFrame::Method(_, _, _)));
+    assert!(matches!(
+        exchange_declare_ok,
+        frame::AMQPFrame::Method(1, _, frame::MethodFrameArgs::ExchangeDeclareOk)
+    ));
 
     // Declaring reserved exchanges ends up in channel error
     let args = ExchangeDeclareArgs::default()
         .exchange_name("amq.reserved")
         .exchange_type("direct");
-    test_client.exchange_declare(2, args).await;
 
-    let channel_error = unpack_single_frame(test_client.recv_timeout().await.unwrap());
+    let channel_closed_error = client.send_frame_with_response(args.frame(2)).await;
 
     assert!(matches!(
-        channel_error,
+        channel_closed_error,
         frame::AMQPFrame::Method(
             2u16,
             _,
@@ -39,7 +36,8 @@ async fn bind_queue_with_validation() {
 
     // Declaring invalid exchange e.g. empty name ends up in connection error
     let args = ExchangeDeclareArgs::default();
-    let result = test_client.exchange_declare(3, args).await;
+
+    let result = client.send_frame_with_response(args.frame(3)).await;
 
     //let channel_error = to_runtime_error(result);
 
@@ -49,21 +47,21 @@ async fn bind_queue_with_validation() {
 #[tokio::test]
 async fn queue_purge_clean_the_queue() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut client = test_case.new_client();
 
     for i in 0..16 {
-        test_client
+        client
             .publish_content(1, "x-fanout", "", format!("Message #{i}").as_bytes())
             .await;
     }
 
-    test_client
+    client
         .connection
         .handle_client_frame(frame::QueuePurgeArgs::default().queue_name("q-fanout").frame(2))
         .await
         .unwrap();
 
-    let purge_ok = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let purge_ok = unpack_frames(client.recv_timeout().await.unwrap());
     assert!(matches!(
         dbg!(purge_ok).get(0).unwrap(),
         frame::AMQPFrame::Method(
@@ -77,15 +75,18 @@ async fn queue_purge_clean_the_queue() {
 #[tokio::test]
 async fn queue_delete_unbind_and_cancel_consume() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut client = test_case.new_client();
+
+    client.connect().await;
+    client.open_channel(1).await;
 
     // Declare and queue and an exchange and bind them
-    test_client
+    client
         .queue_declare(1, frame::QueueDeclareArgs::default().name("queue-delete-test"))
         .await;
-    test_client.recv_frames().await;
+    client.recv_frames().await;
 
-    test_client
+    client
         .exchange_declare(
             1,
             frame::ExchangeDeclareArgs::default()
@@ -93,9 +94,9 @@ async fn queue_delete_unbind_and_cancel_consume() {
                 .exchange_type("direct"),
         )
         .await;
-    test_client.recv_frames().await;
+    client.recv_frames().await;
 
-    test_client
+    client
         .connection
         .handle_client_frame(
             frame::QueueBindArgs::new("queue-delete-test", "exchange-delete-test")
@@ -104,7 +105,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
         )
         .await
         .unwrap();
-    test_client.recv_frames().await;
+    client.recv_frames().await;
 
     //let mut consumer = tc.new_client();
 

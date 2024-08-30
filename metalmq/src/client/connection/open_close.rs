@@ -1,12 +1,18 @@
+use std::collections::HashMap;
+
 use log::{debug, info, trace, warn};
 use metalmq_codec::{
     codec::Frame,
     frame::{self, ConnectionCloseArgs, ConnectionOpenArgs, ConnectionStartOkArgs, ConnectionTuneOkArgs},
 };
+use tokio::sync::mpsc;
 
 use super::{connection_error_frame, types::Connection, ConnectionError};
 use crate::{
-    client::{channel::runtime_error_to_frame, connection::connection_error},
+    client::{
+        channel::{runtime_error_to_frame, types::Channel},
+        connection::connection_error,
+    },
     ErrorScope, Result, RuntimeError,
 };
 

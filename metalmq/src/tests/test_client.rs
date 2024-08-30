@@ -16,20 +16,21 @@ pub struct TestClient {
 
 impl TestClient {
     pub async fn connect(&mut self) {
-        let frames = vec![
-            frame::ConnectionStartOkArgs::new("admin", "admin").frame(),
-            frame::connection_tune_ok(),
-            frame::ConnectionOpenArgs {
-                virtual_host: "/".into(),
-                insist: false,
-            }
-            .frame(),
-        ];
+        let _connection_start = self.send_frame_with_response(frame::AMQPFrame::Header).await;
+        let _connection_tune = self
+            .send_frame_with_response(frame::ConnectionStartOkArgs::new("guest", "guest").frame())
+            .await;
 
-        for f in frames {
-            self.connection.handle_client_frame(f).await.unwrap();
-            self.recv_single_frame().await;
-        }
+        self.send_frame(frame::connection_tune_ok()).await;
+        let _connection_open_ok = self
+            .send_frame_with_response(
+                frame::ConnectionOpenArgs {
+                    virtual_host: "/".into(),
+                    insist: false,
+                }
+                .frame(),
+            )
+            .await;
     }
 
     pub async fn open_channel(&mut self, channel: u16) {
@@ -38,6 +39,18 @@ impl TestClient {
             .await
             .unwrap();
         self.conn_rx.recv().await.unwrap();
+    }
+
+    /// Send frame to client state machine.
+    pub async fn send_frame(&mut self, f: AMQPFrame) {
+        self.connection.handle_client_frame(f).await.unwrap();
+    }
+
+    /// Send frame to client state machine and wait for the response frame.
+    pub async fn send_frame_with_response(&mut self, f: AMQPFrame) -> AMQPFrame {
+        self.connection.handle_client_frame(f).await.unwrap();
+
+        self.recv_single_frame().await
     }
 
     pub async fn exchange_declare(&mut self, channel: u16, args: frame::ExchangeDeclareArgs) {

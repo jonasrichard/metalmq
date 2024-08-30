@@ -65,6 +65,15 @@ impl TestCase {
         }
     }
 
+    async fn new_connected_client(&self, channel: u16) -> TestClient {
+        let mut client = self.new_client();
+
+        client.connect().await;
+        client.open_channel(channel).await;
+
+        client
+    }
+
     async fn setup(mut self) -> Self {
         self.exchange_declare("x-direct", ExchangeType::Direct).await;
         self.exchange_declare("x-fanout", ExchangeType::Fanout).await;

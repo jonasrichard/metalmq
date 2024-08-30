@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use metalmq_codec::{
     codec::Frame,
     frame::{AMQPFrame, ConnectionStartArgs, MethodFrameArgs},
 };
+use tokio::sync::mpsc;
 
 use crate::{client::channel::types::Channel, Result};
 
@@ -62,13 +65,28 @@ impl Connection {
         }
     }
 
-    async fn start_channel(&mut self, channel: u16) -> Result<()> {
-        self.handle_channel_open(channel).await?;
+    async fn start_channel(&mut self, channel_number: u16) -> Result<()> {
+        self.handle_channel_open(channel_number).await?;
 
-        let (ch_tx, jh) = Channel::start(self.id.clone(), channel, self.outgoing.clone()).await;
+        let mut channel = Channel {
+            source_connection: self.id.clone(),
+            number: channel_number,
+            consumed_queue: None,
+            in_flight_content: None,
+            confirm_mode: false,
+            next_confirm_delivery_tag: 1u64,
+            outgoing: self.outgoing.clone(),
+            exchanges: HashMap::new(),
+            em: self.em.clone(),
+            qm: self.qm.clone(),
+        };
 
-        self.channel_receivers.insert(channel, ch_tx);
-        self.channel_handlers.insert(channel, jh);
+        let (tx, rx) = mpsc::channel(16);
+
+        let jh = tokio::spawn(async move { channel.handle_message(rx).await });
+
+        self.channel_receivers.insert(channel_number, tx);
+        self.channel_handlers.insert(channel_number, jh);
 
         Ok(())
     }
