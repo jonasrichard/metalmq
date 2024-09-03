@@ -1,19 +1,12 @@
-use std::collections::HashMap;
-
-use log::{debug, info, trace, warn};
+use log::{info, trace, warn};
 use metalmq_codec::{
     codec::Frame,
     frame::{self, ConnectionCloseArgs, ConnectionOpenArgs, ConnectionStartOkArgs, ConnectionTuneOkArgs},
 };
-use tokio::sync::mpsc;
 
-use super::{connection_error_frame, types::Connection, ConnectionError};
 use crate::{
-    client::{
-        channel::{runtime_error_to_frame, types::Channel},
-        connection::connection_error,
-    },
-    ErrorScope, Result, RuntimeError,
+    client::connection::types::Connection,
+    error::{ConnectionError, Result},
 };
 
 impl Connection {
@@ -40,14 +33,10 @@ impl Connection {
 
         match authenticated {
             true => self.send_frame(Frame::Frame(frame::connection_tune())).await,
-            false => {
-                self.send_frame(connection_error_frame(
-                    0u32,
-                    ConnectionError::AccessRefused,
-                    "ACCESS_REFUSED - Username and password are incorrect",
-                ))
-                .await
-            }
+            false => ConnectionError::AccessRefused.to_result(
+                frame::CONNECTION_START_OK,
+                "ACCESS_REFUSED - Username and password are incorrect",
+            ),
         }
     }
 
@@ -75,12 +64,7 @@ impl Connection {
         // TODO in case of virtual host which exists but the client doesn't have permission to work
         // with we need to send back an access-refused connection error.
         if args.virtual_host != "/" {
-            self.send_frame(connection_error_frame(
-                frame::CONNECTION_OPEN,
-                ConnectionError::InvalidPath,
-                "Cannot connect to virtualhost",
-            ))
-            .await
+            ConnectionError::InvalidPath.to_result(frame::CONNECTION_OPEN, "Cannot connect to virtualhost")
         } else {
             self.send_frame(Frame::Frame(frame::connection_open_ok())).await
         }
@@ -103,13 +87,8 @@ impl Connection {
         if channel > self.channel_max {
             warn!("Channel number is too big: {channel}");
 
-            let err = connection_error(
-                frame::CHANNEL_OPEN,
-                ConnectionError::NotAllowed,
-                "NOT_ALLOWED - Channel number is too large",
-            );
-
-            return err;
+            return ConnectionError::NotAllowed
+                .to_result(frame::CHANNEL_OPEN, "NOT_ALLOWED - Channel number is too large");
         }
 
         self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
@@ -176,30 +155,30 @@ impl Connection {
         Ok(())
     }
 
-    /// Handle a runtime error a connection or a channel error. At first it sends the error frame
-    /// and then handle the closing of a channel or connection depending what kind of exception
-    /// happened.
-    ///
-    /// This function just sends out the error frame and return with `Err` if it is a connection
-    /// error, or it returns with `Ok` if it is a channel error. This is handy if we want to handle
-    /// the output with a `?` operator and we want to die in case of a connection error (aka we
-    /// want to propagate the error to the client handler).
-    pub async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
-        trace!("Handling error {:?}", err);
+    // Handle a runtime error a connection or a channel error. At first it sends the error frame
+    // and then handle the closing of a channel or connection depending what kind of exception
+    // happened.
+    //
+    // This function just sends out the error frame and return with `Err` if it is a connection
+    // error, or it returns with `Ok` if it is a channel error. This is handy if we want to handle
+    // the output with a `?` operator and we want to die in case of a connection error (aka we
+    // want to propagate the error to the client handler).
+    //async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
+    //    trace!("Handling error {:?}", err);
 
-        self.send_frame(runtime_error_to_frame(&err)).await?;
+    //    self.send_frame(runtime_error_to_frame(&err)).await?;
 
-        match err.scope {
-            ErrorScope::Connection => {
-                self.close().await?;
+    //    match err.scope {
+    //        ErrorScope::Connection => {
+    //            self.close().await?;
 
-                Err(Box::new(err))
-            }
-            ErrorScope::Channel => {
-                self.close_channel(err.channel).await?;
+    //            Err(Box::new(err))
+    //        }
+    //        ErrorScope::Channel => {
+    //            self.close_channel(err.channel).await?;
 
-                Ok(())
-            }
-        }
-    }
+    //            Ok(())
+    //        }
+    //    }
+    //}
 }

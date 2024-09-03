@@ -1,8 +1,8 @@
 use metalmq_codec::{codec::Frame, frame};
 
 use crate::{
+    error::Result,
     exchange::{self, manager::DeclareExchangeCommand},
-    Result,
 };
 
 use super::types::Channel;

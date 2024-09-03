@@ -1,9 +1,5 @@
-use crate::client::channel::runtime_error_to_frame;
-use crate::RuntimeError;
-use crate::{ErrorScope, Result};
-use log::trace;
-
 use super::types::Channel;
+use crate::error::Result;
 
 impl Channel {
     pub async fn handle_connection_close(&mut self) -> Result<()> {

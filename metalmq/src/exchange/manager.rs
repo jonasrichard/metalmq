@@ -1,12 +1,12 @@
 use crate::{
-    client::{channel, channel::types::ChannelError},
+    client::channel,
+    error::{ChannelError, Result},
     exchange::{
         handler::{self, ExchangeCommand, ExchangeCommandSink, QueueUnbindCmd},
         Exchange,
     },
     logerr,
     queue::handler::QueueCommandSink,
-    Result,
 };
 use log::{debug, error, info, warn};
 use metalmq_codec::{codec::Frame, frame};
@@ -209,18 +209,16 @@ impl ExchangeManagerState {
         validate_exchange_name(command.channel, &command.exchange.name)?;
 
         match self.exchanges.get(&command.exchange.name) {
-            None if command.passive => channel::channel_error(
+            None if command.passive => ChannelError::NotFound.to_result(
                 command.channel,
                 frame::EXCHANGE_DECLARE,
-                ChannelError::NotFound,
                 &format!("NOT_FOUND - no exchange '{}' in vhost '/'", command.exchange.name),
             ),
             Some(exchg) => {
                 if exchg.exchange != command.exchange {
-                    channel::channel_error(
+                    ChannelError::PreconditionFailed.to_result(
                         command.channel,
                         frame::EXCHANGE_DECLARE,
-                        ChannelError::PreconditionFailed,
                         "PRECONDITION_FAILED - Exchange exists but properties are different",
                     )
                 } else {
@@ -270,7 +268,7 @@ impl ExchangeManagerState {
             None => {
                 warn!("Exchange not found {}", command.exchange_name);
 
-                channel::channel_error(command.channel, frame::QUEUE_BIND, ChannelError::NotFound, "Not found")
+                ChannelError::NotFound.to_result(command.channel, frame::QUEUE_BIND, "Not found")
             }
         }
     }
@@ -292,12 +290,7 @@ impl ExchangeManagerState {
                 exchange_state.command_sink.send(cmd).await?;
                 rx.await?.map(|_| ())
             }
-            None => channel::channel_error(
-                command.channel,
-                frame::QUEUE_UNBIND,
-                ChannelError::NotFound,
-                "Exchange not found",
-            ),
+            None => ChannelError::NotFound.to_result(command.channel, frame::QUEUE_UNBIND, "Exchange not found"),
         }
 
         // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
@@ -323,12 +316,7 @@ impl ExchangeManagerState {
 
             delete_result
         } else {
-            channel::channel_error(
-                command.channel,
-                frame::EXCHANGE_DELETE,
-                ChannelError::NotFound,
-                "Exchange not found",
-            )
+            ChannelError::NotFound.to_result(command.channel, frame::EXCHANGE_DELETE, "Exchange not found")
         }
     }
 
@@ -366,10 +354,9 @@ fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
 
     for c in exchange_name.chars() {
         if !c.is_alphanumeric() && spec.find(c).is_none() {
-            return channel::channel_error(
+            return ChannelError::PreconditionFailed.to_result(
                 channel,
                 frame::EXCHANGE_DECLARE,
-                ChannelError::PreconditionFailed,
                 "PRECONDITION_FAILED - Exchange contains invalid character",
             );
         }
@@ -381,8 +368,8 @@ fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{ErrorScope, RuntimeError};
     use crate::exchange::ExchangeType;
-    use crate::{ErrorScope, RuntimeError};
 
     #[tokio::test]
     async fn passive_declare_exchange_does_not_exists_channel_error() {

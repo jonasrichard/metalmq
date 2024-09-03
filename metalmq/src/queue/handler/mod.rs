@@ -6,7 +6,7 @@ mod outbox;
 mod tests;
 
 use crate::{
-    client::channel::{channel_error, types::ChannelError},
+    error::ChannelError,
     exchange::{
         handler::QueueInfo,
         manager::{self as em, ExchangeManagerSink, QueueDeletedEvent},
@@ -348,10 +348,9 @@ impl QueueState {
             } => {
                 if self.declaring_connection != conn_id {
                     result
-                        .send(channel_error(
+                        .send(ChannelError::AccessRefused.to_result(
                             channel,
                             frame::QUEUE_BIND,
-                            ChannelError::AccessRefused,
                             "Exclusive queue belongs to another connection",
                         ))
                         .unwrap();
@@ -405,17 +404,15 @@ impl QueueState {
                 );
 
                 if self.queue.exclusive && self.declaring_connection != conn_id {
-                    logerr!(result.send(channel_error(
+                    logerr!(result.send(ChannelError::ResourceLocked.to_result(
                         channel,
                         frame::BASIC_CONSUME,
-                        ChannelError::ResourceLocked,
                         "Cannot consume exclusive queue"
                     )));
                 } else if exclusive && !self.consumers.is_empty() {
-                    logerr!(result.send(channel_error(
+                    logerr!(result.send(ChannelError::AccessRefused.to_result(
                         channel,
                         frame::BASIC_CONSUME,
-                        ChannelError::AccessRefused,
                         "Queue is already consumed, cannot consume exclusively"
                     )));
                 } else {
@@ -478,10 +475,9 @@ impl QueueState {
                 result,
             } => {
                 if self.queue.exclusive && conn_id != self.declaring_connection {
-                    logerr!(result.send(channel_error(
+                    logerr!(result.send(ChannelError::ResourceLocked.to_result(
                         channel,
                         frame::QUEUE_PURGE,
-                        ChannelError::ResourceLocked,
                         "Cannot purge exclusive queue"
                     )));
                 } else {
@@ -537,10 +533,9 @@ impl QueueState {
     async fn handle_passive_consume(&mut self, cmd: PassiveConsumeCmd) -> Result<()> {
         if self.queue.exclusive && cmd.conn_id != self.declaring_connection {
             cmd.result
-                .send(channel_error(
+                .send(ChannelError::ResourceLocked.to_result(
                     cmd.channel,
                     frame::BASIC_GET,
-                    ChannelError::ResourceLocked,
                     &format!("Queue {} is an exclusive queue of another connection", self.queue.name),
                 ))
                 .unwrap();
@@ -550,10 +545,9 @@ impl QueueState {
 
         if self.consumers.iter().any(|c| c.exclusive) {
             cmd.result
-                .send(channel_error(
+                .send(ChannelError::AccessRefused.to_result(
                     cmd.channel,
                     frame::BASIC_GET,
-                    ChannelError::AccessRefused,
                     &format!(
                         "Queue {} is already exclusively consumed by another connection",
                         self.queue.name
@@ -670,10 +664,9 @@ impl QueueState {
         info!("Queue {} is about to be deleted", self.queue.name);
 
         if self.queue.exclusive && cmd.conn_id != self.declaring_connection {
-            logerr!(cmd.result.send(channel_error(
+            logerr!(cmd.result.send(ChannelError::ResourceLocked.to_result(
                 cmd.channel,
                 frame::QUEUE_PURGE,
-                ChannelError::ResourceLocked,
                 "Cannot delete exclusive queue"
             )));
 
@@ -684,10 +677,9 @@ impl QueueState {
         // queue, and we cannot delete if it is used, send back and error.
         if cmd.if_unused {
             if !self.consumers.is_empty() || !self.candidate_consumers.is_empty() {
-                logerr!(cmd.result.send(channel_error(
+                logerr!(cmd.result.send(ChannelError::PreconditionFailed.to_result(
                     cmd.channel,
                     frame::QUEUE_DELETE,
-                    ChannelError::PreconditionFailed,
                     "Queue is consumed"
                 )));
 
@@ -695,10 +687,9 @@ impl QueueState {
             }
 
             if !self.bound_exchanges.is_empty() {
-                logerr!(cmd.result.send(channel_error(
+                logerr!(cmd.result.send(ChannelError::PreconditionFailed.to_result(
                     cmd.channel,
                     frame::QUEUE_DELETE,
-                    ChannelError::PreconditionFailed,
                     "Exchanges are bound to this queue"
                 )));
 
@@ -707,10 +698,9 @@ impl QueueState {
         }
 
         if cmd.if_empty && !self.messages.is_empty() {
-            logerr!(cmd.result.send(channel_error(
+            logerr!(cmd.result.send(ChannelError::PreconditionFailed.to_result(
                 cmd.channel,
                 frame::QUEUE_DELETE,
-                ChannelError::PreconditionFailed,
                 "Queue is not empty"
             )));
 
@@ -772,10 +762,9 @@ impl QueueState {
                 .any(|c| c.consumer_tag == cmd.consumer_tag && c.delivery_tag_counter > cmd.delivery_tag)
         {
             cmd.result
-                .send(channel_error(
+                .send(ChannelError::PreconditionFailed.to_result(
                     cmd.channel,
                     frame::BASIC_ACK,
-                    ChannelError::PreconditionFailed,
                     &format!(
                         "Client acked a non-delivered message with delivery tag {}",
                         cmd.delivery_tag
@@ -793,10 +782,9 @@ impl QueueState {
             cmd.result.send(Ok(())).unwrap();
         } else {
             cmd.result
-                .send(channel_error(
+                .send(ChannelError::PreconditionFailed.to_result(
                     cmd.channel,
                     frame::BASIC_ACK,
-                    ChannelError::PreconditionFailed,
                     &format!("Message is already acked with delivery tag {}", cmd.delivery_tag),
                 ))
                 .unwrap();

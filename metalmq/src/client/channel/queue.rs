@@ -1,8 +1,7 @@
 use metalmq_codec::frame;
 
-use crate::Result;
-
-use super::types::Channel;
+use crate::client::channel::types::Channel;
+use crate::error::Result;
 
 impl Channel {
     pub async fn queue_declare(&mut self, channel: Channel, args: frame::QueueDeclareArgs) -> Result<()> {

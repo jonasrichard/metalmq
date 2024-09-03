@@ -1,5 +1,6 @@
 mod client;
 mod config;
+mod error;
 mod exchange;
 mod message;
 mod queue;
@@ -8,56 +9,18 @@ mod restapi;
 #[cfg(test)]
 pub mod tests;
 
+use crate::error::Result;
 use hyper::{server::conn::http1, service::service_fn};
 use hyper_util::rt::TokioIo;
 use log::{error, info};
-use std::{fmt, io::Write, net::SocketAddr, sync::Arc};
+use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::{net::TcpListener, signal};
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Clone)]
 pub struct Context {
     pub exchange_manager: exchange::manager::ExchangeManagerSink,
     pub queue_manager: queue::manager::QueueManagerSink,
 }
-
-#[derive(Debug, Default, PartialEq)]
-pub enum ErrorScope {
-    #[default]
-    Connection,
-    Channel,
-}
-
-#[derive(Debug, Default)]
-pub struct RuntimeError {
-    pub scope: ErrorScope,
-    pub channel: metalmq_codec::frame::Channel,
-    pub code: u16,
-    pub text: String,
-    pub class_method: u32,
-}
-
-impl From<RuntimeError> for metalmq_codec::frame::AMQPFrame {
-    fn from(err: RuntimeError) -> metalmq_codec::frame::AMQPFrame {
-        match err.scope {
-            ErrorScope::Connection => metalmq_codec::frame::connection_close(err.code, &err.text, err.class_method),
-            ErrorScope::Channel => {
-                metalmq_codec::frame::channel_close(err.channel, err.code, &err.text, err.class_method)
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl std::error::Error for RuntimeError {}
 
 #[macro_export]
 macro_rules! chk {

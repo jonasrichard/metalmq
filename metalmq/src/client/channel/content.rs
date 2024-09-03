@@ -1,7 +1,6 @@
 use crate::{
-    client::{connection::connection_error, ConnectionError},
+    error::{connection_error, ConnectionError, Result},
     message::{Message, MessageContent},
-    Result,
 };
 use metalmq_codec::frame;
 

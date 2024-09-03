@@ -9,7 +9,7 @@
 /// or they need to check if the queue sink is closed, not to get `SendError`.
 use crate::{
     chk,
-    client::channel::{channel_error, types::ChannelError},
+    error::ChannelError,
     exchange::manager::ExchangeManagerSink,
     logerr,
     queue::{
@@ -265,19 +265,17 @@ impl QueueManagerState {
             Some(qi) => {
                 if command.passive {
                     if qi.queue.exclusive && command.conn_id != qi.declaring_connection {
-                        channel_error(
+                        ChannelError::ResourceLocked.to_result(
                             command.channel,
                             frame::QUEUE_DECLARE,
-                            ChannelError::ResourceLocked,
                             &format!("Queue {} is declared by another connection already", command.queue.name),
                         )?;
                     }
 
                     if qi.queue.durable != command.queue.durable || qi.queue.auto_delete != command.queue.auto_delete {
-                        channel_error(
+                        ChannelError::PreconditionFailed.to_result(
                             command.channel,
                             frame::QUEUE_DECLARE,
-                            ChannelError::PreconditionFailed,
                             &format!(
                                 "Queue {} is already declared with different properties",
                                 command.queue.name
@@ -295,19 +293,17 @@ impl QueueManagerState {
             }
             None => {
                 if command.passive {
-                    channel_error(
+                    ChannelError::NotFound.to_result(
                         command.channel,
                         frame::QUEUE_DECLARE,
-                        ChannelError::NotFound,
                         &format!("Queue {} cannot be found", command.queue.name),
                     )?;
                 }
 
                 if !validate_queue_name(&command.queue.name) {
-                    channel_error(
+                    ChannelError::PreconditionFailed.to_result(
                         command.channel,
                         frame::QUEUE_DECLARE,
-                        ChannelError::PreconditionFailed,
                         &format!("Queue name {} is not valid", command.queue.name),
                     )?;
                 }
@@ -350,12 +346,7 @@ impl QueueManagerState {
 
                 rx.await?
             }
-            None => channel_error(
-                command.channel,
-                frame::QUEUE_DELETE,
-                ChannelError::NotFound,
-                "Not found",
-            ),
+            None => ChannelError::NotFound.to_result(command.channel, frame::QUEUE_DELETE, "Not found"),
         }
     }
 
@@ -386,12 +377,7 @@ impl QueueManagerState {
 
                 Ok(queue.command_sink.clone())
             }
-            None => channel_error(
-                command.channel,
-                frame::BASIC_CONSUME,
-                ChannelError::NotFound,
-                "Not found",
-            ),
+            None => ChannelError::NotFound.to_result(command.channel, frame::BASIC_CONSUME, "Not found"),
         }
     }
 
@@ -417,12 +403,7 @@ impl QueueManagerState {
     fn handle_get_command_sink(&self, command: GetQueueSinkQuery) -> Result<QueueCommandSink> {
         match self.queues.get(&command.queue_name) {
             Some(queue) => Ok(queue.command_sink.clone()),
-            None => channel_error(
-                command.channel,
-                frame::QUEUE_DECLARE,
-                ChannelError::NotFound,
-                "Not found",
-            ),
+            None => ChannelError::NotFound.to_result(command.channel, frame::QUEUE_DECLARE, "Not found"),
         }
     }
 
@@ -461,7 +442,7 @@ fn validate_queue_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ErrorScope, RuntimeError};
+    use crate::error::{ErrorScope, RuntimeError};
 
     use super::*;
 

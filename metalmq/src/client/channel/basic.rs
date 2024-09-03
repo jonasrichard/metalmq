@@ -2,13 +2,9 @@ use log::error;
 use metalmq_codec::frame;
 
 use crate::{
-    client::{
-        channel::{channel_error, types::ChannelError},
-        connection::{connection_error, ConnectionError},
-    },
+    error::{ChannelError, ConnectionError, Result},
     exchange::handler::ExchangeCommand,
     message::Message,
-    Result,
 };
 
 use super::types::{Channel, PublishedContent};
@@ -21,11 +17,7 @@ impl Channel {
         //exchange.send(cmd).await.unwrap();
 
         if self.in_flight_content.is_some() {
-            return connection_error(
-                frame::BASIC_PUBLISH,
-                ConnectionError::UnexpectedFrame,
-                "Already publish message arrived",
-            );
+            return ConnectionError::UnexpectedFrame.to_result(frame::BASIC_PUBLISH, "Already publish message arrived");
         }
 
         let flags = args.flags;
@@ -76,7 +68,7 @@ impl Channel {
 
     pub async fn handle_content_header(&mut self, header: frame::ContentHeaderFrame) -> Result<()> {
         if self.in_flight_content.is_none() {
-            return connection_error(0, ConnectionError::UnexpectedFrame, "Unexpected content header");
+            return ConnectionError::UnexpectedFrame.to_result(0, "Unexpected content header");
         }
 
         if let Some(content) = &mut self.in_flight_content {
@@ -92,12 +84,7 @@ impl Channel {
         if body.body.len() > 131_072 {
             error!("Content is too large {}", body.body.len());
 
-            return channel_error(
-                channel,
-                frame::BASIC_PUBLISH,
-                ChannelError::ContentTooLarge,
-                "Body is too long",
-            );
+            return ChannelError::ContentTooLarge.to_result(channel, frame::BASIC_PUBLISH, "Body is too long");
         }
 
         if let Some(pc) = &mut self.in_flight_content {

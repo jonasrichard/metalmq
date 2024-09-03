@@ -1,9 +1,8 @@
 use super::*;
 use crate::{
-    client::to_runtime_error,
+    error::{to_runtime_error, ErrorScope},
     message::{Message, MessageContent},
     tests::recv_timeout,
-    ErrorScope,
 };
 use metalmq_codec::{codec::Frame, frame::AMQPFrame};
 use std::sync::Arc;

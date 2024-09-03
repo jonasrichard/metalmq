@@ -1,25 +1,13 @@
 use std::collections::HashMap;
 
+use crate::error::Result;
 use crate::exchange;
 use crate::queue;
-use crate::Result;
 
 use metalmq_codec::codec::Frame;
 use metalmq_codec::frame::{AMQPFrame, ContentBodyFrame, ContentHeaderFrame};
 
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-
-#[derive(Debug)]
-pub enum ChannelError {
-    ContentTooLarge = 311,
-    NoRoute = 312,
-    NoConsumers = 313,
-    AccessRefused = 403,
-    NotFound = 404,
-    ResourceLocked = 405,
-    PreconditionFailed = 406,
-}
 
 /// Queues consumed by the connection with Basic.Consume
 #[derive(Debug)]

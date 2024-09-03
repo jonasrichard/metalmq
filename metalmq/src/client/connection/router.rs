@@ -6,22 +6,61 @@ use metalmq_codec::{
 };
 use tokio::sync::mpsc;
 
-use crate::{client::channel::types::Channel, Result};
-
-use super::{connection_error, types::Connection, ConnectionError};
+use crate::{
+    client::{channel::types::Channel, connection::types::Connection},
+    error::{to_runtime_error, ConnectionError, ErrorScope, Result, RuntimeError},
+};
 
 impl Connection {
     pub async fn handle_client_frame(&mut self, f: AMQPFrame) -> Result<()> {
+        // TODO here we need to handle the error
+        // if it is connection error, close the conn and before sending the connection close
+        // message, send all the cleaning, like channel close, basic consume end, ets
+        // if it is a channel error, close the channel only and send out the channel close message
+        //
+        // if it is other error, log it and close the connection
         use AMQPFrame::*;
 
-        match &f {
+        let result = match &f {
             Header => self.send_frame(Frame::Frame(ConnectionStartArgs::new().frame())).await,
             Method(_, _, _) => self.handle_method_frame(f).await,
             ContentHeader(ch) => self.send_command_to_channel(ch.channel, f).await,
             ContentBody(cb) => self.send_command_to_channel(cb.channel, f).await,
             Heartbeat(0) => Ok(()),
-            Heartbeat(_) => connection_error(0, ConnectionError::FrameError, "Heartbeat must have channel 0"),
+            Heartbeat(_) => ConnectionError::FrameError.to_result(0, "Heartbeat must have channel 0"),
+        };
+
+        // How to implement normal stop of connection? How to get out of the loop?
+
+        if let Err(e) = result {
+            let rte = to_runtime_error(e);
+
+            match rte {
+                RuntimeError {
+                    scope: ErrorScope::Connection,
+                    ..
+                } => {
+                    let _r2 = self.close().await;
+
+                    self.send_frame(rte.into()).await;
+                    // if it fails we just return with an error so loop will close everything
+                }
+
+                RuntimeError {
+                    scope: ErrorScope::Channel,
+                    channel,
+                    ..
+                } => {
+                    let r2 = self.close_channel(channel).await;
+
+                    if let Err(_e) = r2 {
+                        // close connection and send out error frame
+                    }
+                }
+            };
         }
+
+        Ok(())
     }
 
     async fn handle_method_frame(&mut self, f: AMQPFrame) -> Result<()> {
@@ -35,11 +74,7 @@ impl Connection {
             0x000A => self.handle_connection_command(f).await,
             _ if *class_method == metalmq_codec::frame::CHANNEL_OPEN => {
                 if self.channel_receivers.contains_key(channel) {
-                    connection_error(
-                        *class_method,
-                        ConnectionError::ChannelError,
-                        "CHANNEL_ERROR - Channel is already opened",
-                    )
+                    ConnectionError::ChannelError.to_result(*class_method, "CHANNEL_ERROR - Channel is already opened")
                 } else {
                     self.start_channel(*channel).await
                 }
@@ -102,7 +137,7 @@ impl Connection {
         if let Some(ch_tx) = self.channel_receivers.get(&ch) {
             ch_tx.send(f).await?;
         } else {
-            return connection_error(0, ConnectionError::ChannelError, "No such channel");
+            return ConnectionError::ChannelError.to_result(0, "No such channel");
         }
 
         Ok(())

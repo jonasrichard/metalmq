@@ -2,7 +2,8 @@
 mod tests;
 
 use crate::{
-    client::{channel, channel::types::ChannelError},
+    client::channel,
+    error::ChannelError,
     exchange::{binding::Bindings, Exchange, ExchangeType},
 };
 use crate::{
@@ -156,22 +157,12 @@ impl ExchangeState {
         match cmd.sink.send(QueueCommand::GetInfo { result: queue_info_tx }).await {
             Err(_) => cmd
                 .result
-                .send(channel::channel_error(
-                    cmd.channel,
-                    frame::QUEUE_BIND,
-                    ChannelError::NotFound,
-                    "Queue cannot be found",
-                ))
+                .send(ChannelError::NotFound.to_result(cmd.channel, frame::QUEUE_BIND, "Queue cannot be found"))
                 .unwrap(),
             Ok(()) => match queue_info_rx.await {
                 Err(_) => {
                     cmd.result
-                        .send(channel::channel_error(
-                            cmd.channel,
-                            frame::QUEUE_BIND,
-                            ChannelError::NotFound,
-                            "Queue cannot be found",
-                        ))
+                        .send(ChannelError::NotFound.to_result(cmd.channel, frame::QUEUE_BIND, "Queue cannot be found"))
                         .unwrap();
                 }
                 Ok(queue_info) => {
@@ -179,10 +170,9 @@ impl ExchangeState {
 
                     if queue_info.exclusive && cmd.conn_id != queue_info.declaring_connection {
                         cmd.result
-                            .send(channel::channel_error(
+                            .send(ChannelError::ResourceLocked.to_result(
                                 cmd.channel,
                                 frame::QUEUE_BIND,
-                                ChannelError::ResourceLocked,
                                 "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
                             another connection",
                             ))
@@ -289,12 +279,8 @@ impl ExchangeState {
 
                 false
             } else {
-                let err = channel::channel_error(
-                    channel,
-                    frame::EXCHANGE_DELETE,
-                    ChannelError::PreconditionFailed,
-                    "Exchange is in use",
-                );
+                let err =
+                    ChannelError::PreconditionFailed.to_result(channel, frame::EXCHANGE_DELETE, "Exchange is in use");
 
                 logerr!(result.send(err));
 

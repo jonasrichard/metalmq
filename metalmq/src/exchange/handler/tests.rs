@@ -1,6 +1,6 @@
 use super::QueueBindCmd;
 use crate::{
-    client::{channel::types::ChannelError, to_runtime_error},
+    error::{to_runtime_error, ChannelError, ErrorScope, Result},
     exchange::{
         binding::Bindings,
         handler::{ExchangeCommand, ExchangeState, QueueUnbindCmd},
@@ -11,7 +11,6 @@ use crate::{
         handler::{self, QueueCommand, QueueCommandSink},
         Queue,
     },
-    ErrorScope, Result,
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};

@@ -1,6 +1,7 @@
 use crate::{
-    client::{connection::types::Connection, to_runtime_error},
-    Context, Result,
+    client::connection::types::Connection,
+    error::{to_runtime_error, Result},
+    Context,
 };
 use futures::{
     stream::{SplitSink, SplitStream, StreamExt},
@@ -93,7 +94,8 @@ async fn incoming_loop_with_heartbeat(
                         last_message_received = tokio::time::Instant::now();
 
                         if let Err(e) = data {
-                            conn.handle_error(to_runtime_error(Box::new(e))).await?;
+                            // EXPLAINATION this is handled by the Connection.handle_client_frame
+                            //conn.handle_error(to_runtime_error(Box::new(e))).await?;
 
                             break 'input Ok(());
                         }
@@ -105,7 +107,9 @@ async fn incoming_loop_with_heartbeat(
                             Ok(false) => break 'input Ok(()),
                             Ok(true) => (),
                             Err(e) => {
-                                conn.handle_error(to_runtime_error(e)).await?;
+                                // EXPLAINATION this is handled by the Connection.handle_client_frame
+                                // TODO what is this???
+                                //conn.handle_error(to_runtime_error(e)).await?;
                             }
                         }
                     }

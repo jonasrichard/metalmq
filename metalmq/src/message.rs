@@ -1,13 +1,16 @@
 //! Messages are sent to exchanges and forwarded to queues. There is a
 //! possibility to state that a message is processed via an oneshot channel.
-use crate::client::channel::types::ChannelError;
-use crate::queue::handler::FrameSink;
-use crate::queue::handler::Tag;
-use crate::{chk, send, Result};
-use metalmq_codec::codec::Frame;
-use metalmq_codec::frame::{self, AMQPFrame};
-use std::fmt;
-use std::sync::Arc;
+use crate::{
+    chk,
+    error::ChannelError,
+    queue::handler::{FrameSink, Tag},
+    send, Result,
+};
+use metalmq_codec::{
+    codec::Frame,
+    frame::{self, AMQPFrame},
+};
+use std::{fmt, sync::Arc};
 
 #[derive(Clone, Default)]
 pub struct Message {

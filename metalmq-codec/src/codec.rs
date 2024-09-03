@@ -115,6 +115,12 @@ impl Decoder for AMQPCodec {
     }
 }
 
+impl From<AMQPFrame> for Frame {
+    fn from(value: AMQPFrame) -> Self {
+        Frame::Frame(value)
+    }
+}
+
 /// Check if the buffer contains the full frame. We can do that easily since
 /// most of the time the frame contains the length information.
 fn is_full_frame(src: &BytesMut) -> bool {
