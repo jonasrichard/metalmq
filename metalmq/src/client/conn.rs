@@ -52,7 +52,7 @@ async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<Tcp
         trace!("Incoming {data:?}");
 
         if let Err(e) = data {
-            conn.handle_error(to_runtime_error(Box::new(e))).await?;
+            //conn.handle_error(to_runtime_error(Box::new(e))).await?;
 
             break;
         }
@@ -62,7 +62,7 @@ async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<Tcp
             Ok(false) => break,
             Ok(true) => (),
             Err(e) => {
-                conn.handle_error(to_runtime_error(e)).await?;
+                //conn.handle_error(to_runtime_error(e)).await?;
             }
         }
     }

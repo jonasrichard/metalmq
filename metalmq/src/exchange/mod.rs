@@ -8,7 +8,8 @@ pub mod handler;
 pub mod manager;
 
 use crate::{
-    client::{channel, channel::types::ChannelError, connection, connection::ConnectionError},
+    client::{channel, connection},
+    error::{ChannelError, ConnectionError},
     Result,
 };
 use metalmq_codec::frame::{self, Channel, ExchangeDeclareArgs, ExchangeDeclareFlags};
@@ -62,10 +63,9 @@ impl FromStr for ExchangeType {
 
 pub fn validate_exchange_name(channel: Channel, exchange_name: &str) -> Result<()> {
     if exchange_name.starts_with("amq.") {
-        return channel::channel_error(
+        return ChannelError::AccessRefused.to_result(
             channel,
             frame::EXCHANGE_DECLARE,
-            ChannelError::AccessRefused,
             "ACCESS_REFUSED - Exchange name is reserved",
         );
     }
@@ -76,11 +76,8 @@ pub fn validate_exchange_name(channel: Channel, exchange_name: &str) -> Result<(
 pub fn validate_exchange_type(exchange_type: &str) -> Result<()> {
     match ExchangeType::from_str(exchange_type) {
         Ok(_) => Ok(()),
-        Err(_) => connection::connection_error(
-            frame::EXCHANGE_DECLARE,
-            ConnectionError::CommandInvalid,
-            "COMMAND_INVALID - Exchange type is invalid",
-        ),
+        Err(_) => ConnectionError::CommandInvalid
+            .to_result(frame::EXCHANGE_DECLARE, "COMMAND_INVALID - Exchange type is invalid"),
     }
 }
 
