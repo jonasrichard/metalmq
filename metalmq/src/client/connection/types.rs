@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use log::info;
-use metalmq_codec::{codec::Frame, frame::AMQPFrame};
+use metalmq_codec::codec::Frame;
 use tokio::{sync::mpsc, task::JoinHandle};
 use uuid::Uuid;
 
-use crate::{exchange, queue, Context, Result};
+use crate::{client::channel::types::Command, exchange, queue, Context, Result};
 
 /// Exclusive queue declared by the connection
 #[derive(Debug)]
@@ -29,7 +29,7 @@ pub struct Connection {
     pub qm: queue::manager::QueueManagerSink,
     pub em: exchange::manager::ExchangeManagerSink,
     pub channel_handlers: HashMap<u16, JoinHandle<Result<()>>>,
-    pub channel_receivers: HashMap<u16, mpsc::Sender<AMQPFrame>>,
+    pub channel_receivers: HashMap<u16, mpsc::Sender<Command>>,
     /// Sink for AMQP frames toward the client
     pub outgoing: mpsc::Sender<Frame>,
 }

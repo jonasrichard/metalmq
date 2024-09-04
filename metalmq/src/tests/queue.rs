@@ -14,7 +14,7 @@ async fn bind_queue_with_validation() {
     let exchange_declare_ok = client.send_frame_with_response(args.frame(1)).await;
 
     assert!(matches!(
-        exchange_declare_ok,
+        dbg!(exchange_declare_ok),
         frame::AMQPFrame::Method(1, _, frame::MethodFrameArgs::ExchangeDeclareOk)
     ));
 

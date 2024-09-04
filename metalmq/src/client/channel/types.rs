@@ -5,9 +5,19 @@ use crate::exchange;
 use crate::queue;
 
 use metalmq_codec::codec::Frame;
+use metalmq_codec::frame::unify_class_method;
+use metalmq_codec::frame::MethodFrameArgs;
 use metalmq_codec::frame::{AMQPFrame, ContentBodyFrame, ContentHeaderFrame};
 
 use tokio::sync::mpsc;
+
+#[derive(Debug)]
+pub enum Command {
+    MethodFrame(u16, u32, MethodFrameArgs),
+    Close(u16, u32, String),
+    ContentHeader(ContentHeaderFrame),
+    ContentBody(ContentBodyFrame),
+}
 
 /// Queues consumed by the connection with Basic.Consume
 #[derive(Debug)]
@@ -57,12 +67,21 @@ pub struct Channel {
 }
 
 impl Channel {
-    pub async fn handle_message(&mut self, mut rx: mpsc::Receiver<AMQPFrame>) -> Result<()> {
-        while let Some(f) = rx.recv().await {
-            match f {
-                AMQPFrame::Method(ch, cm, ma) => {
+    pub async fn handle_message(&mut self, mut rx: mpsc::Receiver<Command>) -> Result<()> {
+        use Command::*;
+
+        while let Some(m) = rx.recv().await {
+            match m {
+                MethodFrame(ch, cm, ma) => {
                     let result = match ma {
-                        metalmq_codec::frame::MethodFrameArgs::ChannelClose(_) => self.handle_channel_close(ch).await,
+                        metalmq_codec::frame::MethodFrameArgs::ChannelClose(args) => {
+                            self.handle_channel_close(
+                                args.code,
+                                unify_class_method(args.class_id, args.method_id),
+                                args.text,
+                            )
+                            .await
+                        }
                         metalmq_codec::frame::MethodFrameArgs::ChannelCloseOk => todo!(),
                         metalmq_codec::frame::MethodFrameArgs::ExchangeDeclare(args) => {
                             self.handle_exchange_declare(args).await
@@ -98,9 +117,9 @@ impl Channel {
                         _ => unreachable!(),
                     };
                 }
-                AMQPFrame::ContentHeader(_) => todo!(),
-                AMQPFrame::ContentBody(_) => todo!(),
-                _ => unreachable!(),
+                Close(reason, cm, text) => self.handle_channel_close(reason, cm, text).await?,
+                ContentHeader(header) => self.handle_content_header(header).await?,
+                ContentBody(body) => self.handle_content_body(body).await?,
             }
         }
 

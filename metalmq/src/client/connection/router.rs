@@ -1,31 +1,55 @@
 use std::collections::HashMap;
 
+use log::error;
 use metalmq_codec::{
     codec::Frame,
-    frame::{AMQPFrame, ConnectionStartArgs, MethodFrameArgs},
+    frame::{self, unify_class_method, AMQPFrame, ConnectionStartArgs, MethodFrameArgs},
 };
 use tokio::sync::mpsc;
 
 use crate::{
-    client::{channel::types::Channel, connection::types::Connection},
+    client::{
+        channel::types::{Channel, Command},
+        connection::types::Connection,
+    },
     error::{to_runtime_error, ConnectionError, ErrorScope, Result, RuntimeError},
 };
 
 impl Connection {
-    pub async fn handle_client_frame(&mut self, f: AMQPFrame) -> Result<()> {
-        // TODO here we need to handle the error
-        // if it is connection error, close the conn and before sending the connection close
-        // message, send all the cleaning, like channel close, basic consume end, ets
-        // if it is a channel error, close the channel only and send out the channel close message
-        //
-        // if it is other error, log it and close the connection
+    /// Handles a frame coming from the client and return with `Ok(true)` if the connection should
+    /// keep open. In case of `Ok(false)` the connection loop should close the connection gently,
+    /// but all the necessary communication had already happened.
+    pub async fn handle_client_frame(&mut self, f: AMQPFrame) -> Result<bool> {
         use AMQPFrame::*;
 
-        let result = match &f {
+        // During the processing of method frames can happen only that client closes the
+        // connection. In that case the `handle_method_frame` returns with `Ok(false)` namely that
+        // 'should we keep the loop running' = 'no'.
+        //
+        // So we need to return that value to the caller in order that connection loop can stop
+        // itself. In this use-case we don't need to close the resources because
+        // `handle_connection_close` already did that.
+        //
+        // If we got an error from anywhere else, we need to check what we need to clean up. If it
+        // is a channel error, we just need to close the channel. If it is a connection error, we
+        // need to iterate over the channels and close the channels, and then the connection.
+        //
+        // Is it a question if we need to send messages out to the client (probably no) during that
+        // internal cleanup.
+        let result = match f {
             Header => self.send_frame(Frame::Frame(ConnectionStartArgs::new().frame())).await,
-            Method(_, _, _) => self.handle_method_frame(f).await,
-            ContentHeader(ch) => self.send_command_to_channel(ch.channel, f).await,
-            ContentBody(cb) => self.send_command_to_channel(cb.channel, f).await,
+            Method(ch, cm, ma) => match self.handle_method_frame(ch, cm, ma).await {
+                Ok(keep_running) => return Ok(keep_running),
+                Err(e) => Err(e),
+            },
+            ContentHeader(header) => {
+                self.send_command_to_channel(header.channel, Command::ContentHeader(header))
+                    .await
+            }
+            ContentBody(body) => {
+                self.send_command_to_channel(body.channel, Command::ContentBody(body))
+                    .await
+            }
             Heartbeat(0) => Ok(()),
             Heartbeat(_) => ConnectionError::FrameError.to_result(0, "Heartbeat must have channel 0"),
         };
@@ -60,49 +84,82 @@ impl Connection {
             };
         }
 
-        Ok(())
+        Ok(true)
     }
 
-    async fn handle_method_frame(&mut self, f: AMQPFrame) -> Result<()> {
-        let (channel, class_method) = match &f {
-            AMQPFrame::Method(channel, cm, _) => (channel, cm),
-            _ => unreachable!(),
-        };
-
-        // WARN this is quite ugly and the intent is not clear
-        match class_method >> 16 {
-            0x000A => self.handle_connection_command(f).await,
-            _ if *class_method == metalmq_codec::frame::CHANNEL_OPEN => {
-                if self.channel_receivers.contains_key(channel) {
-                    ConnectionError::ChannelError.to_result(*class_method, "CHANNEL_ERROR - Channel is already opened")
-                } else {
-                    self.start_channel(*channel).await
-                }
-            }
-            _ => self.send_command_to_channel(*channel, f).await,
-        }
-    }
-
-    async fn handle_connection_command(&mut self, f: AMQPFrame) -> Result<()> {
+    async fn handle_method_frame(&mut self, channel: u16, class_method: u32, ma: MethodFrameArgs) -> Result<bool> {
         use MethodFrameArgs::*;
 
-        match f {
-            AMQPFrame::Method(_, _cm, mf) => match mf {
-                ConnectionStartOk(args) => self.handle_connection_start_ok(args).await,
-                ConnectionTuneOk(args) => self.handle_connection_tune_ok(args).await,
-                ConnectionOpen(args) => self.handle_connection_open(args).await,
-                ConnectionClose(args) => self.handle_connection_close(args).await,
-                _ => unreachable!(),
-            },
+        let mut ch_tx = None;
+
+        // If it is not connection class frame, we need to look up the channel.
+        if class_method >> 16 != 0x000A && class_method != frame::CHANNEL_OPEN {
+            ch_tx = self.channel_receivers.get(&channel);
+
+            // We cannot unpack the Option, since we handle connection frames which obviously don't
+            // belong to any channel.
+            if ch_tx.is_none() {
+                return ConnectionError::ChannelError.to_result(class_method, "Channel not exist");
+            }
+        }
+
+        match ma {
+            ConnectionStart(_) => unreachable!(),
+            ConnectionStartOk(args) => {
+                self.handle_connection_start_ok(args).await?;
+
+                Ok(true)
+            }
+            ConnectionTune(_) => unreachable!(),
+            ConnectionTuneOk(args) => {
+                self.handle_connection_tune_ok(args).await?;
+
+                Ok(true)
+            }
+            ConnectionOpen(args) => {
+                self.handle_connection_open(args).await?;
+
+                Ok(true)
+            }
+            ConnectionOpenOk => unreachable!(),
+            ConnectionClose(args) => {
+                self.handle_connection_close(args).await?;
+
+                Ok(false)
+            }
+            ChannelOpen => {
+                if ch_tx.is_some() {
+                    ConnectionError::ChannelError.to_result(class_method, "Channel already exist")
+                } else {
+                    self.handle_channel_open(channel).await?;
+                    //self.start_channel(channel).await?;
+
+                    Ok(true)
+                }
+            }
+            ChannelClose(args) => {
+                let cmd = Command::Close(args.code, unify_class_method(args.class_id, args.method_id), args.text);
+
+                self.send_command_to_channel(channel, cmd).await?;
+                self.handle_channel_close(channel).await?;
+
+                Ok(true)
+            }
+            // TODO here we need to handle channel close, because we need to remove the channel
+            // receiver from the hash map. It is a question though where to handle all of that.
+            // This should send a message to the channel, that can have a change to cancel the
+            // consume of queues, etc. Then this code should have a chance to execute something.
             _ => {
-                unreachable!()
+                let cmd = Command::MethodFrame(channel, class_method, ma);
+
+                self.send_command_to_channel(channel, cmd).await?;
+
+                Ok(true)
             }
         }
     }
 
-    async fn start_channel(&mut self, channel_number: u16) -> Result<()> {
-        self.handle_channel_open(channel_number).await?;
-
+    pub async fn start_channel(&mut self, channel_number: u16) -> Result<()> {
         let mut channel = Channel {
             source_connection: self.id.clone(),
             number: channel_number,
@@ -133,13 +190,17 @@ impl Connection {
         Ok(())
     }
 
-    async fn send_command_to_channel(&self, ch: u16, f: AMQPFrame) -> Result<()> {
-        if let Some(ch_tx) = self.channel_receivers.get(&ch) {
-            ch_tx.send(f).await?;
-        } else {
-            return ConnectionError::ChannelError.to_result(0, "No such channel");
-        }
+    pub async fn send_command_to_channel(&self, channel: u16, cmd: Command) -> Result<()> {
+        if let Some(ch_tx) = self.channel_receivers.get(&channel) {
+            if let Err(e) = ch_tx.send(cmd).await {
+                error!("Cannot send frame to channel handler {:?}", e);
 
-        Ok(())
+                ConnectionError::InternalError.to_result(0, "Internal error")
+            } else {
+                Ok(())
+            }
+        } else {
+            ConnectionError::ChannelError.to_result(0, "Channel not exist")
+        }
     }
 }

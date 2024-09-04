@@ -68,3 +68,35 @@ async fn connect_with_username_password() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn connect_and_open_channel() -> Result<()> {
+    let test_case = TestCase::new().await;
+    let mut client = test_case.new_connected_client(1).await;
+
+    client
+        .connection
+        .handle_client_frame(frame::channel_close(1, 200, "Normal close", frame::CHANNEL_CLOSE).into())
+        .await?;
+
+    let channel_close_ok = client.recv_single_frame().await;
+
+    assert!(matches!(
+        dbg!(channel_close_ok),
+        AMQPFrame::Method(1, frame::CHANNEL_CLOSE_OK, frame::MethodFrameArgs::ChannelCloseOk)
+    ));
+
+    client
+        .connection
+        .handle_client_frame(frame::connection_close(200, "Normal close", frame::CONNECTION_CLOSE).into())
+        .await?;
+
+    let connection_close_ok = client.recv_single_frame().await;
+
+    assert!(matches!(
+        dbg!(connection_close_ok),
+        AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, frame::MethodFrameArgs::ConnectionCloseOk)
+    ));
+
+    Ok(())
+}

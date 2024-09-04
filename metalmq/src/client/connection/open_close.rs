@@ -91,12 +91,14 @@ impl Connection {
                 .to_result(frame::CHANNEL_OPEN, "NOT_ALLOWED - Channel number is too large");
         }
 
+        self.start_channel(channel).await?;
+
         self.send_frame(Frame::Frame(frame::channel_open_ok(channel))).await?;
 
         Ok(())
     }
 
-    pub async fn handle_channel_close(&mut self, channel: u16, _args: frame::ChannelCloseArgs) -> Result<()> {
+    pub async fn handle_channel_close(&mut self, channel: u16) -> Result<()> {
         // TODO delete exclusive queues
 
         self.close_channel(channel).await?;

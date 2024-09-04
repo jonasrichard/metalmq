@@ -62,7 +62,9 @@ impl From<RuntimeError> for AMQPFrame {
 
 impl From<RuntimeError> for Frame {
     fn from(value: RuntimeError) -> Self {
-        value.into()
+        let f: AMQPFrame = value.into();
+
+        Frame::Frame(f)
     }
 }
 
