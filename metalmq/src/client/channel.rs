@@ -3,4 +3,5 @@ pub mod content;
 pub mod exchange;
 pub mod open_close;
 pub mod queue;
+pub mod router;
 pub mod types;

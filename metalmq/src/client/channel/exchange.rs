@@ -2,7 +2,10 @@ use metalmq_codec::{codec::Frame, frame};
 
 use crate::{
     error::Result,
-    exchange::{self, manager::DeclareExchangeCommand},
+    exchange::{
+        self,
+        manager::{DeclareExchangeCommand, DeleteExchangeCommand},
+    },
 };
 
 use super::types::Channel;
@@ -37,6 +40,20 @@ impl Channel {
     }
 
     pub async fn handle_exchange_delete(&mut self, args: frame::ExchangeDeleteArgs) -> Result<()> {
-        Ok(())
+        let exchange_name = args.exchange_name.clone();
+        let cmd = DeleteExchangeCommand {
+            channel: self.number,
+            if_unused: args.flags.contains(frame::ExchangeDeleteFlags::IF_UNUSED),
+            exchange_name: args.exchange_name,
+        };
+
+        exchange::manager::delete_exchange(&self.em, cmd).await?;
+
+        // TODO what happens if the previous code returns with an error and we never removes that
+        // exchange?
+        self.exchanges.remove(&exchange_name);
+
+        self.send_frame(Frame::Frame(frame::exchange_delete_ok(self.number)))
+            .await
     }
 }

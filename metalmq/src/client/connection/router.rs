@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::{
     client::{
         channel::types::{Channel, Command},
-        connection::types::Connection,
+        connection::types::{Connection, ExclusiveQueue},
     },
     error::{to_runtime_error, ConnectionError, ErrorScope, Result, RuntimeError},
 };
@@ -145,10 +145,19 @@ impl Connection {
 
                 Ok(true)
             }
-            // TODO here we need to handle channel close, because we need to remove the channel
-            // receiver from the hash map. It is a question though where to handle all of that.
-            // This should send a message to the channel, that can have a change to cancel the
-            // consume of queues, etc. Then this code should have a chance to execute something.
+            QueueDeclare(args) => {
+                let exclusive = args.flags.contains(frame::QueueDeclareFlags::EXCLUSIVE);
+                let queue_name = args.name.clone();
+                let cmd = Command::MethodFrame(channel, class_method, MethodFrameArgs::QueueDeclare(args));
+
+                self.send_command_to_channel(channel, cmd).await?;
+
+                if exclusive {
+                    self.exclusive_queues.push(ExclusiveQueue { queue_name });
+                }
+
+                Ok(true)
+            }
             _ => {
                 let cmd = Command::MethodFrame(channel, class_method, ma);
 
@@ -164,9 +173,11 @@ impl Connection {
             source_connection: self.id.clone(),
             number: channel_number,
             consumed_queue: None,
+            passively_consumed_queue: None,
             in_flight_content: None,
             confirm_mode: false,
             next_confirm_delivery_tag: 1u64,
+            frame_size: self.frame_max,
             outgoing: self.outgoing.clone(),
             exchanges: HashMap::new(),
             em: self.em.clone(),

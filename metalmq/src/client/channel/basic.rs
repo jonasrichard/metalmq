@@ -1,13 +1,17 @@
-use log::error;
-use metalmq_codec::frame;
+use std::time::Duration;
+
+use log::{error, warn};
+use metalmq_codec::{codec::Frame, frame};
+use tokio::sync::oneshot;
 
 use crate::{
     error::{ChannelError, ConnectionError, Result},
     exchange::handler::ExchangeCommand,
     message::Message,
+    queue,
 };
 
-use super::types::{Channel, PublishedContent};
+use super::types::{ActivelyConsumedQueue, Channel, PassivelyConsumedQueue, PublishedContent};
 
 impl Channel {
     pub async fn handle_basic_publish(&mut self, args: frame::BasicPublishArgs) -> Result<()> {
@@ -39,11 +43,58 @@ impl Channel {
     }
 
     pub async fn handle_basic_consume(&mut self, args: frame::BasicConsumeArgs) -> Result<()> {
+        let queue_clone = args.queue.clone();
+        let consumer_tag_clone = args.consumer_tag.clone();
+        let cmd = queue::manager::QueueConsumeCommand {
+            conn_id: self.source_connection.clone(),
+            channel: self.number,
+            queue_name: queue_clone,
+            consumer_tag: consumer_tag_clone,
+            no_ack: args.flags.contains(frame::BasicConsumeFlags::NO_ACK),
+            exclusive: args.flags.contains(frame::BasicConsumeFlags::EXCLUSIVE),
+            outgoing: self.outgoing.clone(),
+            frame_size: self.frame_size,
+        };
+
+        let queue_sink = queue::manager::consume(&self.qm, cmd).await?;
+
+        let consumer_tag_clone = args.consumer_tag.clone();
+        let queue_sink_clone = queue_sink.clone();
+
+        self.consumed_queue = Some(ActivelyConsumedQueue {
+            consumer_tag: args.consumer_tag.clone(),
+            queue_name: args.queue.clone(),
+            queue_sink,
+        });
+
+        self.send_frame(Frame::Frame(
+            frame::BasicConsumeOkArgs::new(&args.consumer_tag).frame(self.number),
+        ))
+        .await?;
+
+        let start_deliver_cmd = queue::handler::QueueCommand::StartDelivering {
+            consumer_tag: consumer_tag_clone,
+        };
+
+        queue_sink_clone.send(start_deliver_cmd).await?;
+
         Ok(())
     }
 
     pub async fn handle_basic_cancel(&mut self, args: frame::BasicCancelArgs) -> Result<()> {
-        Ok(())
+        if let Some(cq) = self.consumed_queue.take() {
+            let cmd = queue::manager::QueueCancelConsume {
+                channel: self.number,
+                queue_name: cq.queue_name.clone(),
+                consumer_tag: cq.consumer_tag.clone(),
+            };
+            queue::manager::cancel_consume(&self.qm, cmd).await?;
+        }
+
+        self.send_frame(Frame::Frame(
+            frame::BasicCancelOkArgs::new(&args.consumer_tag).frame(self.number),
+        ))
+        .await
     }
 
     /// Handles Ack coming from client.
@@ -51,11 +102,117 @@ impl Channel {
     /// A message can be acked more than once. If a non-delivered message is acked, a channel
     /// exception will be raised.
     pub async fn handle_basic_ack(&mut self, args: frame::BasicAckArgs) -> Result<()> {
+        // TODO check if only delivered messages are acked, even multiple times
+        match &self.consumed_queue {
+            Some(cq) => {
+                let (tx, rx) = oneshot::channel();
+
+                // TODO why we need here the timeout?
+                cq.queue_sink
+                    .send_timeout(
+                        queue::handler::QueueCommand::AckMessage(queue::handler::AckCmd {
+                            channel: self.number,
+                            consumer_tag: cq.consumer_tag.clone(),
+                            delivery_tag: args.delivery_tag,
+                            multiple: args.multiple,
+                            result: tx,
+                        }),
+                        Duration::from_secs(1),
+                    )
+                    .await?;
+
+                rx.await.unwrap()?
+            }
+            None => match &self.passively_consumed_queue {
+                Some(pq) => {
+                    let (tx, rx) = oneshot::channel();
+
+                    pq.queue_sink
+                        .send(queue::handler::QueueCommand::AckMessage(queue::handler::AckCmd {
+                            channel: self.number,
+                            consumer_tag: pq.consumer_tag.clone(),
+                            delivery_tag: args.delivery_tag,
+                            multiple: args.multiple,
+                            result: tx,
+                        }))
+                        .await?;
+
+                    rx.await.unwrap().unwrap();
+                }
+                None => {
+                    warn!("Basic.Ack arrived without consuming the queue");
+                }
+            },
+        }
+
         Ok(())
     }
 
     pub async fn handle_basic_get(&mut self, args: frame::BasicGetArgs) -> Result<()> {
-        Ok(())
+        // Cache the queue the client consumes passively with Basic.Get
+        if self.passively_consumed_queue.is_none() {
+            let sink = queue::manager::get_command_sink(
+                &self.qm,
+                queue::manager::GetQueueSinkQuery {
+                    channel: self.number,
+                    queue_name: args.queue.clone(),
+                },
+            )
+            .await;
+
+            if sink.is_err() {
+                return ChannelError::NotFound.to_result(
+                    self.number,
+                    frame::BASIC_GET,
+                    &format!("Queue {} not found", args.queue),
+                );
+            }
+
+            let sink = sink.unwrap();
+            let (tx, rx) = oneshot::channel();
+
+            sink.send(queue::handler::QueueCommand::PassiveConsume(
+                queue::handler::PassiveConsumeCmd {
+                    conn_id: self.source_connection.clone(),
+                    channel: self.number,
+                    sink: self.outgoing.clone(),
+                    frame_size: self.frame_size,
+                    result: tx,
+                },
+            ))
+            .await
+            .unwrap();
+
+            rx.await.unwrap().unwrap();
+
+            let pq = PassivelyConsumedQueue {
+                queue_name: args.queue,
+                consumer_tag: format!("{}-{}", self.source_connection, self.number),
+                delivery_tag: 1u64,
+                queue_sink: sink,
+            };
+
+            let _ = self.passively_consumed_queue.insert(pq);
+        }
+
+        if let Some(pq) = &self.passively_consumed_queue {
+            let (tx, rx) = oneshot::channel();
+
+            let _ = pq
+                .queue_sink
+                .send(queue::handler::QueueCommand::Get(queue::handler::GetCmd {
+                    conn_id: self.source_connection.clone(),
+                    channel: self.number,
+                    no_ack: args.no_ack,
+                    result: tx,
+                }))
+                .await
+                .unwrap();
+
+            rx.await.unwrap()
+        } else {
+            ConnectionError::InternalError.to_result(frame::BASIC_GET, "Queue not exist")
+        }
     }
 
     pub async fn handle_basic_reject(&mut self, __args: frame::BasicRejectArgs) -> Result<()> {
@@ -63,6 +220,11 @@ impl Channel {
     }
 
     pub async fn handle_confirm_select(&mut self, _args: frame::ConfirmSelectArgs) -> Result<()> {
+        self.next_confirm_delivery_tag = 1u64;
+
+        self.send_frame(Frame::Frame(frame::confirm_select_ok(self.number)))
+            .await?;
+
         Ok(())
     }
 
