@@ -186,7 +186,16 @@ impl Connection {
 
         let (tx, rx) = mpsc::channel(16);
 
-        let jh = tokio::spawn(async move { channel.handle_message(rx).await });
+        let jh = tokio::spawn(async move {
+            match channel.handle_message(rx).await {
+                ok @ Ok(_) => ok,
+                e => {
+                    error!("{:?}", e);
+
+                    e
+                }
+            }
+        });
 
         self.channel_receivers.insert(channel_number, tx);
         self.channel_handlers.insert(channel_number, jh);

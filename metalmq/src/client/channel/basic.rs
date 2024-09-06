@@ -6,7 +6,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     error::{ChannelError, ConnectionError, Result},
-    exchange::handler::ExchangeCommand,
+    exchange::{self, handler::ExchangeCommand, manager::GetExchangeSinkQuery},
     message::Message,
     queue,
 };
@@ -22,6 +22,20 @@ impl Channel {
 
         if self.in_flight_content.is_some() {
             return ConnectionError::UnexpectedFrame.to_result(frame::BASIC_PUBLISH, "Already publish message arrived");
+        }
+
+        // Check if exchange exists, and cache it in order that `handle_content_body` can access
+        // that.
+        if !self.exchanges.contains_key(&args.exchange_name) {
+            let cmd = GetExchangeSinkQuery {
+                exchange_name: args.exchange_name.clone(),
+            };
+
+            if let Some(ex_tx) = exchange::manager::get_exchange_sink(&self.em, cmd).await {
+                self.exchanges.insert(args.exchange_name.clone(), ex_tx);
+            } else {
+                return ChannelError::NotFound.to_result(self.number, frame::BASIC_PUBLISH, "Exchange not exist");
+            }
         }
 
         let flags = args.flags;
@@ -348,6 +362,79 @@ impl Channel {
         //        }
         //    }
         //}
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use frame::{BasicPublishArgs, BasicPublishFlags, ContentBodyFrame, ContentHeaderFrame};
+    use tokio::sync::mpsc;
+
+    use crate::exchange;
+    use crate::tests::recv_timeout;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn complete_published_content_should_be_sent_to_exchange() -> Result<()> {
+        let (ex_tx, mut ex_rx) = mpsc::channel(16);
+        let (tx, _rx) = mpsc::channel(16);
+
+        let (em_tx, _em_rx) = mpsc::channel(16);
+        let (qm_tx, _qm_rx) = mpsc::channel(16);
+
+        let mut channel = Channel {
+            source_connection: "12345-12345".into(),
+            number: 1,
+            consumed_queue: None,
+            passively_consumed_queue: None,
+            in_flight_content: None,
+            confirm_mode: false,
+            next_confirm_delivery_tag: 1u64,
+            frame_size: 65535,
+            outgoing: tx,
+            exchanges: HashMap::new(),
+            em: em_tx,
+            qm: qm_tx,
+        };
+
+        channel.exchanges.insert("x-target".into(), ex_tx);
+
+        channel
+            .handle_basic_publish(BasicPublishArgs {
+                exchange_name: "x-target".into(),
+                routing_key: "".into(),
+                flags: BasicPublishFlags::default(),
+            })
+            .await?;
+
+        channel
+            .handle_content_header(ContentHeaderFrame {
+                channel: 1,
+                ..Default::default()
+            })
+            .await?;
+
+        let body = ContentBodyFrame {
+            channel: 1,
+            body: b"Test message".to_vec(),
+        };
+
+        channel.handle_content_body(body).await?;
+
+        let cmd = recv_timeout(&mut ex_rx).await.expect("No frame received");
+
+        assert!(matches!(
+            cmd,
+            exchange::handler::ExchangeCommand::Message {
+                message: _,
+                returned: None
+            }
+        ));
 
         Ok(())
     }

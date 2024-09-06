@@ -6,10 +6,7 @@ use crate::tests::*;
 #[tokio::test]
 async fn one_consumer() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
-
-    test_client.connect().await;
-    test_client.open_channel(1).await;
+    let mut test_client = test_case.new_connected_client(1).await;
 
     test_client
         .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
@@ -25,6 +22,8 @@ async fn one_consumer() {
             frame::MethodFrameArgs::BasicConsumeOk(frame::BasicConsumeOkArgs { .. })
         )
     ));
+
+    test_client.open_channel(2).await;
 
     test_client
         .publish_content(2, "x-direct", "magic-key", b"Consume test")
@@ -57,7 +56,7 @@ async fn one_consumer() {
 #[tokio::test]
 async fn one_consumer_redeliver() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut test_client = test_case.new_connected_client(1).await;
 
     // Consume the queue
     test_client
