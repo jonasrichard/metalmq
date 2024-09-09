@@ -12,7 +12,7 @@ use metalmq_codec::{codec::Frame, frame};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-use super::handler::QueueBindCmd;
+use super::{handler::QueueBindCmd, ExchangeType};
 
 pub struct ExchangeState {
     pub exchange: Exchange,

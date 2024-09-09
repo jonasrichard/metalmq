@@ -73,6 +73,8 @@ impl Channel {
                         metalmq_codec::frame::MethodFrameArgs::ConfirmSelectOk => unreachable!(),
                         _ => unreachable!(),
                     };
+
+                    result?;
                 }
                 Close(reason, cm, text) => self.handle_channel_close(reason, cm, text).await?,
                 ContentHeader(header) => self.handle_content_header(header).await?,

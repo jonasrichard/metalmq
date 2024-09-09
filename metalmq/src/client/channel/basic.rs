@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 use crate::{
     error::{ChannelError, ConnectionError, Result},
     exchange::{self, handler::ExchangeCommand, manager::GetExchangeSinkQuery},
-    message::Message,
+    message::{self, Message},
     queue,
 };
 
@@ -15,11 +15,6 @@ use super::types::{ActivelyConsumedQueue, Channel, PassivelyConsumedQueue, Publi
 
 impl Channel {
     pub async fn handle_basic_publish(&mut self, args: frame::BasicPublishArgs) -> Result<()> {
-        //if let Some(exchange) = self.exchanges.get(&args.exchange_name) {
-        //let cmd = ExchangeCommand::Message { message: todo!(), returned: todo!() };
-
-        //exchange.send(cmd).await.unwrap();
-
         if self.in_flight_content.is_some() {
             return ConnectionError::UnexpectedFrame.to_result(frame::BASIC_PUBLISH, "Already publish message arrived");
         }
@@ -234,7 +229,7 @@ impl Channel {
     }
 
     pub async fn handle_confirm_select(&mut self, _args: frame::ConfirmSelectArgs) -> Result<()> {
-        self.next_confirm_delivery_tag = 1u64;
+        self.next_confirm_delivery_tag = Some(1u64);
 
         self.send_frame(Frame::Frame(frame::confirm_select_ok(self.number)))
             .await?;
@@ -275,12 +270,48 @@ impl Channel {
             let msg: Message = pc.into();
 
             if let Some(ex_tx) = self.exchanges.get(&msg.exchange) {
+                // In confirm mode or if message is mandatory we need to be sure that the message
+                // was router correctly from the exchange to the queue.
+                let (rtx, rrx) = match msg.mandatory || self.next_confirm_delivery_tag.is_some() {
+                    false => (None, None),
+                    true => {
+                        let (tx, rx) = oneshot::channel();
+
+                        (Some(tx), Some(rx))
+                    }
+                };
+
                 let cmd = ExchangeCommand::Message {
                     message: msg,
-                    returned: None,
+                    returned: rtx,
                 };
 
                 ex_tx.send(cmd).await.unwrap();
+
+                if let Some(rx) = rrx {
+                    match rx.await.unwrap() {
+                        Some(returned_message) => {
+                            message::send_basic_return(returned_message, self.frame_size, &self.outgoing)
+                                .await
+                                .unwrap();
+                        }
+                        None => {
+                            // TODO do we need to send ack if the message is mandatory or
+                            // immediate?
+                            if let Some(dt) = &mut self.next_confirm_delivery_tag {
+                                // We can keep this mut shorter, if it matters
+                                self.outgoing
+                                    .send(Frame::Frame(
+                                        frame::BasicAckArgs::default().delivery_tag(*dt).frame(channel),
+                                    ))
+                                    .await
+                                    .unwrap();
+
+                                *dt += 1;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -394,7 +425,7 @@ mod tests {
             passively_consumed_queue: None,
             in_flight_content: None,
             confirm_mode: false,
-            next_confirm_delivery_tag: 1u64,
+            next_confirm_delivery_tag: None,
             frame_size: 65535,
             outgoing: tx,
             exchanges: HashMap::new(),

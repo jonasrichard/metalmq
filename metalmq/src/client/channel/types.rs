@@ -58,7 +58,7 @@ pub struct Channel {
     pub passively_consumed_queue: Option<PassivelyConsumedQueue>,
     pub in_flight_content: Option<PublishedContent>,
     pub confirm_mode: bool,
-    pub next_confirm_delivery_tag: u64,
+    pub next_confirm_delivery_tag: Option<u64>,
     pub frame_size: usize,
     pub outgoing: mpsc::Sender<Frame>,
     pub exchanges: HashMap<String, exchange::handler::ExchangeCommandSink>,

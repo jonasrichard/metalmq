@@ -65,11 +65,23 @@ impl TestCase {
         }
     }
 
-    async fn new_connected_client(&self, channel: u16) -> TestClient {
+    async fn new_client_with_channel(&self, channel: u16) -> TestClient {
         let mut client = self.new_client();
 
         client.connect().await;
         client.open_channel(channel).await;
+
+        client
+    }
+
+    async fn new_client_with_channels(&self, channels: &[u16]) -> TestClient {
+        let mut client = self.new_client();
+
+        client.connect().await;
+
+        for channel in channels {
+            client.open_channel(*channel).await;
+        }
 
         client
     }

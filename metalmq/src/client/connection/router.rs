@@ -176,7 +176,7 @@ impl Connection {
             passively_consumed_queue: None,
             in_flight_content: None,
             confirm_mode: false,
-            next_confirm_delivery_tag: 1u64,
+            next_confirm_delivery_tag: None,
             frame_size: self.frame_max,
             outgoing: self.outgoing.clone(),
             exchanges: HashMap::new(),

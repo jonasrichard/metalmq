@@ -72,7 +72,7 @@ async fn connect_with_username_password() -> Result<()> {
 #[tokio::test]
 async fn connect_and_open_channel() -> Result<()> {
     let test_case = TestCase::new().await;
-    let mut client = test_case.new_connected_client(1).await;
+    let mut client = test_case.new_client_with_channel(1).await;
 
     client
         .connection

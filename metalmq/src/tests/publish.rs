@@ -8,19 +8,22 @@ use crate::tests::{
 #[tokio::test]
 async fn basic_publish_mandatory_message() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut test_client = test_case.new_client_with_channel(1).await;
 
     // Publish message to an exchange which doesn't route to queues -> channel error
-    test_client
-        .publish_content(1u16, "x-direct", "invalid-key", b"A simple message")
-        .await;
+    let mandatory_message = frame::BasicPublishArgs::new("x-direct")
+        .routing_key("invalid-key")
+        .mandatory(true)
+        .frame(1);
+
+    test_client.send_frame(mandatory_message).await;
 
     // Since the routing key is not matching and message is mandatory, server sends back the message
     // with a Basic.Return frame
-    let return_frames = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let return_frames = test_client.recv_frames().await;
 
     assert!(matches!(
-        dbg!(return_frames).get(0).unwrap(),
+        dbg!(return_frames).first().unwrap(),
         frame::AMQPFrame::Method(1u16, _, frame::MethodFrameArgs::BasicReturn(_))
     ));
 
@@ -46,13 +49,13 @@ async fn basic_publish_mandatory_message() {
 #[tokio::test]
 async fn basic_get_empty_and_ok() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut test_client = test_case.new_client_with_channels(&[1, 2]).await;
 
     test_client
         .basic_get(2, frame::BasicGetArgs::new("q-fanout").no_ack(false))
         .await;
 
-    let get_empty_frames = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let get_empty_frames = test_client.recv_frames().await;
 
     assert!(matches!(
         dbg!(get_empty_frames).get(0).unwrap(),
@@ -68,10 +71,10 @@ async fn basic_get_empty_and_ok() {
 
     test_client.basic_get(2, frame::BasicGetArgs::new("q-fanout")).await;
 
-    let get_frames = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let get_frames = test_client.recv_frames().await;
 
     assert!(matches!(
-        dbg!(get_frames).get(0).unwrap(),
+        dbg!(get_frames).first().unwrap(),
         frame::AMQPFrame::Method(
             2,
             _,
@@ -79,14 +82,13 @@ async fn basic_get_empty_and_ok() {
         )
     ));
 
-    test_client.close_channel(1).await;
-    test_client.close().await;
+    test_case.teardown().await;
 }
 
 #[tokio::test]
 async fn basic_ack_multiple() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut test_client = test_case.new_client_with_channel(3).await;
 
     // Send 10 messages
     for i in 0..10 {
@@ -104,7 +106,7 @@ async fn basic_ack_multiple() {
     sleep(100).await;
 
     // Consume 10 messages with another client
-    let mut consumer = test_case.new_client();
+    let mut consumer = test_case.new_client_with_channel(4).await;
 
     consumer
         .basic_consume(
@@ -115,16 +117,16 @@ async fn basic_ack_multiple() {
         )
         .await;
 
-    let consumer_ok = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let consumer_ok = consumer.recv_single_frame().await;
     assert!(matches!(
-        dbg!(consumer_ok).get(0).unwrap(),
+        dbg!(consumer_ok),
         frame::AMQPFrame::Method(4, _, frame::MethodFrameArgs::BasicConsumeOk(_))
     ));
 
     let mut last_delivery_tag = 0u64;
 
     for _ in 0..10 {
-        let message_frames = unpack_frames(test_client.recv_timeout().await.unwrap());
+        let message_frames = consumer.recv_frames().await;
 
         dbg!(&message_frames);
 
@@ -150,16 +152,16 @@ async fn basic_ack_multiple() {
         .await;
 
     // Check if queue is empty by deleting and if it is empty
-    test_client
+    consumer
         .queue_delete(
             4,
             frame::QueueDeleteArgs::default().queue_name("q-direct").if_empty(true),
         )
         .await;
 
-    let delete_ok = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let delete_ok = consumer.recv_single_frame().await;
     assert!(matches!(
-        dbg!(delete_ok).get(0).unwrap(),
+        dbg!(delete_ok),
         frame::AMQPFrame::Method(
             4,
             _,
@@ -171,7 +173,9 @@ async fn basic_ack_multiple() {
 #[tokio::test]
 async fn publish_to_topic_exchange() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_client();
+    let mut test_client = test_case.new_client_with_channels(&[1, 2]).await;
+
+    test_client.open_channel(2).await;
 
     test_client
         .publish_content(1, "x-topic", "topic.key", b"Topic test")

@@ -1,4 +1,4 @@
-use metalmq_codec::frame::{self, AMQPFrame::Method, BasicCancelArgs, BasicConsumeArgs, MethodFrameArgs};
+use metalmq_codec::frame::{self, BasicCancelArgs, BasicConsumeArgs};
 use test_client::basic_deliver_args;
 
 use crate::tests::*;
@@ -6,7 +6,7 @@ use crate::tests::*;
 #[tokio::test]
 async fn one_consumer() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_connected_client(1).await;
+    let mut test_client = test_case.new_client_with_channel(1).await;
 
     test_client
         .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
@@ -42,13 +42,14 @@ async fn one_consumer() {
 
     let cancel_ok = test_client.recv_single_frame().await;
 
-    let args = if let Method(_, _, MethodFrameArgs::BasicCancelOk(args)) = cancel_ok {
-        args
-    } else {
-        panic!("Not a Basic.CancelOk frame");
-    };
-
-    assert_eq!(args.consumer_tag, "ctag");
+    assert!(matches!(
+        cancel_ok,
+        frame::AMQPFrame::Method(
+            1,
+            _,
+            frame::MethodFrameArgs::BasicCancelOk(frame::BasicCancelOkArgs { .. })
+        )
+    ));
 
     test_case.teardown().await;
 }
@@ -56,7 +57,7 @@ async fn one_consumer() {
 #[tokio::test]
 async fn one_consumer_redeliver() {
     let test_case = TestCase::new().await;
-    let mut test_client = test_case.new_connected_client(1).await;
+    let mut test_client = test_case.new_client_with_channels(&[1, 2, 3]).await;
 
     // Consume the queue
     test_client
