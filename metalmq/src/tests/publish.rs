@@ -17,6 +17,7 @@ async fn basic_publish_mandatory_message() {
         .frame(1);
 
     test_client.send_frame(mandatory_message).await;
+    test_client.send_content(1, b"An unroutable message").await;
 
     // Since the routing key is not matching and message is mandatory, server sends back the message
     // with a Basic.Return frame
@@ -150,6 +151,15 @@ async fn basic_ack_multiple() {
                 .multiple(true),
         )
         .await;
+
+    consumer.basic_cancel(4, frame::BasicCancelArgs::new("unit-test")).await;
+
+    let cancel_ok = consumer.recv_single_frame().await;
+
+    assert!(matches!(
+        cancel_ok,
+        frame::AMQPFrame::Method(4, _, frame::MethodFrameArgs::BasicCancelOk(_))
+    ));
 
     // Check if queue is empty by deleting and if it is empty
     consumer

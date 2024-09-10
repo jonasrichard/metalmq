@@ -17,31 +17,39 @@ cargo run --bin metalmq
 ## or to enable logs
 RUST_LOG=debug cargo run --bin metalmq
 RUST_LOG=metalmq=trace cargo run --bin metalmq
-cargo test --tests
-
-## or to run integration tests
-cargo test --package metalmq --test it
 ```
+
+## Run tests
+
+To run tests it is recommended to install [nextest](https://nexte.st) runner because of the exclusions of integration tests requires MetalMQ to run.
+
+```bash
+cargo nextest run -E 'not binary_id(metalmq::it) and not binary_id(metalmq-client::it)'
+```
+
+Integration tests also can be run with normal test runner by
+
+```bash
+cargo test --package metalmq --test it
+cargo test --package metalmq-client --test it
+```
+
+To have coverage of the server tests run `llvm-cov`
+
+```bash
+cargo install cargo-llvn-cov
+cargo llvm-cov nextest --package metalmq --bins
+cargo llvm-cov report --html
+open target/llvm-cov/html/index.html
+```
+
+## Run examples
 
 There are some examples in the `examples` directory, they implement simple scenarios of the
 `metalmq-client` library. To run execute
 
 ```bash
 RUST_LOG=metalmq_client=trace cargo run --example publish-consume
-```
-
-Running tests in `metalmq-client`
-
-```bash
-cargo test --package metalmq-client --test it
-```
-
-Run test containing a pattern
-
-```bash
-cargo test one_consumer
-# or
-cargo test one_consuemr -- --exact
 ```
 
 ## AMQP compliance

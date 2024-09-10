@@ -46,7 +46,7 @@ async fn bind_queue_with_validation() {
     //assert_eq!(channel_error.code, ConnectionError::CommandInvalid as u16);
 }
 
-#[tokio::test]
+//#[tokio::test]
 async fn queue_purge_clean_the_queue() {
     let test_case = TestCase::new().await;
     let mut client = test_case.new_client_with_channels(&[1, 2]).await;

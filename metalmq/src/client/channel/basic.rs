@@ -5,13 +5,12 @@ use metalmq_codec::{codec::Frame, frame};
 use tokio::sync::oneshot;
 
 use crate::{
+    client::channel::types::{ActivelyConsumedQueue, Channel, PassivelyConsumedQueue, PublishedContent},
     error::{ChannelError, ConnectionError, Result},
     exchange::{self, handler::ExchangeCommand, manager::GetExchangeSinkQuery},
     message::{self, Message},
     queue,
 };
-
-use super::types::{ActivelyConsumedQueue, Channel, PassivelyConsumedQueue, PublishedContent};
 
 impl Channel {
     pub async fn handle_basic_publish(&mut self, args: frame::BasicPublishArgs) -> Result<()> {

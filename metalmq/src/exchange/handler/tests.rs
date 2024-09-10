@@ -21,6 +21,8 @@ struct TestCase {
     exchange_state: ExchangeState,
 }
 
+/// Text fixture for testing exchange functionalities, like binding, unbinding, deletion and
+/// message routing.
 impl TestCase {
     fn direct_exchange(name: &str) -> Self {
         Self {
@@ -55,11 +57,21 @@ impl TestCase {
         }
     }
 
-    fn command_message(&self, message: Message, tx: oneshot::Sender<Option<Arc<Message>>>) -> ExchangeCommand {
-        ExchangeCommand::Message {
+    async fn send_command(&mut self, cmd: ExchangeCommand) -> Result<bool> {
+        self.exchange_state.handle_command(cmd).await
+    }
+
+    async fn send_message_command(&mut self, message: Message) -> Option<Arc<Message>> {
+        let (tx, rx) = oneshot::channel();
+
+        let cmd = ExchangeCommand::Message {
             message,
             returned: Some(tx),
-        }
+        };
+
+        let _result = self.exchange_state.handle_command(cmd).await.unwrap();
+
+        rx.await.unwrap()
     }
 
     fn command_bind(
@@ -79,26 +91,18 @@ impl TestCase {
             result: tx,
         }
     }
-}
 
-#[tokio::test]
-async fn send_basic_return_on_mandatory_unroutable_message() {
-    let exchange_name: String = String::from("x-name");
+    /// Start the queue thread with the declaring connection and the queue record.
+    fn queue_start(conn_id: String, queue: &Queue) -> mpsc::Sender<QueueCommand> {
+        let (tx, mut rx) = mpsc::channel(1);
+        let q = queue.clone();
 
-    let (msg_tx, msg_rx) = oneshot::channel();
-    let mut tc = TestCase::direct_exchange(&exchange_name);
+        tokio::spawn(async move {
+            handler::start(q, conn_id, &mut rx).await;
+        });
 
-    let mut msg = tc.message(&exchange_name, "Okay");
-    msg.mandatory = true;
-
-    let cmd = tc.command_message(msg, msg_tx);
-
-    tc.exchange_state.handle_command(cmd).await.unwrap();
-
-    let returned_message = msg_rx.await.unwrap().unwrap();
-
-    assert_eq!(returned_message.exchange, "x-name");
-    // TODO more checks
+        tx
+    }
 }
 
 #[tokio::test]
@@ -137,7 +141,7 @@ async fn cannot_bind_exclusive_queue_with_different_connection() {
     queue.name = queue_name.clone();
     queue.exclusive = true;
 
-    let stx = queue_start("conn-id-1".to_string(), &queue);
+    let stx = TestCase::queue_start("conn-id-1".to_string(), &queue);
 
     let (tx, rx) = oneshot::channel();
     let mut cmd = tc.command_bind(&queue_name, "routing", stx, tx);
@@ -166,7 +170,7 @@ async fn queue_bind_state_check() {
     let mut queue = Queue::default();
     queue.name = queue_name.clone();
 
-    let stx = queue_start(connection_id.clone(), &queue);
+    let stx = TestCase::queue_start(connection_id.clone(), &queue);
 
     let (tx, rx) = oneshot::channel();
     let mut cmd = tc.command_bind(&queue_name, "routing", stx, tx);
@@ -203,7 +207,7 @@ async fn queue_bind_unbind_state_check() {
     let mut queue = Queue::default();
     queue.name = queue_name.clone();
 
-    let stx = queue_start(connection_id.clone(), &queue);
+    let stx = TestCase::queue_start(connection_id.clone(), &queue);
 
     let (tx, rx) = oneshot::channel();
     let cmd = tc.command_bind(&queue_name, "routing", stx, tx);
@@ -261,14 +265,19 @@ async fn queue_deleted_state_check() {
     }
 }
 
-/// Start the queue thread with the declaring connection and the queue record.
-fn queue_start(conn_id: String, queue: &Queue) -> mpsc::Sender<QueueCommand> {
-    let (tx, mut rx) = mpsc::channel(1);
-    let q = queue.clone();
+/// Send back a Basic.Return and the message itself if the message is mandatory but cannot be
+/// routed by any of the bindins to queues, so namely when there is no binding for that routing
+/// key.
+#[tokio::test]
+async fn send_basic_return_on_mandatory_unroutable_message() {
+    let mut tc = TestCase::direct_exchange("x-name");
 
-    tokio::spawn(async move {
-        handler::start(q, conn_id, &mut rx).await;
-    });
+    let mut unroutable_message = tc.message("x-name", "Okay");
+    unroutable_message.routing_key = "bad-routing-key".to_string();
+    unroutable_message.mandatory = true;
 
-    tx
+    let returned_message = tc.send_message_command(unroutable_message).await.unwrap();
+
+    assert_eq!(returned_message.exchange, "x-name");
+    // TODO more checks
 }

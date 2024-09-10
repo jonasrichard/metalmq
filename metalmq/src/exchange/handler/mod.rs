@@ -131,6 +131,7 @@ impl ExchangeState {
             }
         }
     }
+
     async fn handle_message(
         &self,
         message: Message,
