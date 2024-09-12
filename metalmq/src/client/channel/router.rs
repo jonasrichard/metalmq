@@ -11,7 +11,7 @@ impl Channel {
 
         while let Some(m) = rx.recv().await {
             match m {
-                MethodFrame(ch, cm, ma) => {
+                MethodFrame(_ch, _cm, ma) => {
                     let result = match ma {
                         metalmq_codec::frame::MethodFrameArgs::ChannelClose(args) => {
                             self.handle_channel_close(

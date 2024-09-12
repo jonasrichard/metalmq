@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     error::{to_runtime_error, ErrorScope},
     message::{Message, MessageContent},
-    tests::recv_timeout,
+    tests::recv::recv_with_timeout,
 };
 use metalmq_codec::{codec::Frame, frame::AMQPFrame};
 use std::sync::Arc;
@@ -344,7 +344,7 @@ async fn publish_to_queue_with_one_consumer() {
     let result = tester.state.handle_command(cmd).await;
     assert!(result.is_ok());
 
-    let frame = recv_timeout(&mut msg_rx).await.unwrap();
+    let frame = recv_with_timeout(&mut msg_rx).await.unwrap();
 
     let message = parse_message(frame).unwrap();
     assert_eq!(message.message.exchange, tester.exchange_name);
@@ -389,14 +389,14 @@ async fn unacked_messages_should_be_put_back_in_the_queue() {
         .handle_command(tester.command_publish("1st"))
         .await
         .unwrap();
-    let _msg_res = recv_timeout(&mut frx).await.unwrap();
+    let _msg_res = recv_with_timeout(&mut frx).await.unwrap();
 
     tester
         .state
         .handle_command(tester.command_publish("2nd"))
         .await
         .unwrap();
-    let _msg_res = recv_timeout(&mut frx).await.unwrap();
+    let _msg_res = recv_with_timeout(&mut frx).await.unwrap();
 
     let (rtx, rrx) = oneshot::channel();
     tester
@@ -430,7 +430,7 @@ async fn consume_unacked_removes_messages_from_the_queue_after_send() {
         .await
         .unwrap();
 
-    recv_timeout(&mut frx).await;
+    recv_with_timeout(&mut frx).await;
 
     assert!(tester.state.messages.is_empty());
 }
@@ -447,7 +447,7 @@ async fn basic_get_then_basic_ack_deletes_the_message_from_the_queue() {
 
     let mut frx = tester.passive_consume().await;
 
-    let fr = recv_timeout(&mut frx).await.unwrap();
+    let fr = recv_with_timeout(&mut frx).await.unwrap();
     let msg = parse_message(fr).unwrap();
 
     assert_eq!(msg.consumer_tag, "");
@@ -481,7 +481,7 @@ async fn basic_get_and_consume_without_ack_and_get_should_redeliver() {
 
     let mut frx = tester.passive_consume().await;
 
-    let _frame = recv_timeout(&mut frx).await.unwrap();
+    let _frame = recv_with_timeout(&mut frx).await.unwrap();
 
     tester
         .state
@@ -490,7 +490,7 @@ async fn basic_get_and_consume_without_ack_and_get_should_redeliver() {
         .unwrap();
 
     let mut frx = tester.passive_consume().await;
-    let fr = recv_timeout(&mut frx).await.unwrap();
+    let fr = recv_with_timeout(&mut frx).await.unwrap();
 
     println!("{:?}", fr);
 

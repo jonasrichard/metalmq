@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::client::connection::types::Connection;
 
+use super::recv;
+
 /// The test client used by test cases. It makes available the sender part of the input channel, so
 /// one can control the connection by sending frames in the `conn_tx`.
 pub struct TestClient {
@@ -93,6 +95,13 @@ impl TestClient {
         self.connection.handle_client_frame(f).await.unwrap();
     }
 
+    pub async fn confirm_select(&mut self, channel: u16) {
+        self.connection
+            .handle_client_frame(frame::confirm_select(channel))
+            .await
+            .unwrap();
+    }
+
     pub async fn publish_content(&mut self, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
         let f = frame::BasicPublishArgs::new(exchange)
             .routing_key(routing_key)
@@ -129,25 +138,15 @@ impl TestClient {
 
     /// Receiving with timeout
     pub async fn recv_timeout(&mut self) -> Option<Frame> {
-        let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(1));
-        tokio::pin!(sleep);
-
-        tokio::select! {
-            frame = self.conn_rx.recv() => {
-                frame
-            }
-            _ = &mut sleep => {
-                None
-            }
-        }
+        recv::recv_with_timeout(&mut self.conn_rx).await
     }
 
     pub async fn recv_frames(&mut self) -> Vec<frame::AMQPFrame> {
-        unpack_frames(self.recv_timeout().await.expect("At least one frame is expected"))
+        recv::recv_multiple_frames(&mut self.conn_rx).await
     }
 
     pub async fn recv_single_frame(&mut self) -> frame::AMQPFrame {
-        unpack_single_frame(self.recv_timeout().await.expect("A frame is expected"))
+        recv::recv_single_frame(&mut self.conn_rx).await
     }
 
     pub async fn close(&mut self) {
@@ -161,21 +160,6 @@ impl TestClient {
 
 pub async fn sleep(ms: u32) {
     tokio::time::sleep(std::time::Duration::from_millis(ms.into())).await;
-}
-
-pub fn unpack_single_frame(f: Frame) -> frame::AMQPFrame {
-    if let Frame::Frame(single_frame) = f {
-        single_frame
-    } else {
-        panic!("Frame {f:?} is not a single frame");
-    }
-}
-
-pub fn unpack_frames(f: Frame) -> Vec<frame::AMQPFrame> {
-    match f {
-        Frame::Frame(sf) => vec![sf],
-        Frame::Frames(mf) => mf,
-    }
 }
 
 // It should be an assert

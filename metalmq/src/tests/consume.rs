@@ -12,10 +12,10 @@ async fn one_consumer() {
         .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
         .await;
 
-    let consume_ok = test_client.recv_frames().await;
+    let consume_ok = test_client.recv_single_frame().await;
 
     assert!(matches!(
-        dbg!(consume_ok.get(0)).unwrap(),
+        dbg!(consume_ok),
         frame::AMQPFrame::Method(
             1,
             _,
@@ -63,7 +63,7 @@ async fn one_consumer_redeliver() {
     test_client
         .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
         .await;
-    test_client.recv_frames().await;
+    test_client.recv_single_frame().await;
 
     // Publish a message
     test_client
@@ -82,7 +82,7 @@ async fn one_consumer_redeliver() {
     test_client
         .basic_consume(3, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag2"))
         .await;
-    test_client.recv_frames().await;
+    test_client.recv_single_frame().await;
 
     // Receive the message again
     let mut deliver = test_client.recv_frames().await;

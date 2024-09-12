@@ -1,4 +1,4 @@
-use crate::tests::{test_client::unpack_frames, TestCase};
+use crate::tests::{test_client::sleep, TestCase};
 use metalmq_codec::frame::{self, ExchangeDeclareArgs};
 
 #[tokio::test]
@@ -46,7 +46,7 @@ async fn bind_queue_with_validation() {
     //assert_eq!(channel_error.code, ConnectionError::CommandInvalid as u16);
 }
 
-//#[tokio::test]
+#[tokio::test]
 async fn queue_purge_clean_the_queue() {
     let test_case = TestCase::new().await;
     let mut client = test_case.new_client_with_channels(&[1, 2]).await;
@@ -57,15 +57,17 @@ async fn queue_purge_clean_the_queue() {
             .await;
     }
 
+    sleep(100).await;
+
     client
         .connection
         .handle_client_frame(frame::QueuePurgeArgs::default().queue_name("q-fanout").frame(2))
         .await
         .unwrap();
 
-    let purge_ok = unpack_frames(client.recv_timeout().await.unwrap());
+    let purge_ok = client.recv_single_frame().await;
     assert!(matches!(
-        dbg!(purge_ok).get(0).unwrap(),
+        dbg!(purge_ok),
         frame::AMQPFrame::Method(
             _,
             _,
@@ -83,7 +85,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
     client
         .queue_declare(1, frame::QueueDeclareArgs::default().name("queue-delete-test"))
         .await;
-    client.recv_frames().await;
+    client.recv_single_frame().await;
 
     client
         .exchange_declare(
@@ -93,7 +95,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
                 .exchange_type("direct"),
         )
         .await;
-    client.recv_frames().await;
+    client.recv_single_frame().await;
 
     client
         .connection
@@ -104,7 +106,7 @@ async fn queue_delete_unbind_and_cancel_consume() {
         )
         .await
         .unwrap();
-    client.recv_frames().await;
+    client.recv_single_frame().await;
 
     //let mut consumer = tc.new_client();
 

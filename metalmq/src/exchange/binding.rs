@@ -1,3 +1,7 @@
+//! Handling the exchange-queue bindings.
+//!
+//! To see the list of exchange bindings and their semantic, see [AMQP
+//! exchanges](https://www.rabbitmq.com/tutorials/amqp-concepts#exchanges).
 use crate::{
     logerr,
     message::Message,
@@ -11,6 +15,8 @@ use tokio::sync::oneshot;
 
 use super::ExchangeType;
 
+/// A direct exchange routes the message if the routing key of the message is exactly the same
+/// as the routing key of the binding. It is legal to have two bindings with the same routing key.
 #[derive(Debug)]
 pub struct DirectBinding {
     pub routing_key: String,
@@ -18,12 +24,21 @@ pub struct DirectBinding {
     pub queue: QueueCommandSink,
 }
 
+/// A fanout exchange routes the message to all bound queues, disregarding the routing key of the
+/// message.
 #[derive(Debug)]
 pub struct FanoutBinding {
     pub queue_name: String,
     pub queue: QueueCommandSink,
 }
 
+/// Topic exchange routes the message to the queues whose routing key matches to the routing key of
+/// the message.
+///
+/// A binding routing key can be 'price.nyse.*' or 'price.nikkei.*' so the message with routing key
+/// 'price.nyse.goog' will match to the first pattern. The dot has special meaning, it separates
+/// the topic path, and the '*' matches a arbitrary topic path segment, and the '#' matches one or
+/// more arbitrary path segments. So 'price.#' matches all price messages.
 #[derive(Debug)]
 pub struct TopicBinding {
     pub routing_key: String,
@@ -31,6 +46,16 @@ pub struct TopicBinding {
     pub queue: QueueCommandSink,
 }
 
+/// Headers exchange routes messages by message header matching.
+///
+/// Headers exchange ignores the routing key of the message, and it matches the headers of the
+/// message with the headers of the binding.
+///
+/// If there are more header values specified one can decide if all or any of them need to be
+/// matched. This described by the 'x-match' header and the value can be 'any' or 'all'. In these
+/// cases the headers starting with 'x-' are not taken into account. But if the 'x-match' is
+/// 'any-with-x' or 'all-with-x', all the headers including the ones starting with 'x-' are
+/// considered.
 #[derive(Debug)]
 pub struct HeadersBinding {
     pub headers: HashMap<String, AMQPFieldValue>,
@@ -51,6 +76,7 @@ pub enum Bindings {
 }
 
 impl Bindings {
+    /// Create a new exchange binding.
     pub fn new(exchange_type: ExchangeType) -> Self {
         match exchange_type {
             ExchangeType::Direct => Bindings::Direct(vec![]),
@@ -403,8 +429,30 @@ pub fn match_header(
 
 #[cfg(test)]
 mod tests {
+    use crate::queue::handler::QueueCommandSource;
+
     use super::*;
+
     use tokio::sync::mpsc;
+
+    fn direct_bind_queue(bindings: &mut Bindings, routing_key: &str, queue_name: &str) -> QueueCommandSource {
+        let (tx, rx) = mpsc::channel(1);
+
+        let result = bindings.add_direct_binding(routing_key.to_string(), queue_name.to_string(), tx);
+
+        assert!(result);
+
+        rx
+    }
+
+    fn new_message(exchange: &str, routing_key: &str) -> Message {
+        let mut message = Message::default();
+
+        message.exchange = exchange.to_string();
+        message.routing_key = routing_key.to_string();
+
+        message
+    }
 
     #[test]
     fn test_match_routing_key() {
@@ -416,15 +464,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_direct_binding() {
-        let (tx, mut rx) = mpsc::channel(1);
-
+    async fn direct_binding_one_routing_key() {
         let mut bindings = Bindings::new(ExchangeType::Direct);
-        bindings.add_direct_binding("extension.png".to_string(), "png-images".to_string(), tx);
 
-        let mut message = Message::default();
-        message.exchange = "images".to_string();
-        message.routing_key = "extension.png".to_string();
+        let mut rx = direct_bind_queue(&mut bindings, "extension.png", "png-images");
+
+        let message = new_message("images", "extension.png");
 
         let result = bindings.route_message(message).await.unwrap();
 
@@ -433,5 +478,22 @@ mod tests {
 
         let delivered = rx.recv().await.unwrap();
         assert!(matches!(delivered, QueueCommand::PublishMessage(_)));
+    }
+
+    #[tokio::test]
+    async fn direct_binding_multiple_queues_same_routing_key() {
+        let mut bindings = Bindings::new(ExchangeType::Direct);
+
+        let mut jpg = direct_bind_queue(&mut bindings, "jpg-images", "extension.jpg");
+        let mut jpeg = direct_bind_queue(&mut bindings, "jpg-images", "extension.jpeg");
+
+        let message = new_message("images", "jpg-images");
+
+        let result = bindings.route_message(message).await.unwrap();
+
+        assert!(result.is_none());
+
+        assert!(matches!(jpg.recv().await.unwrap(), QueueCommand::PublishMessage(_)));
+        assert!(matches!(jpeg.recv().await.unwrap(), QueueCommand::PublishMessage(_)));
     }
 }

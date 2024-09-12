@@ -29,6 +29,7 @@ use tokio::sync::{mpsc, oneshot};
 use self::outbox::{Outbox, OutgoingMessage};
 
 pub type QueueCommandSink = mpsc::Sender<QueueCommand>;
+pub type QueueCommandSource = mpsc::Receiver<QueueCommand>;
 
 /// Delivery tag of a message
 #[derive(Clone, Debug)]

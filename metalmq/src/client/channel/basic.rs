@@ -405,7 +405,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::exchange;
-    use crate::tests::recv_timeout;
+    use crate::tests::recv::recv_with_timeout;
 
     use super::*;
 
@@ -456,7 +456,7 @@ mod tests {
 
         channel.handle_content_body(body).await?;
 
-        let cmd = recv_timeout(&mut ex_rx).await.expect("No frame received");
+        let cmd = recv_with_timeout(&mut ex_rx).await.expect("No frame received");
 
         assert!(matches!(
             cmd,

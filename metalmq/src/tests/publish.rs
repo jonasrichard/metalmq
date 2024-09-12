@@ -1,10 +1,14 @@
 use metalmq_codec::frame::{self, BasicPublishArgs};
 
 use crate::tests::{
-    test_client::{basic_deliver_args, sleep, unpack_frames},
+    test_client::{basic_deliver_args, sleep},
     TestCase,
 };
 
+/// Publish a mandatory message to an exchange which doesn't have binding on the given routing key.
+/// The message should be returned since it is mandatory and the routing cannot be done.
+/// Then publish another mandatory message with the correct routing key and check if there is no
+/// Basic.Return is got by the publisher.
 #[tokio::test]
 async fn basic_publish_mandatory_message() {
     let test_case = TestCase::new().await;
@@ -47,6 +51,8 @@ async fn basic_publish_mandatory_message() {
     test_client.close().await;
 }
 
+/// Perform a basic get on an empty queue and check if the consumer get the empty get message. Then
+/// publish a message and check if the consumer gets the message with Basic.Get.
 #[tokio::test]
 async fn basic_get_empty_and_ok() {
     let test_case = TestCase::new().await;
@@ -56,10 +62,10 @@ async fn basic_get_empty_and_ok() {
         .basic_get(2, frame::BasicGetArgs::new("q-fanout").no_ack(false))
         .await;
 
-    let get_empty_frames = test_client.recv_frames().await;
+    let get_empty_frames = test_client.recv_single_frame().await;
 
     assert!(matches!(
-        dbg!(get_empty_frames).get(0).unwrap(),
+        dbg!(get_empty_frames),
         frame::AMQPFrame::Method(2, _, frame::MethodFrameArgs::BasicGetEmpty)
     ));
 
@@ -86,6 +92,7 @@ async fn basic_get_empty_and_ok() {
     test_case.teardown().await;
 }
 
+/// Consumer sends back a multi ack message after getting a couple of messages.
 #[tokio::test]
 async fn basic_ack_multiple() {
     let test_case = TestCase::new().await;
@@ -180,12 +187,12 @@ async fn basic_ack_multiple() {
     ));
 }
 
+/// Publish a topic exchange with the correct routing key, and consume in another channel to see if
+/// the message is correctly routed to the queue.
 #[tokio::test]
 async fn publish_to_topic_exchange() {
     let test_case = TestCase::new().await;
     let mut test_client = test_case.new_client_with_channels(&[1, 2]).await;
-
-    test_client.open_channel(2).await;
 
     test_client
         .publish_content(1, "x-topic", "topic.key", b"Topic test")
@@ -198,13 +205,16 @@ async fn publish_to_topic_exchange() {
         )
         .await;
 
-    let _consume_ok = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let _consume_ok = test_client.recv_single_frame().await;
 
-    let delivery = unpack_frames(test_client.recv_timeout().await.unwrap());
+    let delivery = test_client.recv_frames().await;
     let mut frames = delivery.into_iter();
 
     let basic_deliver = basic_deliver_args(frames.next().unwrap());
     assert_eq!("x-topic", basic_deliver.exchange_name);
+    assert_eq!("ctag", basic_deliver.consumer_tag);
+    assert_eq!(false, basic_deliver.redelivered);
+
     // ...
 
     if let frame::AMQPFrame::ContentHeader(header) = frames.next().unwrap() {
@@ -214,6 +224,38 @@ async fn publish_to_topic_exchange() {
     if let frame::AMQPFrame::ContentBody(body) = frames.next().unwrap() {
         assert_eq!(b"Topic test", body.body.as_slice());
     }
+
+    test_case.teardown().await;
+}
+
+/// Switch the channel to confirm mode and publish a message. And Basic.Ack should come back from
+/// the server.
+#[tokio::test]
+async fn channel_in_confirm_mode_acks_publish() {
+    let test_case = TestCase::new().await;
+    let mut client = test_case.new_client_with_channel(1).await;
+
+    client.confirm_select(1).await;
+
+    let _confirm_select_ok = client.recv_single_frame().await;
+
+    client
+        .publish_content(1, "x-topic", "topic.key", b"Confirmed message")
+        .await;
+
+    let ack = client.recv_single_frame().await;
+
+    assert!(matches!(
+        ack,
+        frame::AMQPFrame::Method(
+            1,
+            _,
+            frame::MethodFrameArgs::BasicAck(frame::BasicAckArgs {
+                multiple: false,
+                delivery_tag: 1u64
+            })
+        )
+    ));
 
     test_case.teardown().await;
 }
