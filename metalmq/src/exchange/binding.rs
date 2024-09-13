@@ -429,7 +429,7 @@ pub fn match_header(
 
 #[cfg(test)]
 mod tests {
-    use crate::queue::handler::QueueCommandSource;
+    use crate::{queue::handler::QueueCommandSource, tests::recv};
 
     use super::*;
 
@@ -445,6 +445,32 @@ mod tests {
         rx
     }
 
+    fn topic_bind_queue(bindings: &mut Bindings, routing_key: &str, queue_name: &str) -> QueueCommandSource {
+        let (tx, rx) = mpsc::channel(1);
+
+        let result = bindings.add_topic_binding(routing_key.to_string(), queue_name.to_string(), tx);
+
+        assert!(result);
+
+        rx
+    }
+
+    fn headers_bind_queue(bindings: &mut Bindings, queue_name: &str, headers: Vec<(&str, &str)>) -> QueueCommandSource {
+        let (tx, rx) = mpsc::channel(1);
+
+        let mut header_map = frame::FieldTable::default();
+
+        for (k, v) in headers {
+            header_map.insert(k.to_string(), frame::AMQPFieldValue::LongString(v.to_string()));
+        }
+
+        let result = bindings.add_headers_binding(queue_name.to_string(), Some(header_map), tx);
+
+        assert!(result);
+
+        rx
+    }
+
     fn new_message(exchange: &str, routing_key: &str) -> Message {
         let mut message = Message::default();
 
@@ -452,6 +478,13 @@ mod tests {
         message.routing_key = routing_key.to_string();
 
         message
+    }
+
+    async fn assert_message_routed(rx: &mut QueueCommandSource) {
+        assert!(matches!(
+            recv::recv_with_timeout(rx).await.unwrap(),
+            QueueCommand::PublishMessage(_)
+        ));
     }
 
     #[test]
@@ -476,8 +509,7 @@ mod tests {
         // The message is not returned but successfully routed.
         assert!(result.is_none());
 
-        let delivered = rx.recv().await.unwrap();
-        assert!(matches!(delivered, QueueCommand::PublishMessage(_)));
+        assert_message_routed(&mut rx).await
     }
 
     #[tokio::test]
@@ -493,7 +525,62 @@ mod tests {
 
         assert!(result.is_none());
 
-        assert!(matches!(jpg.recv().await.unwrap(), QueueCommand::PublishMessage(_)));
-        assert!(matches!(jpeg.recv().await.unwrap(), QueueCommand::PublishMessage(_)));
+        assert_message_routed(&mut jpg).await;
+        assert_message_routed(&mut jpeg).await;
+    }
+
+    #[tokio::test]
+    async fn topic_binding_test() {
+        let mut bindings = Bindings::new(ExchangeType::Topic);
+
+        let mut jpg = topic_bind_queue(&mut bindings, "extension.image.jpg", "jpeg-queue");
+        let mut png = topic_bind_queue(&mut bindings, "extension.image.png", "png-queue");
+        let mut pictures = topic_bind_queue(&mut bindings, "extension.image.*", "pictures-queue");
+        let mut pdf = topic_bind_queue(&mut bindings, "extension.document.pdf", "pdf-queue");
+        let mut all = topic_bind_queue(&mut bindings, "extension.#", "pictures-queue");
+
+        let message = new_message("files", "extension.document.pdf");
+
+        assert!(bindings.route_message(message).await.unwrap().is_none());
+
+        assert_message_routed(&mut pdf).await;
+        assert_message_routed(&mut all).await;
+
+        assert!(recv::recv_nothing(&mut jpg).await);
+        assert!(recv::recv_nothing(&mut png).await);
+        assert!(recv::recv_nothing(&mut pictures).await);
+    }
+
+    #[tokio::test]
+    async fn header_binding_test() {
+        let mut bindings = Bindings::new(ExchangeType::Headers);
+
+        let mut pdf = headers_bind_queue(
+            &mut bindings,
+            "important-files",
+            vec![("x-match", "any"), ("extension", "pdf"), ("type", "document")],
+        );
+        let mut doc = headers_bind_queue(
+            &mut bindings,
+            "other-files",
+            vec![("x-match", "any"), ("extension", "doc"), ("type", "document")],
+        );
+        let mut png = headers_bind_queue(
+            &mut bindings,
+            "other-files",
+            vec![("x-match", "any"), ("extension", "png"), ("type", "image")],
+        );
+
+        let mut message_headers = HashMap::new();
+        message_headers.insert("extension".to_string(), AMQPFieldValue::LongString("pdf".to_string()));
+        message_headers.insert("type".to_string(), AMQPFieldValue::LongString("document".to_string()));
+
+        let mut message = new_message("files", "");
+        message.content.headers = Some(message_headers);
+
+        assert!(bindings.route_message(message).await.unwrap().is_none());
+
+        assert_message_routed(&mut pdf).await;
+        assert_message_routed(&mut doc).await;
     }
 }
