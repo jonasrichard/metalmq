@@ -100,3 +100,39 @@ async fn connect_and_open_channel() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn connect_with_bad_password() -> Result<()> {
+    let test_case = TestCase::new().await;
+    let mut client = test_case.new_client();
+
+    let _connection_start = client.send_frame_with_response(frame::AMQPFrame::Header).await;
+
+    let connection_error = client
+        .send_frame_with_response(frame::ConnectionStartOkArgs::new("guest", "badpassword").frame())
+        .await;
+
+    assert!(matches!(
+        dbg!(connection_error),
+        AMQPFrame::Method(0, _, frame::MethodFrameArgs::ConnectionClose(_))
+    ));
+
+    Ok(())
+}
+
+//#[tokio::test]
+async fn channel_reopen_with_same_number() -> Result<()> {
+    let test_case = TestCase::new().await;
+    let mut client = test_case.new_client_with_channel(1).await;
+
+    client.open_channel(1).await;
+
+    let connection_error = client.recv_single_frame().await;
+
+    assert!(matches!(
+        connection_error,
+        AMQPFrame::Method(0, _, frame::MethodFrameArgs::ConnectionClose(_))
+    ));
+
+    Ok(())
+}

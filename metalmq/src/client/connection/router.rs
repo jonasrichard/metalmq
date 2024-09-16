@@ -68,6 +68,8 @@ impl Connection {
 
                     self.send_frame(rte.into()).await;
                     // if it fails we just return with an error so loop will close everything
+
+                    return Ok(false);
                 }
 
                 RuntimeError {
@@ -93,12 +95,12 @@ impl Connection {
         let mut ch_tx = None;
 
         // If it is not connection class frame, we need to look up the channel.
-        if class_method >> 16 != 0x000A && class_method != frame::CHANNEL_OPEN {
+        if class_method >> 16 != 0x000A {
             ch_tx = self.channel_receivers.get(&channel);
 
             // We cannot unpack the Option, since we handle connection frames which obviously don't
             // belong to any channel.
-            if ch_tx.is_none() {
+            if class_method != frame::CHANNEL_OPEN && ch_tx.is_none() {
                 return ConnectionError::ChannelError.to_result(class_method, "Channel not exist");
             }
         }
@@ -192,7 +194,11 @@ impl Connection {
                 e => {
                     error!("{:?}", e);
 
-                    e
+                    let rte = to_runtime_error(e.unwrap_err());
+
+                    channel.send_frame(rte.into()).await?;
+
+                    Ok(())
                 }
             }
         });

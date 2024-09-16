@@ -95,7 +95,10 @@ the `pika`. It runs on Python, so one need to install `pipenv` to run that.
 
 ```
 cd amqp-compliance
-pytest
+python3 -m venv ~/.venv
+source ~/.venv/bin/activate
+
+~/.venv/bin/pytest
 ```
 
 ### Unit test coverage

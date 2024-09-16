@@ -3,7 +3,7 @@ __name__ = "helper"
 from contextlib import contextmanager
 import pika
 
-def connect(username: str ="guest", password="guest", host="localhost", port=5672, vhost="/"):
+def connect(username: str ="guest", password="guest", host="::1", port=5672, vhost="/"):
     return pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=host,
