@@ -2,16 +2,15 @@ use metalmq_codec::{
     codec::Frame,
     frame::{self, AMQPFrame, ContentBodyFrame, ContentHeaderFrame},
 };
-use tokio::sync::mpsc;
-
-use crate::client::connection::types::Connection;
+use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::recv;
+use crate::error::Result;
 
 /// The test client used by test cases. It makes available the sender part of the input channel, so
 /// one can control the connection by sending frames in the `conn_tx`.
 pub struct TestClient {
-    pub connection: Connection,
+    pub connection: JoinHandle<Result<()>>,
     pub conn_tx: mpsc::Sender<Frame>,
     pub conn_rx: mpsc::Receiver<Frame>,
 }
@@ -33,73 +32,52 @@ impl TestClient {
                 .frame(),
             )
             .await;
+
+        self.assert_no_extra_frames().await;
     }
 
-    pub async fn open_channel(&mut self, channel: u16) {
-        self.connection
-            .handle_client_frame(frame::channel_open(channel))
-            .await
-            .unwrap();
-        self.conn_rx.recv().await.unwrap();
+    pub async fn open_channel(&mut self, channel: u16) -> AMQPFrame {
+        self.send_frame_with_response(frame::channel_open(channel)).await
     }
 
-    /// Send frame to client state machine.
-    pub async fn send_frame(&mut self, f: AMQPFrame) {
-        self.connection.handle_client_frame(f).await.unwrap();
+    pub async fn exchange_declare(&mut self, channel: u16, args: frame::ExchangeDeclareArgs) -> AMQPFrame {
+        self.send_frame_with_response(args.frame(channel)).await
     }
 
-    /// Send frame to client state machine and wait for the response frame.
-    pub async fn send_frame_with_response(&mut self, f: AMQPFrame) -> AMQPFrame {
-        self.connection.handle_client_frame(f).await.unwrap();
-
-        self.recv_single_frame().await
+    pub async fn exchange_delete(&mut self, channel: u16, args: frame::ExchangeDeleteArgs) -> AMQPFrame {
+        self.send_frame_with_response(args.frame(channel)).await
     }
 
-    pub async fn exchange_declare(&mut self, channel: u16, args: frame::ExchangeDeclareArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
+    pub async fn queue_declare(&mut self, channel: u16, args: frame::QueueDeclareArgs) -> AMQPFrame {
+        self.send_frame_with_response(args.frame(channel)).await
     }
 
-    pub async fn exchange_delete(&mut self, channel: u16, args: frame::ExchangeDeleteArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    pub async fn queue_declare(&mut self, channel: u16, args: frame::QueueDeclareArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
-    }
-
-    pub async fn queue_delete(&mut self, channel: u16, args: frame::QueueDeleteArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
+    pub async fn queue_delete(&mut self, channel: u16, args: frame::QueueDeleteArgs) -> AMQPFrame {
+        self.send_frame_with_response(args.frame(channel)).await
     }
 
     pub async fn basic_publish(&mut self, channel: u16, args: frame::BasicPublishArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
+        self.send_frame(args.frame(channel)).await;
     }
 
-    pub async fn basic_consume(&mut self, channel: u16, args: frame::BasicConsumeArgs) {
-        let f = args.frame(channel);
-
-        self.connection.handle_client_frame(f).await.unwrap();
+    pub async fn basic_consume(&mut self, channel: u16, args: frame::BasicConsumeArgs) -> AMQPFrame {
+        self.send_frame_with_response(args.frame(channel)).await
     }
 
     pub async fn basic_ack(&mut self, channel: u16, args: frame::BasicAckArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
+        self.send_frame(args.frame(channel)).await;
     }
 
     pub async fn basic_get(&mut self, channel: u16, args: frame::BasicGetArgs) {
-        self.connection.handle_client_frame(args.frame(channel)).await.unwrap();
+        self.send_frame(args.frame(channel)).await;
     }
 
-    pub async fn basic_cancel(&mut self, channel: u16, args: frame::BasicCancelArgs) {
-        let f = args.frame(channel);
-
-        self.connection.handle_client_frame(f).await.unwrap();
+    pub async fn basic_cancel(&mut self, channel: u16, args: frame::BasicCancelArgs) -> AMQPFrame {
+        self.send_frame_with_response(args.frame(channel)).await
     }
 
-    pub async fn confirm_select(&mut self, channel: u16) {
-        self.connection
-            .handle_client_frame(frame::confirm_select(channel))
-            .await
-            .unwrap();
+    pub async fn confirm_select(&mut self, channel: u16) -> AMQPFrame {
+        self.send_frame_with_response(frame::confirm_select(channel)).await
     }
 
     pub async fn publish_content(&mut self, channel: u16, exchange: &str, routing_key: &str, message: &[u8]) {
@@ -107,7 +85,7 @@ impl TestClient {
             .routing_key(routing_key)
             .frame(channel);
 
-        self.connection.handle_client_frame(f).await.unwrap();
+        self.send_frame(f).await;
 
         self.send_content(channel, message).await;
     }
@@ -120,20 +98,25 @@ impl TestClient {
             ..Default::default()
         };
 
-        self.connection
-            .handle_client_frame(AMQPFrame::ContentHeader(header))
-            .await
-            .unwrap();
+        self.send_frame(AMQPFrame::ContentHeader(header)).await;
 
         let body = ContentBodyFrame {
             channel,
             body: message.to_vec(),
         };
 
-        self.connection
-            .handle_client_frame(AMQPFrame::ContentBody(body))
-            .await
-            .unwrap();
+        self.send_frame(AMQPFrame::ContentBody(body)).await;
+    }
+
+    /// Send frame to client state machine.
+    pub async fn send_frame(&mut self, f: AMQPFrame) {
+        self.conn_tx.send(f.into()).await.unwrap();
+    }
+
+    /// Send frame to client state machine and wait for the response frame.
+    pub async fn send_frame_with_response(&mut self, f: AMQPFrame) -> AMQPFrame {
+        self.send_frame(f).await;
+        self.recv_single_frame().await
     }
 
     /// Receiving with timeout
@@ -150,11 +133,23 @@ impl TestClient {
     }
 
     pub async fn close(&mut self) {
-        self.connection.close().await.unwrap();
+        self.send_frame_with_response(frame::connection_close(200, "Normal close", frame::CONNECTION_CLOSE))
+            .await;
     }
 
     pub async fn close_channel(&mut self, channel: u16) {
-        self.connection.close_channel(channel).await.unwrap();
+        self.send_frame_with_response(frame::channel_close(channel, 200, "Normal close", frame::CHANNEL_CLOSE))
+            .await;
+    }
+
+    async fn assert_no_extra_frames(&mut self) {
+        if !self.conn_rx.is_empty() {
+            while let Ok(f) = self.conn_rx.try_recv() {
+                dbg!(f);
+            }
+
+            panic!("Extra frames in the receiver");
+        }
     }
 }
 

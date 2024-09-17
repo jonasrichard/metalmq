@@ -57,7 +57,7 @@ impl Connection {
         // How to implement normal stop of connection? How to get out of the loop?
 
         if let Err(e) = result {
-            let rte = to_runtime_error(e);
+            let rte = dbg!(to_runtime_error(e));
 
             match rte {
                 RuntimeError {

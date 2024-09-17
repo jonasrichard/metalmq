@@ -116,7 +116,7 @@ async fn basic_ack_multiple() {
     // Consume 10 messages with another client
     let mut consumer = test_case.new_client_with_channel(4).await;
 
-    consumer
+    let consumer_ok = consumer
         .basic_consume(
             4,
             frame::BasicConsumeArgs::default()
@@ -125,7 +125,6 @@ async fn basic_ack_multiple() {
         )
         .await;
 
-    let consumer_ok = consumer.recv_single_frame().await;
     assert!(matches!(
         dbg!(consumer_ok),
         frame::AMQPFrame::Method(4, _, frame::MethodFrameArgs::BasicConsumeOk(_))
@@ -159,9 +158,7 @@ async fn basic_ack_multiple() {
         )
         .await;
 
-    consumer.basic_cancel(4, frame::BasicCancelArgs::new("unit-test")).await;
-
-    let cancel_ok = consumer.recv_single_frame().await;
+    let cancel_ok = consumer.basic_cancel(4, frame::BasicCancelArgs::new("unit-test")).await;
 
     assert!(matches!(
         cancel_ok,
@@ -169,14 +166,13 @@ async fn basic_ack_multiple() {
     ));
 
     // Check if queue is empty by deleting and if it is empty
-    consumer
+    let delete_ok = consumer
         .queue_delete(
             4,
             frame::QueueDeleteArgs::default().queue_name("q-direct").if_empty(true),
         )
         .await;
 
-    let delete_ok = consumer.recv_single_frame().await;
     assert!(matches!(
         dbg!(delete_ok),
         frame::AMQPFrame::Method(
@@ -198,14 +194,12 @@ async fn publish_to_topic_exchange() {
         .publish_content(1, "x-topic", "topic.key", b"Topic test")
         .await;
 
-    test_client
+    let _ = test_client
         .basic_consume(
             2,
             frame::BasicConsumeArgs::default().queue("q-topic").consumer_tag("ctag"),
         )
         .await;
-
-    let _consume_ok = test_client.recv_single_frame().await;
 
     let delivery = test_client.recv_frames().await;
     let mut frames = delivery.into_iter();
@@ -235,9 +229,7 @@ async fn channel_in_confirm_mode_acks_publish() {
     let test_case = TestCase::new().await;
     let mut client = test_case.new_client_with_channel(1).await;
 
-    client.confirm_select(1).await;
-
-    let _confirm_select_ok = client.recv_single_frame().await;
+    let _confirm_select_ok = client.confirm_select(1).await;
 
     client
         .publish_content(1, "x-topic", "topic.key", b"Confirmed message")

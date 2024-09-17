@@ -582,5 +582,7 @@ mod tests {
 
         assert_message_routed(&mut pdf).await;
         assert_message_routed(&mut doc).await;
+
+        assert!(recv::recv_nothing(&mut png).await);
     }
 }

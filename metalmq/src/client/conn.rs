@@ -193,7 +193,7 @@ async fn outgoing_loop_with_heartbeat(
     Ok(())
 }
 
-async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<bool> {
+pub async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<bool> {
     match data {
         Frame::Frame(frame) => {
             if conn.handle_client_frame(frame).await.is_err() {

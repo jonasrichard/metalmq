@@ -11,7 +11,7 @@ async fn bind_queue_with_validation() {
         .exchange_name("normal-exchange")
         .exchange_type("direct");
 
-    let exchange_declare_ok = client.send_frame_with_response(args.frame(1)).await;
+    let exchange_declare_ok = client.exchange_declare(1, args).await;
 
     assert!(matches!(
         dbg!(exchange_declare_ok),
@@ -60,10 +60,8 @@ async fn queue_purge_clean_the_queue() {
     sleep(100).await;
 
     client
-        .connection
-        .handle_client_frame(frame::QueuePurgeArgs::default().queue_name("q-fanout").frame(2))
-        .await
-        .unwrap();
+        .send_frame(frame::QueuePurgeArgs::default().queue_name("q-fanout").frame(2))
+        .await;
 
     let purge_ok = client.recv_single_frame().await;
     assert!(matches!(
@@ -82,12 +80,11 @@ async fn queue_delete_unbind_and_cancel_consume() {
     let mut client = test_case.new_client_with_channel(1).await;
 
     // Declare and queue and an exchange and bind them
-    client
+    let _ = client
         .queue_declare(1, frame::QueueDeclareArgs::default().name("queue-delete-test"))
         .await;
-    client.recv_single_frame().await;
 
-    client
+    let _ = client
         .exchange_declare(
             1,
             frame::ExchangeDeclareArgs::default()
@@ -95,18 +92,14 @@ async fn queue_delete_unbind_and_cancel_consume() {
                 .exchange_type("direct"),
         )
         .await;
-    client.recv_single_frame().await;
 
-    client
-        .connection
-        .handle_client_frame(
+    let _ = client
+        .send_frame(
             frame::QueueBindArgs::new("queue-delete-test", "exchange-delete-test")
                 .routing_key("key")
                 .frame(1),
         )
-        .await
-        .unwrap();
-    client.recv_single_frame().await;
+        .await;
 
     //let mut consumer = tc.new_client();
 

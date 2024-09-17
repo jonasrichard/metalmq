@@ -8,11 +8,9 @@ async fn one_consumer() {
     let test_case = TestCase::new().await;
     let mut test_client = test_case.new_client_with_channel(1).await;
 
-    test_client
+    let consume_ok = test_client
         .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
         .await;
-
-    let consume_ok = test_client.recv_single_frame().await;
 
     assert!(matches!(
         dbg!(consume_ok),
@@ -38,9 +36,7 @@ async fn one_consumer() {
     assert_eq!(deliver_args.delivery_tag, 1u64);
     assert!(!deliver_args.redelivered);
 
-    test_client.basic_cancel(1, BasicCancelArgs::new("ctag")).await;
-
-    let cancel_ok = test_client.recv_single_frame().await;
+    let cancel_ok = test_client.basic_cancel(1, BasicCancelArgs::new("ctag")).await;
 
     assert!(matches!(
         cancel_ok,
@@ -60,10 +56,9 @@ async fn one_consumer_redeliver() {
     let mut test_client = test_case.new_client_with_channels(&[1, 2, 3]).await;
 
     // Consume the queue
-    test_client
+    let _consume_ok = test_client
         .basic_consume(1, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag"))
         .await;
-    test_client.recv_single_frame().await;
 
     // Publish a message
     test_client
@@ -75,14 +70,12 @@ async fn one_consumer_redeliver() {
     let _deliver_args = basic_deliver_args(deliver.remove(0));
 
     // Cancel consumer
-    test_client.basic_cancel(1, BasicCancelArgs::new("ctag")).await;
-    let _cancel_ok = test_client.recv_single_frame().await;
+    let _cancel_ok = test_client.basic_cancel(1, BasicCancelArgs::new("ctag")).await;
 
     // Consume the queue again
-    test_client
+    let _ = test_client
         .basic_consume(3, BasicConsumeArgs::default().queue("q-direct").consumer_tag("ctag2"))
         .await;
-    test_client.recv_single_frame().await;
 
     // Receive the message again
     let mut deliver = test_client.recv_frames().await;

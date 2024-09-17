@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 use crate::{
-    client::connection::types::Connection,
+    client::{conn, connection::types::Connection},
     exchange::{
         manager::{self as em, ExchangeManagerSink},
         Exchange, ExchangeType,
@@ -19,7 +19,7 @@ use crate::{
         manager::{self as qm, QueueManagerSink},
         Queue,
     },
-    Context,
+    Context, Result,
 };
 use metalmq_codec::{codec::Frame, frame};
 use test_client::TestClient;
@@ -52,22 +52,34 @@ impl TestCase {
     }
 
     /// Create a new client and return the outgoing channel part as well.
-    fn new_client(&self) -> TestClient {
+    async fn new_client(&self) -> TestClient {
         let ctx = Context {
             exchange_manager: self.em.clone(),
             queue_manager: self.qm.clone(),
         };
-        let (conn_tx, conn_rx) = mpsc::channel(16);
+        let (incoming_tx, incoming_rx) = mpsc::channel(16);
+        let (outgoing_tx, outgoing_rx) = mpsc::channel(16);
+        let connection = Connection::new(ctx, outgoing_tx);
+
+        let jh = tokio::spawn(async move { TestCase::client_loop(connection, incoming_rx).await });
 
         TestClient {
-            connection: Connection::new(ctx, conn_tx.clone()),
-            conn_tx,
-            conn_rx,
+            connection: jh,
+            conn_tx: incoming_tx,
+            conn_rx: outgoing_rx,
         }
     }
 
+    async fn client_loop(mut connection: Connection, mut incoming_rx: mpsc::Receiver<Frame>) -> Result<()> {
+        while let Some(f) = incoming_rx.recv().await {
+            conn::handle_in_stream_data(&mut connection, f).await?;
+        }
+
+        Ok(())
+    }
+
     async fn new_client_with_channel(&self, channel: u16) -> TestClient {
-        let mut client = self.new_client();
+        let mut client = self.new_client().await;
 
         client.connect().await;
         client.open_channel(channel).await;
@@ -76,7 +88,7 @@ impl TestCase {
     }
 
     async fn new_client_with_channels(&self, channels: &[u16]) -> TestClient {
-        let mut client = self.new_client();
+        let mut client = self.new_client().await;
 
         client.connect().await;
 

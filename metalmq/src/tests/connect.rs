@@ -6,9 +6,9 @@ use crate::Result;
 #[tokio::test]
 async fn connect_with_username_password() -> Result<()> {
     let test_case = TestCase::new().await;
-    let mut client = test_case.new_client();
+    let mut client = test_case.new_client().await;
 
-    client.connection.handle_client_frame(frame::AMQPFrame::Header).await?;
+    client.send_frame(frame::AMQPFrame::Header).await;
 
     let connection_start = client.recv_single_frame().await;
 
@@ -26,9 +26,8 @@ async fn connect_with_username_password() -> Result<()> {
     ));
 
     client
-        .connection
-        .handle_client_frame(frame::ConnectionStartOkArgs::new("guest", "guest").frame())
-        .await?;
+        .send_frame(frame::ConnectionStartOkArgs::new("guest", "guest").frame())
+        .await;
 
     let connection_tune = client.recv_single_frame().await;
 
@@ -48,16 +47,14 @@ async fn connect_with_username_password() -> Result<()> {
     ));
 
     client
-        .connection
-        .handle_client_frame(
+        .send_frame(
             frame::ConnectionOpenArgs {
                 virtual_host: "/".into(),
                 insist: false,
             }
             .frame(),
         )
-        .await
-        .unwrap();
+        .await;
 
     let connection_open_ok = client.recv_single_frame().await;
 
@@ -75,9 +72,8 @@ async fn connect_and_open_channel() -> Result<()> {
     let mut client = test_case.new_client_with_channel(1).await;
 
     client
-        .connection
-        .handle_client_frame(frame::channel_close(1, 200, "Normal close", frame::CHANNEL_CLOSE).into())
-        .await?;
+        .send_frame(frame::channel_close(1, 200, "Normal close", frame::CHANNEL_CLOSE).into())
+        .await;
 
     let channel_close_ok = client.recv_single_frame().await;
 
@@ -87,9 +83,8 @@ async fn connect_and_open_channel() -> Result<()> {
     ));
 
     client
-        .connection
-        .handle_client_frame(frame::connection_close(200, "Normal close", frame::CONNECTION_CLOSE).into())
-        .await?;
+        .send_frame(frame::connection_close(200, "Normal close", frame::CONNECTION_CLOSE).into())
+        .await;
 
     let connection_close_ok = client.recv_single_frame().await;
 
@@ -104,7 +99,7 @@ async fn connect_and_open_channel() -> Result<()> {
 #[tokio::test]
 async fn connect_with_bad_password() -> Result<()> {
     let test_case = TestCase::new().await;
-    let mut client = test_case.new_client();
+    let mut client = test_case.new_client().await;
 
     let _connection_start = client.send_frame_with_response(frame::AMQPFrame::Header).await;
 
@@ -120,12 +115,14 @@ async fn connect_with_bad_password() -> Result<()> {
     Ok(())
 }
 
-//#[tokio::test]
+#[tokio::test]
 async fn channel_reopen_with_same_number() -> Result<()> {
     let test_case = TestCase::new().await;
     let mut client = test_case.new_client_with_channel(1).await;
 
-    client.open_channel(1).await;
+    client.send_frame(frame::channel_open(1)).await;
+
+    client.send_frame(frame::channel_open(1)).await;
 
     let connection_error = client.recv_single_frame().await;
 
