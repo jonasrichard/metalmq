@@ -120,10 +120,14 @@ impl Connection {
 
         for (channel, ch_tx) in &self.channel_receivers {
             // drop channel channel in order to stop it
-            let _ = ch_tx;
+            let _ = *ch_tx;
 
             if let Some(jh) = self.channel_handlers.remove(&channel) {
-                jh.await;
+                //jh.abort();
+
+                //let x = jh.await;
+
+                //dbg!(x);
             }
         }
 

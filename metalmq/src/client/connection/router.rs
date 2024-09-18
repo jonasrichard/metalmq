@@ -64,9 +64,13 @@ impl Connection {
                     scope: ErrorScope::Connection,
                     ..
                 } => {
-                    let _r2 = self.close().await;
+                    // TODO this should be silent close which means that it doesn't send out any
+                    // frames
+                    let r2 = self.close().await;
 
-                    self.send_frame(rte.into()).await;
+                    dbg!(r2);
+
+                    let _ = self.send_frame(dbg!(rte.into())).await.map_err(|e| dbg!(e));
                     // if it fails we just return with an error so loop will close everything
 
                     return Ok(false);

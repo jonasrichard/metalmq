@@ -1,7 +1,7 @@
 use metalmq_codec::frame::{self, AMQPFrame};
 
-use crate::tests::TestCase;
-use crate::Result;
+use crate::error::{ErrorScope, Result, RuntimeError};
+use crate::tests::{recv, TestCase};
 
 #[tokio::test]
 async fn connect_with_username_password() -> Result<()> {
@@ -112,6 +112,8 @@ async fn connect_with_bad_password() -> Result<()> {
         AMQPFrame::Method(0, _, frame::MethodFrameArgs::ConnectionClose(_))
     ));
 
+    assert!(client.connection.await.is_ok());
+
     Ok(())
 }
 
@@ -121,15 +123,19 @@ async fn channel_reopen_with_same_number() -> Result<()> {
     let mut client = test_case.new_client_with_channel(1).await;
 
     client.send_frame(frame::channel_open(1)).await;
-
     client.send_frame(frame::channel_open(1)).await;
 
-    let connection_error = client.recv_single_frame().await;
+    let connection_error = recv::recv_error_frame(&mut client.conn_rx).await;
 
     assert!(matches!(
         connection_error,
-        AMQPFrame::Method(0, _, frame::MethodFrameArgs::ConnectionClose(_))
+        RuntimeError {
+            scope: ErrorScope::Connection,
+            ..
+        },
     ));
+
+    dbg!(client.connection.await);
 
     Ok(())
 }

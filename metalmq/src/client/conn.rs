@@ -70,6 +70,9 @@ async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<Tcp
         }
     }
 
+    debug_assert!(conn.channel_receivers.is_empty());
+    debug_assert!(conn.channel_handlers.is_empty());
+
     Ok(())
 }
 
@@ -193,12 +196,14 @@ async fn outgoing_loop_with_heartbeat(
     Ok(())
 }
 
+/// Handles the incoming frame by the connection or connection routes to the appropriate channel.
+/// If it returns `Ok(false)` that means that the loop should be closed.
 pub async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result<bool> {
     match data {
         Frame::Frame(frame) => {
-            if conn.handle_client_frame(frame).await.is_err() {
-                conn.close().await?;
+            dbg!(&frame);
 
+            if !conn.handle_client_frame(frame).await? {
                 return Ok(false);
             }
 
@@ -206,9 +211,7 @@ pub async fn handle_in_stream_data(conn: &mut Connection, data: Frame) -> Result
         }
         Frame::Frames(frames) => {
             for frame in frames {
-                if conn.handle_client_frame(frame).await.is_err() {
-                    conn.close().await?;
-
+                if !conn.handle_client_frame(frame).await? {
                     return Ok(false);
                 }
             }

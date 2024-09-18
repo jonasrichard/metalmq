@@ -61,7 +61,7 @@ impl TestCase {
         let (outgoing_tx, outgoing_rx) = mpsc::channel(16);
         let connection = Connection::new(ctx, outgoing_tx);
 
-        let jh = tokio::spawn(async move { TestCase::client_loop(connection, incoming_rx).await });
+        let jh = tokio::spawn(async move { dbg!(TestCase::client_loop(connection, incoming_rx).await) });
 
         TestClient {
             connection: jh,
@@ -72,7 +72,9 @@ impl TestCase {
 
     async fn client_loop(mut connection: Connection, mut incoming_rx: mpsc::Receiver<Frame>) -> Result<()> {
         while let Some(f) = incoming_rx.recv().await {
-            conn::handle_in_stream_data(&mut connection, f).await?;
+            if !conn::handle_in_stream_data(&mut connection, f).await? {
+                break;
+            }
         }
 
         Ok(())

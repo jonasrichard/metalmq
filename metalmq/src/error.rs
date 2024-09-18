@@ -1,6 +1,9 @@
 use std::fmt;
 
-use metalmq_codec::{codec::Frame, frame::AMQPFrame};
+use metalmq_codec::{
+    codec::Frame,
+    frame::{self, AMQPFrame, MethodFrameArgs},
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -71,6 +74,28 @@ impl From<RuntimeError> for Frame {
 impl<T> From<RuntimeError> for Result<T> {
     fn from(value: RuntimeError) -> Self {
         Err(Box::new(value))
+    }
+}
+
+impl From<AMQPFrame> for RuntimeError {
+    fn from(value: AMQPFrame) -> Self {
+        match value {
+            AMQPFrame::Method(0, _, MethodFrameArgs::ConnectionClose(args)) => RuntimeError {
+                scope: ErrorScope::Connection,
+                channel: 0,
+                code: args.code,
+                text: args.text.to_string(),
+                class_method: frame::unify_class_method(args.class_id, args.method_id),
+            },
+            AMQPFrame::Method(channel, _, MethodFrameArgs::ChannelClose(args)) => RuntimeError {
+                scope: ErrorScope::Channel,
+                channel,
+                code: args.code,
+                text: args.text.to_string(),
+                class_method: frame::unify_class_method(args.class_id, args.method_id),
+            },
+            f => panic!("Unknown frame {f:?}"),
+        }
     }
 }
 
