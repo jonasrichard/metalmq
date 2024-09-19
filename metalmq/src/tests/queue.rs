@@ -1,4 +1,4 @@
-use crate::tests::{test_client::sleep, TestCase};
+use crate::tests::{test_case::TestCase, test_client::sleep};
 use metalmq_codec::frame::{self, ExchangeDeclareArgs};
 
 #[tokio::test]

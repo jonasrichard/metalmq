@@ -1,8 +1,8 @@
 use metalmq_codec::frame::{self, BasicPublishArgs};
 
 use crate::tests::{
+    test_case::TestCase,
     test_client::{basic_deliver_args, sleep},
-    TestCase,
 };
 
 /// Publish a mandatory message to an exchange which doesn't have binding on the given routing key.

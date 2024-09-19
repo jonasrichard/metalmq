@@ -1,3 +1,13 @@
+//! Handles the TCP socket level connection.
+//!
+//! When a client connects a new tokio process is spawned which handles the incoming frames. The
+//! frames are already decoded by [`AMQPCodec`]. To avoid blocking the outgoing frames are passed
+//! by a different `mpsc::channel` usually named as `outgoing`. In that way we avoided the circular
+//! blocking of channel senders and receivers.
+//!
+//! Incoming and outgoing loop handles the heartbeats which we expect and send in a timely manner.
+//!
+//! The [`handle_in_stream_data`] function forwards the frames to the connection.
 use crate::{
     client::connection::types::Connection,
     error::{to_runtime_error, Result},

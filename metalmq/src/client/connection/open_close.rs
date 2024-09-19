@@ -107,6 +107,10 @@ impl Connection {
         Ok(())
     }
 
+    // TODO really we need to release the resources here, and then we need to close the connection.
+    // Now we close the connection right after connection.close which is not good since clients
+    // want to send the connection.close-ok and they fail that connection has been closed
+    // unexpectedly.
     pub async fn handle_channel_close_ok(&mut self, channel: u16) -> Result<()> {
         // TODO not sure if we need to send out basic cancel here
         self.channel_handlers.remove(&channel);

@@ -1,8 +1,9 @@
 use metalmq_codec::frame::{self, AMQPFrame};
 
 use crate::error::{ErrorScope, Result, RuntimeError};
-use crate::tests::{recv, TestCase};
+use crate::tests::{recv, test_case::TestCase};
 
+/// Frame level test of a connection start, tune and open.
 #[tokio::test]
 async fn connect_with_username_password() -> Result<()> {
     let test_case = TestCase::new().await;
@@ -66,6 +67,7 @@ async fn connect_with_username_password() -> Result<()> {
     Ok(())
 }
 
+/// Test a connection open, channel open, channel close and connection close positive flow.
 #[tokio::test]
 async fn connect_and_open_channel() -> Result<()> {
     let test_case = TestCase::new().await;
@@ -93,9 +95,12 @@ async fn connect_and_open_channel() -> Result<()> {
         AMQPFrame::Method(_, frame::CONNECTION_CLOSE_OK, frame::MethodFrameArgs::ConnectionCloseOk)
     ));
 
+    assert!(client.connection.await.is_ok());
+
     Ok(())
 }
 
+/// Connect with bad password should end up in connection error.
 #[tokio::test]
 async fn connect_with_bad_password() -> Result<()> {
     let test_case = TestCase::new().await;
@@ -117,6 +122,7 @@ async fn connect_with_bad_password() -> Result<()> {
     Ok(())
 }
 
+/// Opening two channels with the same number should end up in connection error.
 #[tokio::test]
 async fn channel_reopen_with_same_number() -> Result<()> {
     let test_case = TestCase::new().await;
@@ -135,7 +141,7 @@ async fn channel_reopen_with_same_number() -> Result<()> {
         },
     ));
 
-    dbg!(client.connection.await);
+    assert!(dbg!(client.connection.await).is_ok());
 
     Ok(())
 }

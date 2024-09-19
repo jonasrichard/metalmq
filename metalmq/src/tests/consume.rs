@@ -1,7 +1,6 @@
 use metalmq_codec::frame::{self, BasicCancelArgs, BasicConsumeArgs};
-use test_client::basic_deliver_args;
 
-use crate::tests::*;
+use crate::tests::{test_case::TestCase, test_client::basic_deliver_args};
 
 #[tokio::test]
 async fn one_consumer() {

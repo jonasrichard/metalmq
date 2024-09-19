@@ -1,3 +1,4 @@
+//! Utility module for receiving messages from channels with timeout.
 use metalmq_codec::{codec::Frame, frame::AMQPFrame};
 use tokio::sync::mpsc;
 
@@ -51,6 +52,8 @@ pub async fn recv_nothing<T>(rx: &mut mpsc::Receiver<T>) -> bool {
     recv_with_timeout(rx).await.is_none()
 }
 
+/// Listens for frames in the channel and returns the [`RuntimeError`] as the error frame. If it
+/// doesn't get anything or a non-error frame, it panics.
 pub async fn recv_error_frame(rx: &mut mpsc::Receiver<Frame>) -> RuntimeError {
     debug_assert!(!rx.is_closed());
 

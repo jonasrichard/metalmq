@@ -13,6 +13,7 @@ pub struct ExclusiveQueue {
     pub queue_name: String,
 }
 
+/// Represent a client connection to a server.
 pub struct Connection {
     /// Unique ID of the connection.
     pub id: String,
@@ -26,15 +27,27 @@ pub struct Connection {
     pub auto_delete_exchanges: Vec<String>,
     /// Exclusive queues created by the connection.
     pub exclusive_queues: Vec<ExclusiveQueue>,
+    /// Sender part of the queue command channel to the queue manager
     pub qm: queue::manager::QueueManagerSink,
+    /// Sender part of the exchange command channel to the exchange manager
     pub em: exchange::manager::ExchangeManagerSink,
+    /// [`JoinHandle`] of the channels.
+    ///
+    /// To be sure that a channel is stopped one need to `await` on that handler.
     pub channel_handlers: HashMap<u16, JoinHandle<Result<()>>>,
+    /// The incoming frame channel of a [`crate::client::channel::types::Channel`].
+    ///
+    /// Through this channel the AMQP channel gets the incoming frames, so it can handle them.
     pub channel_receivers: HashMap<u16, mpsc::Sender<Command>>,
     /// Sink for AMQP frames toward the client
+    ///
+    /// This is cloned by each channel in order that they can send back response frames.
     pub outgoing: mpsc::Sender<Frame>,
 }
 
 impl Connection {
+    /// Creates a new connection with the queue and exchange managers and the outgoing frame
+    /// channel.
     pub fn new(context: Context, outgoing: mpsc::Sender<Frame>) -> Self {
         let conn_id = Uuid::new_v4().as_hyphenated().to_string();
 
