@@ -1,17 +1,17 @@
-use log::{info, trace, warn};
+use log::{error, info, trace, warn};
 use metalmq_codec::{
     codec::Frame,
     frame::{self, ConnectionCloseArgs, ConnectionOpenArgs, ConnectionStartOkArgs, ConnectionTuneOkArgs},
 };
 
 use crate::{
-    client::connection::types::Connection,
+    client::connection::types::{Connection, ConnectionState},
     error::{ConnectionError, Result},
 };
 
 impl Connection {
     pub async fn handle_connection_start_ok(&mut self, args: ConnectionStartOkArgs) -> Result<()> {
-        let mut authenticated = false;
+        self.status = ConnectionState::Connected;
 
         if args.mechanism.eq(&"PLAIN") {
             let mut it = args.response.as_bytes().split(|b| b == &0u8);
@@ -27,13 +27,13 @@ impl Connection {
 
             // TODO get users from config file
             if let (Some(b"guest"), Some(b"guest")) = (username, password) {
-                authenticated = true;
+                self.status = ConnectionState::Authenticated;
             }
         }
 
-        match authenticated {
-            true => self.send_frame(Frame::Frame(frame::connection_tune())).await,
-            false => ConnectionError::AccessRefused.to_result(
+        match self.status {
+            ConnectionState::Authenticated => self.send_frame(Frame::Frame(frame::connection_tune())).await,
+            _ => ConnectionError::AccessRefused.to_result(
                 frame::CONNECTION_START_OK,
                 "ACCESS_REFUSED - Username and password are incorrect",
             ),
@@ -71,15 +71,27 @@ impl Connection {
     }
 
     pub async fn handle_connection_close(&mut self, args: ConnectionCloseArgs) -> Result<()> {
+        self.status = ConnectionState::ClosingByClient;
+
         info!("Connection {} is being closed", self.id);
 
-        // TODO cleanup
-        //   - consume handler -> remove as consumer, auto delete queues are deleted when there are
-        //     no consumers there
-        //   - exchange handler -> deregister (auto-delete exchange)
-        //   - queues -> delete the exclusive queues
+        if let Err(e) = self.forced_close().await {
+            error!("Error forcedly close connection resources: {e:?}");
+        }
+
+        self.status = ConnectionState::Closed;
 
         self.send_frame(Frame::Frame(frame::connection_close_ok())).await
+    }
+
+    pub async fn handle_connection_close_ok(&mut self) -> Result<()> {
+        self.status = ConnectionState::Closed;
+
+        if let Err(e) = self.forced_close().await {
+            error!("Error forcedly close connection resources: {e:?}");
+        }
+
+        Ok(())
     }
 
     pub async fn handle_channel_open(&mut self, channel: u16) -> Result<()> {
@@ -107,88 +119,11 @@ impl Connection {
         Ok(())
     }
 
-    // TODO really we need to release the resources here, and then we need to close the connection.
-    // Now we close the connection right after connection.close which is not good since clients
-    // want to send the connection.close-ok and they fail that connection has been closed
-    // unexpectedly.
     pub async fn handle_channel_close_ok(&mut self, channel: u16) -> Result<()> {
-        // TODO not sure if we need to send out basic cancel here
-        self.channel_handlers.remove(&channel);
-        self.channel_receivers.remove(&channel);
-
-        Ok(())
-    }
-
-    pub async fn close(&mut self) -> Result<()> {
-        info!("Cleanup connection {}", self.id);
-
-        for (channel, ch_tx) in &self.channel_receivers {
-            // drop channel channel in order to stop it
-            let _ = *ch_tx;
-
-            if let Some(jh) = self.channel_handlers.remove(&channel) {
-                //jh.abort();
-
-                //let x = jh.await;
-
-                //dbg!(x);
-            }
-        }
-
-        //for (channel, cq) in &self.consumed_queues {
-        //    debug!(
-        //        "Cancel consumer channel: {} queue: {} consumer tag: {}",
-        //        channel, cq.queue_name, cq.consumer_tag
-        //    );
-
-        //    let cmd = QueueCancelConsume {
-        //        channel: *channel,
-        //        queue_name: cq.queue_name.clone(),
-        //        consumer_tag: cq.consumer_tag.clone(),
-        //    };
-
-        //    logerr!(qm::cancel_consume(&self.qm, cmd).await);
-        //}
-
-        Ok(())
-    }
-
-    pub async fn close_channel(&mut self, channel: u16) -> Result<()> {
-        if let Some(ch_tx) = self.channel_receivers.remove(&channel) {
-            drop(ch_tx);
-        }
-
-        if let Some(jh) = self.channel_handlers.remove(&channel) {
-            jh.await;
+        if let Err(e) = self.close_channel(channel).await {
+            error!("Error during closing channel {e:?}");
         }
 
         Ok(())
     }
-
-    // Handle a runtime error a connection or a channel error. At first it sends the error frame
-    // and then handle the closing of a channel or connection depending what kind of exception
-    // happened.
-    //
-    // This function just sends out the error frame and return with `Err` if it is a connection
-    // error, or it returns with `Ok` if it is a channel error. This is handy if we want to handle
-    // the output with a `?` operator and we want to die in case of a connection error (aka we
-    // want to propagate the error to the client handler).
-    //async fn handle_error(&mut self, err: RuntimeError) -> Result<()> {
-    //    trace!("Handling error {:?}", err);
-
-    //    self.send_frame(runtime_error_to_frame(&err)).await?;
-
-    //    match err.scope {
-    //        ErrorScope::Connection => {
-    //            self.close().await?;
-
-    //            Err(Box::new(err))
-    //        }
-    //        ErrorScope::Channel => {
-    //            self.close_channel(err.channel).await?;
-
-    //            Ok(())
-    //        }
-    //    }
-    //}
 }

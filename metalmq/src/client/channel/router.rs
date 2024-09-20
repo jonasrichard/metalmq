@@ -11,8 +11,11 @@ impl Channel {
 
         while let Some(m) = rx.recv().await {
             match m {
-                MethodFrame(_ch, _cm, ma) => {
+                MethodFrame(ch, _cm, ma) => {
                     let result = match ma {
+                        // TODO
+                        //
+                        // Maybe we need to handle the channel close and close ok in the connection
                         metalmq_codec::frame::MethodFrameArgs::ChannelClose(args) => {
                             self.handle_channel_close(
                                 args.code,
@@ -21,7 +24,7 @@ impl Channel {
                             )
                             .await
                         }
-                        metalmq_codec::frame::MethodFrameArgs::ChannelCloseOk => unreachable!(),
+                        metalmq_codec::frame::MethodFrameArgs::ChannelCloseOk => self.handle_channel_close_ok(ch).await,
                         metalmq_codec::frame::MethodFrameArgs::ExchangeDeclare(args) => {
                             self.handle_exchange_declare(args).await
                         }

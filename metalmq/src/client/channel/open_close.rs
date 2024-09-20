@@ -1,3 +1,5 @@
+use metalmq_codec::frame;
+
 use super::types::Channel;
 use crate::error::Result;
 
@@ -56,6 +58,12 @@ impl Channel {
         //        ))
         //        .await?;
         //}
+
+        Ok(())
+    }
+
+    pub async fn handle_channel_close_ok(&mut self, channel: u16) -> Result<()> {
+        todo!();
 
         Ok(())
     }

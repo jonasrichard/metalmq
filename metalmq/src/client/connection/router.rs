@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::{
     client::{
         channel::types::{Channel, Command},
-        connection::types::{Connection, ExclusiveQueue},
+        connection::types::{Connection, ConnectionState, ExclusiveQueue},
     },
     error::{to_runtime_error, ConnectionError, ErrorScope, Result, RuntimeError},
 };
@@ -64,8 +64,19 @@ impl Connection {
                     scope: ErrorScope::Connection,
                     ..
                 } => {
+                    self.status = ConnectionState::ClosingByServer;
+
                     // TODO this should be silent close which means that it doesn't send out any
                     // frames
+                    //
+                    // TODO also this is the situation when client sent something which is not
+                    // correct, so we send out a connection close and with error code. Here we
+                    // shouldn't close the connection and the resources but we need to put the
+                    // connection to 'Closing' state, and when the client send back the connection
+                    // close ok, we can close the tcp socket.
+                    //
+                    // It is better if we have more states like Connected, Authenticated,
+                    // ClosingByClient, ClosingByServer, etc.
                     let r2 = self.close().await;
 
                     dbg!(r2);
@@ -133,6 +144,11 @@ impl Connection {
 
                 Ok(false)
             }
+            ConnectionCloseOk => {
+                self.handle_connection_close_ok().await?;
+
+                Ok(false)
+            }
             ChannelOpen => {
                 if ch_tx.is_some() {
                     ConnectionError::ChannelError.to_result(class_method, "Channel already exist")
@@ -148,6 +164,11 @@ impl Connection {
 
                 self.send_command_to_channel(channel, cmd).await?;
                 self.handle_channel_close(channel).await?;
+
+                Ok(true)
+            }
+            ChannelCloseOk => {
+                self.handle_channel_close_ok(channel).await?;
 
                 Ok(true)
             }
