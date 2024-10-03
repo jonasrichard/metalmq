@@ -97,7 +97,7 @@ impl Connection {
             // drop channel channel in order to stop it
             let _ = *ch_tx;
 
-            if let Some(jh) = self.channel_handlers.remove(&channel) {
+            if let Some(jh) = self.channel_handlers.remove(channel) {
                 //jh.abort();
 
                 //let x = jh.await;

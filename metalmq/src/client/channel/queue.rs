@@ -63,7 +63,7 @@ impl Channel {
             Err(e) => {
                 warn!("{:?}", e);
 
-                ChannelError::NotFound.to_result(self.number, frame::QUEUE_BIND, "Queue not found")
+                ChannelError::NotFound.into_result(self.number, frame::QUEUE_BIND, "Queue not found")
             }
         }
     }

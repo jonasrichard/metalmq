@@ -10,6 +10,7 @@ def test_basic_get():
         sender.exchange_declare("x-get-test")
         sender.queue_declare("q-get-test")
         sender.queue_bind("q-get-test", "x-get-test", "rk")
+        sender.queue_purge("q-get-test")
 
         with helper.channel(7) as consumer:
             (method, _, _) = consumer.basic_get("q-get-test")

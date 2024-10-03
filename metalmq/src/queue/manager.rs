@@ -177,10 +177,7 @@ pub async fn get_queues(mgr: &QueueManagerSink) -> Vec<Queue> {
 
     logerr!(mgr.send(QueueManagerCommand::GetQueues(tx)).await);
 
-    match rx.await {
-        Ok(queues) => queues,
-        Err(_) => vec![],
-    }
+    rx.await.unwrap_or_default()
 }
 
 pub async fn queue_deleted(mgr: &QueueManagerSink, evt: QueueDeletedEvent) -> Result<()> {
@@ -265,7 +262,7 @@ impl QueueManagerState {
             Some(qi) => {
                 if command.passive {
                     if qi.queue.exclusive && command.conn_id != qi.declaring_connection {
-                        ChannelError::ResourceLocked.to_result(
+                        ChannelError::ResourceLocked.into_result(
                             command.channel,
                             frame::QUEUE_DECLARE,
                             &format!("Queue {} is declared by another connection already", command.queue.name),
@@ -273,7 +270,7 @@ impl QueueManagerState {
                     }
 
                     if qi.queue.durable != command.queue.durable || qi.queue.auto_delete != command.queue.auto_delete {
-                        ChannelError::PreconditionFailed.to_result(
+                        ChannelError::PreconditionFailed.into_result(
                             command.channel,
                             frame::QUEUE_DECLARE,
                             &format!(
@@ -293,7 +290,7 @@ impl QueueManagerState {
             }
             None => {
                 if command.passive {
-                    ChannelError::NotFound.to_result(
+                    ChannelError::NotFound.into_result(
                         command.channel,
                         frame::QUEUE_DECLARE,
                         &format!("Queue {} cannot be found", command.queue.name),
@@ -301,7 +298,7 @@ impl QueueManagerState {
                 }
 
                 if !validate_queue_name(&command.queue.name) {
-                    ChannelError::PreconditionFailed.to_result(
+                    ChannelError::PreconditionFailed.into_result(
                         command.channel,
                         frame::QUEUE_DECLARE,
                         &format!("Queue name {} is not valid", command.queue.name),
@@ -346,7 +343,7 @@ impl QueueManagerState {
 
                 rx.await?
             }
-            None => ChannelError::NotFound.to_result(command.channel, frame::QUEUE_DELETE, "Not found"),
+            None => ChannelError::NotFound.into_result(command.channel, frame::QUEUE_DELETE, "Not found"),
         }
     }
 
@@ -377,7 +374,7 @@ impl QueueManagerState {
 
                 Ok(queue.command_sink.clone())
             }
-            None => ChannelError::NotFound.to_result(command.channel, frame::BASIC_CONSUME, "Not found"),
+            None => ChannelError::NotFound.into_result(command.channel, frame::BASIC_CONSUME, "Not found"),
         }
     }
 
@@ -403,7 +400,7 @@ impl QueueManagerState {
     fn handle_get_command_sink(&self, command: GetQueueSinkQuery) -> Result<QueueCommandSink> {
         match self.queues.get(&command.queue_name) {
             Some(queue) => Ok(queue.command_sink.clone()),
-            None => ChannelError::NotFound.to_result(command.channel, frame::QUEUE_DECLARE, "Not found"),
+            None => ChannelError::NotFound.into_result(command.channel, frame::QUEUE_DECLARE, "Not found"),
         }
     }
 

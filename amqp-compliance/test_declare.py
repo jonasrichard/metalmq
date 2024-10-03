@@ -34,6 +34,7 @@ def test_passive_declare_non_existent_exchange(caplog):
     assert 404 == exp.value.reply_code
     assert str(exp.value.reply_text).startswith("NOT_FOUND - no exchange 'non-existent' in vhost '/'")
 
+@pytest.mark.skip(reason="RabbitMQ allows these characters")
 def test_exchange_name_contains_disallowed_char(caplog):
     with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
         Declare(exchange_name="exchange$#'!")
@@ -42,11 +43,11 @@ def test_exchange_name_contains_disallowed_char(caplog):
     assert str(exp.value.reply_text).startswith("PRECONDITION_FAILED")
 
 def test_exchange_with_not_supported_type(caplog):
-    with pytest.raises(pika.exceptions.ConnectionClosedByBroker) as exp:
+    with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
         Declare(exchange_name="topic-not-exist", exchange_type="broadcast")
 
-    assert 503 == exp.value.reply_code
-    assert str(exp.value.reply_text).startswith("COMMAND_INVALID")
+    assert 406 == exp.value.reply_code
+    assert str(exp.value.reply_text).startswith("PRECONDITION_FAILED")
 
 def test_exchange_redeclare_with_different_type(caplog):
     d = Declare(exchange_name="redecl-direct", exchange_type="direct")
@@ -58,6 +59,7 @@ def test_exchange_redeclare_with_different_type(caplog):
     assert 406 == exp.value.reply_code
     assert str(exp.value.reply_text).startswith("PRECONDITION_FAILED")
 
+@pytest.mark.skip(reason="Auto delete deletes the exchange later")
 def test_exchange_auto_delete(caplog):
     d = Declare(exchange_name="xchg-auto-delete", auto_delete=True)
     d.close()

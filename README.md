@@ -101,19 +101,6 @@ source ~/.venv/bin/activate
 ~/.venv/bin/pytest
 ```
 
-### Unit test coverage
-
-Run unit test with coverage.
-
-```
-rustup component add llvm-tools-preview
-cargo install grconv
-
-mkdir -p target/coverage/data
-make metalmq-cover
-open target/coverage/html/index.html
-```
-
 ### Use tokio console
 
 In the examples the publish-consume test has dependency on the tokio console.

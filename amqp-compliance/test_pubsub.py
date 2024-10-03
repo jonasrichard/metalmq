@@ -26,8 +26,6 @@ def test_one_publisher_one_consumer(caplog):
         with end:
             end.notify()
 
-        channel.close()
-
     with helper.channel(9) as publisher:
         publisher.exchange_declare(exchange="speed1")
         publisher.queue_declare("speed1")

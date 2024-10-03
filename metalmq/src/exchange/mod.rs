@@ -8,7 +8,6 @@ pub mod handler;
 pub mod manager;
 
 use crate::{
-    client::{channel, connection},
     error::{ChannelError, ConnectionError},
     Result,
 };
@@ -63,7 +62,7 @@ impl FromStr for ExchangeType {
 
 pub fn validate_exchange_name(channel: Channel, exchange_name: &str) -> Result<()> {
     if exchange_name.starts_with("amq.") {
-        return ChannelError::AccessRefused.to_result(
+        return ChannelError::AccessRefused.into_result(
             channel,
             frame::EXCHANGE_DECLARE,
             "ACCESS_REFUSED - Exchange name is reserved",
@@ -77,7 +76,7 @@ pub fn validate_exchange_type(exchange_type: &str) -> Result<()> {
     match ExchangeType::from_str(exchange_type) {
         Ok(_) => Ok(()),
         Err(_) => ConnectionError::CommandInvalid
-            .to_result(frame::EXCHANGE_DECLARE, "COMMAND_INVALID - Exchange type is invalid"),
+            .into_result(frame::EXCHANGE_DECLARE, "COMMAND_INVALID - Exchange type is invalid"),
     }
 }
 

@@ -157,12 +157,16 @@ impl ExchangeState {
         match cmd.sink.send(QueueCommand::GetInfo { result: queue_info_tx }).await {
             Err(_) => cmd
                 .result
-                .send(ChannelError::NotFound.to_result(cmd.channel, frame::QUEUE_BIND, "Queue cannot be found"))
+                .send(ChannelError::NotFound.into_result(cmd.channel, frame::QUEUE_BIND, "Queue cannot be found"))
                 .unwrap(),
             Ok(()) => match queue_info_rx.await {
                 Err(_) => {
                     cmd.result
-                        .send(ChannelError::NotFound.to_result(cmd.channel, frame::QUEUE_BIND, "Queue cannot be found"))
+                        .send(ChannelError::NotFound.into_result(
+                            cmd.channel,
+                            frame::QUEUE_BIND,
+                            "Queue cannot be found",
+                        ))
                         .unwrap();
                 }
                 Ok(queue_info) => {
@@ -170,7 +174,7 @@ impl ExchangeState {
 
                     if queue_info.exclusive && cmd.conn_id != queue_info.declaring_connection {
                         cmd.result
-                            .send(ChannelError::ResourceLocked.to_result(
+                            .send(ChannelError::ResourceLocked.into_result(
                                 cmd.channel,
                                 frame::QUEUE_BIND,
                                 "Cannot obtain exclusive access to queue, it is an exclusive queue declared by \
@@ -280,7 +284,7 @@ impl ExchangeState {
                 false
             } else {
                 let err =
-                    ChannelError::PreconditionFailed.to_result(channel, frame::EXCHANGE_DELETE, "Exchange is in use");
+                    ChannelError::PreconditionFailed.into_result(channel, frame::EXCHANGE_DELETE, "Exchange is in use");
 
                 logerr!(result.send(err));
 

@@ -33,7 +33,7 @@ impl Connection {
 
         match self.status {
             ConnectionState::Authenticated => self.send_frame(Frame::Frame(frame::connection_tune())).await,
-            _ => ConnectionError::AccessRefused.to_result(
+            _ => ConnectionError::AccessRefused.into_result(
                 frame::CONNECTION_START_OK,
                 "ACCESS_REFUSED - Username and password are incorrect",
             ),
@@ -64,7 +64,7 @@ impl Connection {
         // TODO in case of virtual host which exists but the client doesn't have permission to work
         // with we need to send back an access-refused connection error.
         if args.virtual_host != "/" {
-            ConnectionError::InvalidPath.to_result(frame::CONNECTION_OPEN, "Cannot connect to virtualhost")
+            ConnectionError::InvalidPath.into_result(frame::CONNECTION_OPEN, "Cannot connect to virtualhost")
         } else {
             self.send_frame(Frame::Frame(frame::connection_open_ok())).await
         }
@@ -100,7 +100,7 @@ impl Connection {
             warn!("Channel number is too big: {channel}");
 
             return ConnectionError::NotAllowed
-                .to_result(frame::CHANNEL_OPEN, "NOT_ALLOWED - Channel number is too large");
+                .into_result(frame::CHANNEL_OPEN, "NOT_ALLOWED - Channel number is too large");
         }
 
         self.start_channel(channel).await?;

@@ -80,8 +80,9 @@ async fn incoming_loop(conn: &mut Connection, mut stream: SplitStream<Framed<Tcp
         }
     }
 
-    debug_assert!(conn.channel_receivers.is_empty());
-    debug_assert!(conn.channel_handlers.is_empty());
+    // TODO this is not true if connection is suddenly closed
+    //debug_assert!(conn.channel_receivers.is_empty());
+    //debug_assert!(conn.channel_handlers.is_empty());
 
     Ok(())
 }

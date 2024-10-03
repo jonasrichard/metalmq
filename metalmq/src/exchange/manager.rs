@@ -142,10 +142,7 @@ pub async fn get_exchanges(mgr: &ExchangeManagerSink) -> Vec<Exchange> {
 
     logerr!(mgr.send(ExchangeManagerCommand::GetExchanges(tx)).await);
 
-    match rx.await {
-        Ok(exchanges) => exchanges,
-        Err(_) => vec![],
-    }
+    rx.await.unwrap_or_default()
 }
 
 pub async fn queue_deleted(mgr: &ExchangeManagerSink, evt: QueueDeletedEvent) -> Result<()> {
@@ -208,14 +205,14 @@ impl ExchangeManagerState {
         validate_exchange_name(command.channel, &command.exchange.name)?;
 
         match self.exchanges.get(&command.exchange.name) {
-            None if command.passive => ChannelError::NotFound.to_result(
+            None if command.passive => ChannelError::NotFound.into_result(
                 command.channel,
                 frame::EXCHANGE_DECLARE,
                 &format!("NOT_FOUND - no exchange '{}' in vhost '/'", command.exchange.name),
             ),
             Some(exchg) => {
                 if exchg.exchange != command.exchange {
-                    ChannelError::PreconditionFailed.to_result(
+                    ChannelError::PreconditionFailed.into_result(
                         command.channel,
                         frame::EXCHANGE_DECLARE,
                         "PRECONDITION_FAILED - Exchange exists but properties are different",
@@ -267,7 +264,7 @@ impl ExchangeManagerState {
             None => {
                 warn!("Exchange not found {}", command.exchange_name);
 
-                ChannelError::NotFound.to_result(command.channel, frame::QUEUE_BIND, "Not found")
+                ChannelError::NotFound.into_result(command.channel, frame::QUEUE_BIND, "Not found")
             }
         }
     }
@@ -289,7 +286,7 @@ impl ExchangeManagerState {
                 exchange_state.command_sink.send(cmd).await?;
                 rx.await?.map(|_| ())
             }
-            None => ChannelError::NotFound.to_result(command.channel, frame::QUEUE_UNBIND, "Exchange not found"),
+            None => ChannelError::NotFound.into_result(command.channel, frame::QUEUE_UNBIND, "Exchange not found"),
         }
 
         // TODO we need to have a checked which reaps orphaned exchanges (no queue, no connection
@@ -315,7 +312,7 @@ impl ExchangeManagerState {
 
             delete_result
         } else {
-            ChannelError::NotFound.to_result(command.channel, frame::EXCHANGE_DELETE, "Exchange not found")
+            ChannelError::NotFound.into_result(command.channel, frame::EXCHANGE_DELETE, "Exchange not found")
         }
     }
 
@@ -353,7 +350,7 @@ fn validate_exchange_name(channel: u16, exchange_name: &str) -> Result<()> {
 
     for c in exchange_name.chars() {
         if !c.is_alphanumeric() && spec.find(c).is_none() {
-            return ChannelError::PreconditionFailed.to_result(
+            return ChannelError::PreconditionFailed.into_result(
                 channel,
                 frame::EXCHANGE_DECLARE,
                 "PRECONDITION_FAILED - Exchange contains invalid character",

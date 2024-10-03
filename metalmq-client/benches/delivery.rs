@@ -1,6 +1,6 @@
 use criterion::*;
 
-fn basic_deliver(c: &mut Criterion) {
+fn basic_deliver(_c: &mut Criterion) {
     //c.iter(|| {});
 }
 

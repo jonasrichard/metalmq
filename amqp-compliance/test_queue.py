@@ -73,11 +73,11 @@ def test_exclusive_queue_cannot_consume_by_other_connection():
         pass
 
     with helper.channel(1) as declaring_channel:
-        declaring_channel.queue_declare("exclusive-queue", exclusive=True)
+        declaring_channel.queue_declare("exclusive-queue-2", exclusive=True)
 
         with helper.channel(1) as consuming_channel:
             with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
-                consuming_channel.basic_consume("exclusive-queue", on_message)
+                consuming_channel.basic_consume("exclusive-queue-2", on_message)
 
             assert 405 == exp.value.reply_code
 
@@ -97,6 +97,7 @@ def test_queue_declare_should_give_back_message_count_if_queue_exists():
     """
     with helper.channel(4) as declaring_channel:
         declaring_channel.queue_declare("q-msg-count")
+        declaring_channel.queue_purge("q-msg-count")
         declaring_channel.exchange_declare("x-msg-count")
         declaring_channel.queue_bind("q-msg-count", "x-msg-count", "q-msg-count")
 

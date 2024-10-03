@@ -15,7 +15,8 @@ use crate::{
 impl Channel {
     pub async fn handle_basic_publish(&mut self, args: frame::BasicPublishArgs) -> Result<()> {
         if self.in_flight_content.is_some() {
-            return ConnectionError::UnexpectedFrame.to_result(frame::BASIC_PUBLISH, "Already publish message arrived");
+            return ConnectionError::UnexpectedFrame
+                .into_result(frame::BASIC_PUBLISH, "Already publish message arrived");
         }
 
         // Check if exchange exists, and cache it in order that `handle_content_body` can access
@@ -28,7 +29,7 @@ impl Channel {
             if let Some(ex_tx) = exchange::manager::get_exchange_sink(&self.em, cmd).await {
                 self.exchanges.insert(args.exchange_name.clone(), ex_tx);
             } else {
-                return ChannelError::NotFound.to_result(self.number, frame::BASIC_PUBLISH, "Exchange not exist");
+                return ChannelError::NotFound.into_result(self.number, frame::BASIC_PUBLISH, "Exchange not exist");
             }
         }
 
@@ -169,7 +170,7 @@ impl Channel {
             .await;
 
             if sink.is_err() {
-                return ChannelError::NotFound.to_result(
+                return ChannelError::NotFound.into_result(
                     self.number,
                     frame::BASIC_GET,
                     &format!("Queue {} not found", args.queue),
@@ -206,8 +207,7 @@ impl Channel {
         if let Some(pq) = &self.passively_consumed_queue {
             let (tx, rx) = oneshot::channel();
 
-            let _ = pq
-                .queue_sink
+            pq.queue_sink
                 .send(queue::handler::QueueCommand::Get(queue::handler::GetCmd {
                     conn_id: self.source_connection.clone(),
                     channel: self.number,
@@ -219,7 +219,7 @@ impl Channel {
 
             rx.await.unwrap()
         } else {
-            ConnectionError::InternalError.to_result(frame::BASIC_GET, "Queue not exist")
+            ConnectionError::InternalError.into_result(frame::BASIC_GET, "Queue not exist")
         }
     }
 
@@ -238,7 +238,7 @@ impl Channel {
 
     pub async fn handle_content_header(&mut self, header: frame::ContentHeaderFrame) -> Result<()> {
         if self.in_flight_content.is_none() {
-            return ConnectionError::UnexpectedFrame.to_result(0, "Unexpected content header");
+            return ConnectionError::UnexpectedFrame.into_result(0, "Unexpected content header");
         }
 
         if let Some(content) = &mut self.in_flight_content {
@@ -254,7 +254,7 @@ impl Channel {
         if body.body.len() > 131_072 {
             error!("Content is too large {}", body.body.len());
 
-            return ChannelError::ContentTooLarge.to_result(channel, frame::BASIC_PUBLISH, "Body is too long");
+            return ChannelError::ContentTooLarge.into_result(channel, frame::BASIC_PUBLISH, "Body is too long");
         }
 
         if let Some(pc) = &mut self.in_flight_content {

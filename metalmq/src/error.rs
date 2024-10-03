@@ -5,8 +5,10 @@ use metalmq_codec::{
     frame::{self, AMQPFrame, MethodFrameArgs},
 };
 
+/// The own result type where the error part is a async friendly error.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Shorthand of a boxed Send, Sync error.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug)]
@@ -99,17 +101,6 @@ impl From<AMQPFrame> for RuntimeError {
     }
 }
 
-// TODO move all error converstion to an error mod
-//   instead of this amqpframe implements to_frame
-//pub fn runtime_error_to_frame(rte: &RuntimeError) -> Frame {
-//    let amqp_frame = match rte.scope {
-//        ErrorScope::Connection => frame::connection_close(rte.code, &rte.text, rte.class_method),
-//        ErrorScope::Channel => frame::channel_close(rte.channel, rte.code, &rte.text, rte.class_method),
-//    };
-//
-//    Frame::Frame(amqp_frame)
-//}
-
 impl std::fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -117,8 +108,6 @@ impl std::fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
-
-// TODO implement From trait for connection error and frame where it is possible
 
 /// Helper to create connection error frames.
 pub fn connection_error<T>(cm: u32, code: ConnectionError, text: &str) -> Result<T> {
@@ -132,11 +121,11 @@ pub fn connection_error<T>(cm: u32, code: ConnectionError, text: &str) -> Result
 }
 
 impl ConnectionError {
-    pub fn to_frame(self, cm: u32, text: &str) -> Frame {
+    pub fn into_frame(self, cm: u32, text: &str) -> Frame {
         Frame::Frame(metalmq_codec::frame::connection_close(self as u16, text, cm))
     }
 
-    pub fn to_runtime_error(self, cm: u32, text: &str) -> RuntimeError {
+    pub fn into_runtime_error(self, cm: u32, text: &str) -> RuntimeError {
         RuntimeError {
             scope: ErrorScope::Connection,
             channel: 0,
@@ -146,17 +135,17 @@ impl ConnectionError {
         }
     }
 
-    pub fn to_result<T>(self, cm: u32, text: &str) -> Result<T> {
-        self.to_runtime_error(cm, text).into()
+    pub fn into_result<T>(self, cm: u32, text: &str) -> Result<T> {
+        self.into_runtime_error(cm, text).into()
     }
 }
 
 impl ChannelError {
-    pub fn to_frame(self, channel: u16, cm: u32, text: &str) -> Frame {
+    pub fn into_frame(self, channel: u16, cm: u32, text: &str) -> Frame {
         Frame::Frame(metalmq_codec::frame::channel_close(channel, self as u16, text, cm))
     }
 
-    pub fn to_runtime_error(self, channel: u16, cm: u32, text: &str) -> RuntimeError {
+    pub fn into_runtime_error(self, channel: u16, cm: u32, text: &str) -> RuntimeError {
         RuntimeError {
             scope: ErrorScope::Channel,
             channel,
@@ -166,43 +155,10 @@ impl ChannelError {
         }
     }
 
-    pub fn to_result<T>(self, channel: u16, cm: u32, text: &str) -> Result<T> {
-        self.to_runtime_error(channel, cm, text).into()
+    pub fn into_result<T>(self, channel: u16, cm: u32, text: &str) -> Result<T> {
+        self.into_runtime_error(channel, cm, text).into()
     }
 }
-
-// Convert ConnectionError to connection close frame.
-// See `connection_error.to_frame(cm, "text")`
-//pub fn connection_error_frame(cm: u32, code: ConnectionError, text: &str) -> Frame {
-//    metalmq_codec::codec::Frame::Frame(metalmq_codec::frame::connection_close(code as u16, text, cm))
-//}
-
-// TODO I left the error related codes here because they will go to an error handler module anyway.
-
-// Helper to create channel error frames.
-//pub fn channel_error<T>(channel: u16, cm: u32, code: ChannelError, text: &str) -> Result<T> {
-//    Err(Box::new(RuntimeError {
-//        scope: ErrorScope::Channel,
-//        channel,
-//        code: code as u16,
-//        text: text.to_owned(),
-//        class_method: cm,
-//    }))
-//}
-
-//pub fn connection_error_frame(err: RuntimeError) -> Option<Frame> {
-//    if err.scope == ErrorScope::Channel {
-//        return None;
-//    }
-//
-//    Some(Frame::Frame(frame::connection_close(
-//        0,
-//        err.code,
-//        &err.text,
-//        err.class_id,
-//        err.method_id,
-//    )))
-//}
 
 /// Converts all errors as `RuntimeError`. Unknown errors are wrapped as internal connection
 /// errors.

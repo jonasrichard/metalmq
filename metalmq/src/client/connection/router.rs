@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::error;
+use log::{debug, error};
 use metalmq_codec::{
     codec::Frame,
     frame::{self, unify_class_method, AMQPFrame, ConnectionStartArgs, MethodFrameArgs},
@@ -51,12 +51,14 @@ impl Connection {
                     .await
             }
             Heartbeat(0) => Ok(()),
-            Heartbeat(_) => ConnectionError::FrameError.to_result(0, "Heartbeat must have channel 0"),
+            Heartbeat(_) => ConnectionError::FrameError.into_result(0, "Heartbeat must have channel 0"),
         };
 
         // How to implement normal stop of connection? How to get out of the loop?
 
         if let Err(e) = result {
+            debug!("Error in router: {e:?}");
+
             let rte = dbg!(to_runtime_error(e));
 
             match rte {
@@ -116,7 +118,7 @@ impl Connection {
             // We cannot unpack the Option, since we handle connection frames which obviously don't
             // belong to any channel.
             if class_method != frame::CHANNEL_OPEN && ch_tx.is_none() {
-                return ConnectionError::ChannelError.to_result(class_method, "Channel not exist");
+                return ConnectionError::ChannelError.into_result(class_method, "Channel not exist");
             }
         }
 
@@ -151,7 +153,7 @@ impl Connection {
             }
             ChannelOpen => {
                 if ch_tx.is_some() {
-                    ConnectionError::ChannelError.to_result(class_method, "Channel already exist")
+                    ConnectionError::ChannelError.into_result(class_method, "Channel already exist")
                 } else {
                     self.handle_channel_open(channel).await?;
                     //self.start_channel(channel).await?;
@@ -246,12 +248,12 @@ impl Connection {
             if let Err(e) = ch_tx.send(cmd).await {
                 error!("Cannot send frame to channel handler {:?}", e);
 
-                ConnectionError::InternalError.to_result(0, "Internal error")
+                ConnectionError::InternalError.into_result(0, "Internal error")
             } else {
                 Ok(())
             }
         } else {
-            ConnectionError::ChannelError.to_result(0, "Channel not exist")
+            ConnectionError::ChannelError.into_result(0, "Channel not exist")
         }
     }
 }
