@@ -153,7 +153,7 @@ impl Connection {
             }
             ChannelOpen => {
                 if ch_tx.is_some() {
-                    ConnectionError::ChannelError.into_result(class_method, "Channel already exist")
+                    ConnectionError::ChannelError.into_result(class_method, "CHANNEL_ERROR - Channel already exist")
                 } else {
                     self.handle_channel_open(channel).await?;
                     //self.start_channel(channel).await?;

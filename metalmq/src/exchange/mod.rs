@@ -72,11 +72,14 @@ pub fn validate_exchange_name(channel: Channel, exchange_name: &str) -> Result<(
     Ok(())
 }
 
-pub fn validate_exchange_type(exchange_type: &str) -> Result<()> {
+pub fn validate_exchange_type(channel: Channel, exchange_type: &str) -> Result<()> {
     match ExchangeType::from_str(exchange_type) {
         Ok(_) => Ok(()),
-        Err(_) => ConnectionError::CommandInvalid
-            .into_result(frame::EXCHANGE_DECLARE, "COMMAND_INVALID - Exchange type is invalid"),
+        Err(_) => ChannelError::PreconditionFailed.into_result(
+            channel,
+            frame::EXCHANGE_DECLARE,
+            "PRECONDITION_FAILED - Exchange type is invalid",
+        ),
     }
 }
 

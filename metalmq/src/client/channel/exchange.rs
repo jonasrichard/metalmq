@@ -16,7 +16,7 @@ impl Channel {
         let passive = args.flags.contains(frame::ExchangeDeclareFlags::PASSIVE);
         let exchange_name = args.exchange_name.clone();
 
-        exchange::validate_exchange_type(&args.exchange_type)?;
+        exchange::validate_exchange_type(self.number, &args.exchange_type)?;
         exchange::validate_exchange_name(self.number, &args.exchange_name)?;
 
         let cmd = DeclareExchangeCommand {

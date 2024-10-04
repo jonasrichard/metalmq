@@ -293,6 +293,18 @@ impl Channel {
                             message::send_basic_return(returned_message, self.frame_size, &self.outgoing)
                                 .await
                                 .unwrap();
+
+                            if let Some(dt) = &mut self.next_confirm_delivery_tag {
+                                // We can keep this mut shorter, if it matters
+                                self.outgoing
+                                    .send(Frame::Frame(
+                                        frame::BasicAckArgs::default().delivery_tag(*dt).frame(channel),
+                                    ))
+                                    .await
+                                    .unwrap();
+
+                                *dt += 1;
+                            }
                         }
                         None => {
                             // TODO do we need to send ack if the message is mandatory or

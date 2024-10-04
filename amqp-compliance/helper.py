@@ -1,9 +1,17 @@
 __name__ = "helper"
 
 from contextlib import contextmanager
+from typing import Optional
+
 import pika
 
-def connect(username: str ="guest", password="guest", host="::1", port=5672, vhost="/"):
+def connect(
+    username: str = "guest",
+    password: str = "guest",
+    host: str = "::1",
+    port: int = 5672,
+    vhost: str = "/"
+) -> pika.BlockingConnection:
     return pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=host,
@@ -14,7 +22,24 @@ def connect(username: str ="guest", password="guest", host="::1", port=5672, vho
             )
 
 @contextmanager
-def channel(number=None):
+def connection() -> pika.BlockingConnection:
+    """
+    Open a connection with the default parameters.
+    """
+    conn = connect()
+
+    try:
+        yield connect()
+    finally:
+        if conn.is_open:
+            conn.close()
+
+@contextmanager
+def channel(number: Optional[int] = None) -> pika.adapters.blocking_connection.BlockingChannel:
+    """
+    Open a connection with the default parameters and open a channel with the specified channel
+    number.
+    """
     conn = connect()
     ch = conn.channel(number)
 
