@@ -1,4 +1,5 @@
-"""Test queue related behaviours"""
+"Analyze queue functionality under test conditions"
+
 import logging
 import time
 
@@ -10,8 +11,8 @@ LOG = logging.getLogger()
 
 def test_queue_delete_unbinds_exchange():
     """
-    Test if deleting a queue will unbind from the exchange. During the test we
-    send an immediate message, which should be returned in a basic.return.
+    Check whether removing a queue results in disassociation from the exchange. In this test, an
+    instant message is transmitted, which should be replied with a basic.return.
     """
     returned = False
 
@@ -47,8 +48,7 @@ def test_queue_delete_unbinds_exchange():
 
 def test_exclusive_queue_cannot_be_bound_by_other_connection():
     """
-    An exclusive queue can be bound, consumed, be unbound and deleted by the same
-    connection which crated that.
+    A single connection can establish, consume, release, and delete an exclusive queue it initially created.
     """
     declaring_connection = helper.connect()
     declaring_channel = declaring_connection.channel(1)
@@ -67,7 +67,7 @@ def test_exclusive_queue_cannot_be_bound_by_other_connection():
 
 def test_exclusive_queue_cannot_consume_by_other_connection():
     """
-    An exclusive queue cannot be consumer by another connection.
+    A unique queue can't be consumed simultaneously by another connection.
     """
     def on_message(_ch, _method, _properties, _body):
         pass
@@ -83,8 +83,7 @@ def test_exclusive_queue_cannot_consume_by_other_connection():
 
 def test_queue_declare_without_name_has_generated_name():
     """
-    If client does not provide a name during queue declaration, the server should generate a
-    name to that.
+    In instances where the client fails to specify a name upon queue creation, the server should automatically assign one instead.
     """
     with helper.channel(3) as declaring_channel:
         declare_ok = declaring_channel.queue_declare("")
@@ -93,7 +92,7 @@ def test_queue_declare_without_name_has_generated_name():
 
 def test_queue_declare_should_give_back_message_count_if_queue_exists():
     """
-    In Declare.QueueOk server gives back message count and consumer count if queue already exists.
+    The Declare.QueueOk server provides a message count and consumer count when a queue that already exists is declared.
     """
     with helper.channel(4) as declaring_channel:
         declaring_channel.queue_declare("q-msg-count")
