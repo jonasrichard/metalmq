@@ -5,6 +5,8 @@ import time
 
 import pytest
 import pika
+import pika.channel
+import pika.exceptions
 import helper
 
 LOG = logging.getLogger()
@@ -23,7 +25,11 @@ def test_queue_delete_unbinds_exchange():
 
         channel.queue_delete("silent-unbind-queue")
 
-        def on_return(_ch, method, props, body):
+        def on_return(
+                ch: pika.channel.Channel,
+                method: pika.spec.Basic.Return,
+                props: pika.spec.BasicProperties,
+                body: bytes):
             nonlocal returned
             LOG.info("Return %s %s %s", method, props, body)
             returned = True
@@ -50,20 +56,16 @@ def test_exclusive_queue_cannot_be_bound_by_other_connection():
     """
     A single connection can establish, consume, release, and delete an exclusive queue it initially created.
     """
-    declaring_connection = helper.connect()
-    declaring_channel = declaring_connection.channel(1)
+    with helper.channel(1) as declaring_channel:
+        declaring_channel.queue_declare("exclusive-queue", exclusive=True)
 
-    declaring_channel.queue_declare("exclusive-queue", exclusive=True)
+        with helper.channel(1) as offending_channel:
+            offending_channel.exchange_declare("exclusive-try-bind")
 
-    offending_connection = helper.connect()
-    offending_channel = offending_connection.channel(1)
+            with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
+                offending_channel.queue_bind("exclusive-queue", "exclusive-try-bind", "routing")
 
-    offending_channel.exchange_declare("exclusive-try-bind")
-
-    with pytest.raises(pika.exceptions.ChannelClosedByBroker) as exp:
-        offending_channel.queue_bind("exclusive-queue", "exclusive-try-bind", "routing")
-
-    assert 405 == exp.value.reply_code
+            assert 405 == exp.value.reply_code
 
 def test_exclusive_queue_cannot_consume_by_other_connection():
     """
