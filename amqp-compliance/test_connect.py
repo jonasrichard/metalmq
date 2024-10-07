@@ -1,4 +1,5 @@
 import pika
+import pika.exceptions
 import pytest
 
 import helper
@@ -17,11 +18,6 @@ def test_connect_fail_bad_password():
     """
     with pytest.raises(pika.exceptions.ProbableAuthenticationError) as exp:
         helper.connect(password="pwd")
-
-    #breakpoint()
-    #assert 403 == exp.value.reply_code
-    # TODO how to check reply code?
-    #assert str(exp.value.reply_text).startswith("ACCESS_REFUSED")
 
 def test_reopen_the_same_channel():
     """

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use log::{error, warn};
 use metalmq_codec::{codec::Frame, frame};
 use tokio::sync::oneshot;
@@ -14,9 +12,18 @@ use crate::{
 
 impl Channel {
     pub async fn handle_basic_publish(&mut self, args: frame::BasicPublishArgs) -> Result<()> {
+        if args.is_immediate() {
+            return ConnectionError::NotImplemented.into_result(
+                frame::BASIC_PUBLISH,
+                "NOT_IMPLEMENTED - Immediate publish is not implemented",
+            );
+        }
+
         if self.in_flight_content.is_some() {
-            return ConnectionError::UnexpectedFrame
-                .into_result(frame::BASIC_PUBLISH, "Already publish message arrived");
+            return ConnectionError::CommandInvalid.into_result(
+                frame::BASIC_PUBLISH,
+                "COMMAND_INVALID - Already publish message arrived",
+            );
         }
 
         // Check if exchange exists, and cache it in order that `handle_content_body` can access
@@ -111,23 +118,36 @@ impl Channel {
     /// A message can be acked more than once. If a non-delivered message is acked, a channel
     /// exception will be raised.
     pub async fn handle_basic_ack(&mut self, args: frame::BasicAckArgs) -> Result<()> {
-        // TODO check if only delivered messages are acked, even multiple times
+        if self.next_confirm_delivery_tag.is_none() {
+            return ChannelError::PreconditionFailed.into_result(
+                self.number,
+                frame::BASIC_ACK,
+                "PRECONDITION_FAILED - Acking not even used delivery tag",
+            );
+        }
+
+        if let Some(dt) = self.next_confirm_delivery_tag {
+            if args.delivery_tag > dt {
+                return ChannelError::PreconditionFailed.into_result(
+                    self.number,
+                    frame::BASIC_ACK,
+                    "PRECONDITION_FAILED - Acking not even used delivery tag",
+                );
+            }
+        }
+
         match &self.consumed_queue {
             Some(cq) => {
                 let (tx, rx) = oneshot::channel();
 
-                // TODO why we need here the timeout?
                 cq.queue_sink
-                    .send_timeout(
-                        queue::handler::QueueCommand::AckMessage(queue::handler::AckCmd {
-                            channel: self.number,
-                            consumer_tag: cq.consumer_tag.clone(),
-                            delivery_tag: args.delivery_tag,
-                            multiple: args.multiple,
-                            result: tx,
-                        }),
-                        Duration::from_secs(1),
-                    )
+                    .send(queue::handler::QueueCommand::AckMessage(queue::handler::AckCmd {
+                        channel: self.number,
+                        consumer_tag: cq.consumer_tag.clone(),
+                        delivery_tag: args.delivery_tag,
+                        multiple: args.multiple,
+                        result: tx,
+                    }))
                     .await?;
 
                 rx.await.unwrap()?
@@ -270,7 +290,7 @@ impl Channel {
 
             if let Some(ex_tx) = self.exchanges.get(&msg.exchange) {
                 // In confirm mode or if message is mandatory we need to be sure that the message
-                // was router correctly from the exchange to the queue.
+                // was routed correctly from the exchange to the queue.
                 let (rtx, rrx) = match msg.mandatory || self.next_confirm_delivery_tag.is_some() {
                     false => (None, None),
                     true => {

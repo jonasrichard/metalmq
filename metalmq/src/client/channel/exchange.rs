@@ -1,4 +1,4 @@
-use metalmq_codec::{codec::Frame, frame};
+use metalmq_codec::frame;
 
 use crate::{
     error::Result,
@@ -32,7 +32,7 @@ impl Channel {
 
         if !no_wait {
             self.outgoing
-                .send(Frame::Frame(frame::exchange_declare_ok(self.number)))
+                .send(frame::exchange_declare_ok(self.number).into())
                 .await?
         }
 
@@ -47,13 +47,12 @@ impl Channel {
             exchange_name: args.exchange_name,
         };
 
-        exchange::manager::delete_exchange(&self.em, cmd).await?;
-
-        // TODO what happens if the previous code returns with an error and we never removes that
-        // exchange?
+        // At first we remove the exchange from the local cache in order that the next call fails
+        // we don't have inconsistent state.
         self.exchanges.remove(&exchange_name);
 
-        self.send_frame(Frame::Frame(frame::exchange_delete_ok(self.number)))
-            .await
+        exchange::manager::delete_exchange(&self.em, cmd).await?;
+
+        self.send_frame(frame::exchange_delete_ok(self.number).into()).await
     }
 }

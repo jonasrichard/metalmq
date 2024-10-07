@@ -99,8 +99,8 @@ impl Connection {
         if channel > self.channel_max {
             warn!("Channel number is too big: {channel}");
 
-            return ConnectionError::NotAllowed
-                .into_result(frame::CHANNEL_OPEN, "NOT_ALLOWED - Channel number is too large");
+            return ConnectionError::ResourceError
+                .into_result(frame::CHANNEL_OPEN, "RESOURCE_ERROR - Channel number is too large");
         }
 
         self.start_channel(channel).await?;

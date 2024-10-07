@@ -138,7 +138,6 @@ impl ExchangeState {
         returned: Option<oneshot::Sender<Option<Arc<Message>>>>,
     ) -> Result<()> {
         if let Some(failed_message) = self.bindings.route_message(message).await? {
-            // TODO handle immediate somewhere, too
             if failed_message.mandatory {
                 returned.unwrap().send(Some(failed_message)).unwrap();
             } else if let Some(r) = returned {
