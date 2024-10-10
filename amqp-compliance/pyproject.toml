@@ -1,3 +1,17 @@
+[tool.poetry]
+name = "MetalMQ end to end tests"
+description = "End to end test for MetalMQ server"
+version = "0.3.0"
+authors = ["Richard Jonas <richard.jonas.76@gmail.com>"]
+readme = "README.md"
+
+package-mode = false
+
+[tool.poetry.dependencies]
+pika = "^1.3.0"
+pytest = "^7.2.0"
+python = "^3.7.0"
+
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"
