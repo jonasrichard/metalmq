@@ -161,7 +161,7 @@ async fn basic_ack_multiple() {
     let cancel_ok = consumer.basic_cancel(4, frame::BasicCancelArgs::new("unit-test")).await;
 
     assert!(matches!(
-        cancel_ok,
+        dbg!(cancel_ok),
         frame::AMQPFrame::Method(4, _, frame::MethodFrameArgs::BasicCancelOk(_))
     ));
 

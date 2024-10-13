@@ -118,23 +118,25 @@ impl Channel {
     /// A message can be acked more than once. If a non-delivered message is acked, a channel
     /// exception will be raised.
     pub async fn handle_basic_ack(&mut self, args: frame::BasicAckArgs) -> Result<()> {
-        if self.next_confirm_delivery_tag.is_none() {
-            return ChannelError::PreconditionFailed.into_result(
-                self.number,
-                frame::BASIC_ACK,
-                "PRECONDITION_FAILED - Acking not even used delivery tag",
-            );
-        }
+        // TODO document what is this field does
+        //
+        //if self.next_confirm_delivery_tag.is_none() {
+        //    return ChannelError::PreconditionFailed.into_result(
+        //        self.number,
+        //        frame::BASIC_ACK,
+        //        "PRECONDITION_FAILED - Acking not even used delivery tag",
+        //    );
+        //}
 
-        if let Some(dt) = self.next_confirm_delivery_tag {
-            if args.delivery_tag > dt {
-                return ChannelError::PreconditionFailed.into_result(
-                    self.number,
-                    frame::BASIC_ACK,
-                    "PRECONDITION_FAILED - Acking not even used delivery tag",
-                );
-            }
-        }
+        //if let Some(dt) = self.next_confirm_delivery_tag {
+        //    if args.delivery_tag > dt {
+        //        return ChannelError::PreconditionFailed.into_result(
+        //            self.number,
+        //            frame::BASIC_ACK,
+        //            "PRECONDITION_FAILED - Acking not even used delivery tag",
+        //        );
+        //    }
+        //}
 
         match &self.consumed_queue {
             Some(cq) => {
