@@ -2,7 +2,7 @@ use super::types::Channel;
 use crate::error::Result;
 
 impl Channel {
-    pub async fn handle_channel_close(&mut self, code: u16, cm: u32, text: String) -> Result<()> {
+    pub async fn handle_channel_close(&mut self, _code: u16, _cm: u32, _text: String) -> Result<()> {
         // Cancel consumed queues on the channel
         //if let Some(cq) = self.consumed_queues.remove(&channel) {
         //    qm::cancel_consume(
@@ -31,9 +31,9 @@ impl Channel {
         Ok(())
     }
 
-    pub async fn handle_channel_close_ok(&mut self, channel: u16) -> Result<()> {
+    pub async fn handle_channel_close_ok(&mut self, _channel: u16) -> Result<()> {
         todo!();
 
-        Ok(())
+        //Ok(())
     }
 }

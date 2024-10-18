@@ -1,11 +1,23 @@
 use std::collections::HashMap;
 
-use log::info;
+use log::{debug, info};
 use metalmq_codec::codec::Frame;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
-use crate::{client::channel::types::Command, exchange, queue, Context, Result};
+use crate::{
+    client::channel::types::Command,
+    config::{MAX_CHANNELS_PER_CONNECTION, MAX_FRAME_SIZE},
+    exchange,
+    queue::{
+        self,
+        manager::{QueueDeleteCommand, QueueManagerCommand},
+    },
+    Context, Result,
+};
 
 /// Status of the connection.
 #[derive(Debug)]
@@ -79,8 +91,8 @@ impl Connection {
             status: ConnectionState::Initiated,
             qm: context.queue_manager,
             em: context.exchange_manager,
-            channel_max: 2047,
-            frame_max: 131_072,
+            channel_max: MAX_CHANNELS_PER_CONNECTION,
+            frame_max: MAX_FRAME_SIZE,
             heartbeat_interval: None,
             auto_delete_exchanges: vec![],
             exclusive_queues: vec![],
@@ -98,6 +110,7 @@ impl Connection {
             let _ = *ch_tx;
 
             if let Some(jh) = self.channel_handlers.remove(channel) {
+                debug!("Channel handler status {channel} = {}", jh.is_finished());
                 //jh.abort();
 
                 //let x = jh.await;
@@ -139,6 +152,24 @@ impl Connection {
             //jh.abort();
         }
 
+        for ex in &self.exclusive_queues {
+            let (tx, rx) = oneshot::channel();
+            let cmd = QueueManagerCommand::Delete(
+                QueueDeleteCommand {
+                    conn_id: self.id.clone(),
+                    channel: 1u16,
+                    queue_name: ex.queue_name.clone(),
+                    if_unused: false,
+                    if_empty: false,
+                },
+                tx,
+            );
+
+            self.qm.send(cmd).await?;
+
+            rx.await??;
+        }
+
         Ok(())
     }
 
@@ -148,7 +179,7 @@ impl Connection {
         }
 
         if let Some(jh) = self.channel_handlers.remove(&channel) {
-            jh.await;
+            jh.await??;
         }
 
         Ok(())

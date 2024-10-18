@@ -307,6 +307,25 @@ impl From<ContentBodyFrame> for AMQPFrame {
     }
 }
 
+pub fn fieldtable_to_hashmap(value: FieldTable) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+
+    for (k, v) in value {
+        match v {
+            AMQPFieldValue::Bool(b) => {
+                m.insert(k, b.to_string());
+            }
+            AMQPFieldValue::LongString(s) => {
+                m.insert(k, s);
+            }
+            AMQPFieldValue::EmptyFieldTable => {}
+            AMQPFieldValue::FieldTable(_) => panic!("Embedded field table is not supported"),
+        }
+    }
+
+    m
+}
+
 /// Split class id and method id from `u32` combined code.
 pub fn split_class_method(cm: u32) -> (u16, u16) {
     let method_id = (cm & 0x0000FFFF) as u16;

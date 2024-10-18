@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use metalmq_codec::frame::{AMQPFieldValue, ContentBodyFrame, ContentHeaderFrame, HeaderPropertyFlags};
+use metalmq_codec::frame::{
+    fieldtable_to_hashmap, AMQPFieldValue, ContentBodyFrame, ContentHeaderFrame, HeaderPropertyFlags,
+};
 
 use crate::ChannelNumber;
 
@@ -126,7 +128,21 @@ pub(crate) fn to_content_frames(message: Content) -> (ContentHeaderFrame, Conten
 
 impl From<ContentHeaderFrame> for MessageProperties {
     fn from(value: ContentHeaderFrame) -> Self {
-        MessageProperties::default()
+        MessageProperties {
+            content_type: value.content_type,
+            content_encoding: value.content_encoding,
+            headers: fieldtable_to_hashmap(value.headers.unwrap()),
+            delivery_mode: value.delivery_mode,
+            priority: value.priority,
+            correlation_id: value.correlation_id,
+            reply_to: value.reply_to,
+            expiration: value.expiration,
+            message_id: value.message_id,
+            timestamp: value.timestamp,
+            message_type: value.message_type,
+            user_id: value.user_id,
+            app_id: value.app_id,
+        }
     }
 }
 

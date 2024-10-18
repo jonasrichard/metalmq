@@ -9,7 +9,7 @@
 //
 // connection close closes all the channels
 
-use metalmq_codec::{codec::Frame, frame};
+use metalmq_codec::frame;
 use tokio::sync::mpsc;
 
 use crate::{exchange, queue, tests::recv, Context};
@@ -48,7 +48,7 @@ async fn connection_close_clean_up_channels() {
         .await
         .unwrap();
 
-    let connection_tune = recv::recv_single_frame(&mut rx).await;
+    let _connection_tune = recv::recv_single_frame(&mut rx).await;
 
     connection
         .handle_connection_tune_ok(frame::ConnectionTuneOkArgs::default())
@@ -60,7 +60,7 @@ async fn connection_close_clean_up_channels() {
         .await
         .unwrap();
 
-    let connection_open_ok = recv::recv_single_frame(&mut rx).await;
+    let _connection_open_ok = recv::recv_single_frame(&mut rx).await;
 
     // start a channel
     // start a consumer
@@ -69,7 +69,7 @@ async fn connection_close_clean_up_channels() {
 
     connection.handle_channel_open(11).await.unwrap();
 
-    let channel_open_ok = recv::recv_single_frame(&mut rx).await;
+    let _channel_open_ok = recv::recv_single_frame(&mut rx).await;
 
     assert!(connection.channel_receivers.contains_key(&11));
 
@@ -94,7 +94,7 @@ async fn connection_close_clean_up_channels() {
     //     back all the close messages? We will leak connections... okay we have heartbeat, so it
     //     will close connection, but...
 
-    let channel_close = recv::recv_single_frame(&mut rx).await;
+    let _channel_close = recv::recv_single_frame(&mut rx).await;
 
     connection.handle_channel_close_ok(11).await.unwrap();
 
