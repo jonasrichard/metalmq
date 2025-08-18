@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::{
     channel_api::Channel,
     client_error,
@@ -9,6 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use metalmq_codec::frame;
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 /// A signal arriving from the server during consuming a queue.
